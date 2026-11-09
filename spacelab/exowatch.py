@@ -124,22 +124,57 @@ def nea_planet(name):
     return None
 
 
-def read_frames(folder, nmax=5):
+CALIB = {'darks': ('dark',), 'flats': ('flat',), 'biases': ('bias', 'zero')}
+
+
+def calib_dirs(folder):
+    """Sub-folders with calibration frames (MicroObservatory datasets come with a 'darks' folder)."""
+    out = {}
+    for d in sorted(p for p in Path(folder).rglob('*') if p.is_dir()):
+        if '__MACOSX' in d.parts or 'exotic_out' in d.parts:
+            continue
+        name = d.name.lower()
+        for kind, keys in CALIB.items():
+            if kind not in out and any(k in name for k in keys) and any(is_fits(p) for p in d.iterdir()):
+                out[kind] = d
+    return out
+
+
+def _first_2d(path):
     from astropy.io import fits
-    files = sorted(p for p in Path(folder).iterdir() if is_fits(p))
-    datas, hdr0 = [], None
+    with fits.open(path) as hd:
+        for h in hd:
+            if h.data is not None and getattr(h.data, 'ndim', 0) == 2:
+                return np.asarray(h.data, dtype=np.float64), h.header.copy()
+    return None, None
+
+
+def _time_key(path):
+    from astropy.io import fits
+    try:
+        h = fits.getheader(path)
+        return str(h.get('DATE-OBS') or h.get('DATE_OBS') or ''), path.name
+    except Exception:
+        return '', path.name
+
+
+def read_frames(folder, nmax=5):
+    """The FIRST image of the night (EXOTIC's reference frame for the star positions), dark-subtracted when darks exist.
+    (A median of several frames smears the stars when the telescope drifts, and the positions end up off-target.)"""
+    files = sorted((p for p in Path(folder).iterdir() if is_fits(p)), key=_time_key)
+    img = hdr0 = None
     for p in files[:nmax]:
-        with fits.open(p) as hd:
-            for h in hd:
-                if h.data is not None and getattr(h.data, 'ndim', 0) == 2:
-                    datas.append(np.asarray(h.data, dtype=np.float64))
-                    hdr0 = hdr0 or h.header.copy()
-                    break
-    if not datas:
+        img, hdr0 = _first_2d(p)
+        if img is not None:
+            break
+    if img is None:
         raise RuntimeError('no 2-D images found in the FITS files')
-    shape = datas[0].shape
-    same = [d for d in datas if d.shape == shape]
-    return np.median(np.stack(same), axis=0), hdr0, files
+    darks = calib_dirs(folder).get('darks')
+    if darks:
+        frames = [d for d in (_first_2d(p)[0] for p in sorted(darks.iterdir()) if is_fits(p)) if d is not None and d.shape == img.shape]
+        if frames:
+            img = img - np.median(np.stack(frames), axis=0)
+    return img, hdr0, files
 
 
 def obs_date(hdr):
@@ -308,6 +343,8 @@ def site_for(ds, cfg):
 
 def write_inits(ds, planet, stars, cfg, hdr, folder, out_dir):
     ew = site_for(ds, cfg)
+    cal = calib_dirs(folder)
+    _dir = lambda d: str(d) if d else None
     long_date, _ = obs_date(hdr)
     exp = hdr.get('EXPTIME') or hdr.get('EXPOSURE')
     p = planet
@@ -315,7 +352,7 @@ def write_inits(ds, planet, stars, cfg, hdr, folder, out_dir):
         'user_info': {
             'Directory with FITS files': str(folder),
             'Directory to Save Plots': str(out_dir),
-            'Directory of Flats': None, 'Directory of Darks': None, 'Directory of Biases': None,
+            'Directory of Flats': _dir(cal.get('flats')), 'Directory of Darks': _dir(cal.get('darks')), 'Directory of Biases': _dir(cal.get('biases')),
             'AAVSO Observer Code (blank if none)': cfg.get('aavso_code') or '',
             'Secondary Observer Codes (blank if none)': '',
             'Observation date': long_date,
@@ -408,8 +445,18 @@ def o_minus_c(res, planet):
     return {'epoch': n, 'oc_min': round(oc, 2), 'pred_err_min': round(pe, 2)}
 
 
-def quality(res, oc):
+def quality(res, oc, planet=None):
     notes, good = [], True
+    exp = (planet or {}).get('pl_ratror')
+    depth = res.get('depth_pct')
+    if depth is not None and exp and depth < 0.3 * (exp ** 2) * 100:
+        notes.append(f'no clear transit: measured depth {depth:.2f}% vs about {exp ** 2 * 100:.1f}% expected')
+        res['usable'] = False
+        good = False
+    if res.get('scatter_pct') and res['scatter_pct'] > 15:
+        notes.append('the light curve is mostly noise (star too faint or too low in the sky)')
+        res['usable'] = False
+        good = False
     if res.get('tmid_err') is None or res['tmid_err'] * 1440 > 10:
         notes.append('timing uncertainty above 10 minutes'); good = False
     if res.get('scatter_pct') and res['scatter_pct'] > 3:
@@ -483,7 +530,7 @@ def process(ctx, ds, llm):
     run_exotic(inits, out_dir, cfg, log)
     res = read_results(out_dir)
     oc = o_minus_c(res, planet)
-    good, notes = quality(res, oc)
+    good, notes = quality(res, oc, planet)
     res.update({'oc': oc, 'good': good, 'notes': notes})
     plot_rel = None
     if res.get('plot'):
@@ -498,7 +545,12 @@ def process(ctx, ds, llm):
                     'whether it looks trustworthy, and why the timing helps telescopes like JWST. Do not invent numbers.\n\n' + facts,
                     system='You are a friendly NASA Exoplanet Watch scientist.', max_tokens=220) or facts
     upd(status='done', result=json.dumps(res), aavso_file=res.get('aavso'), plot=plot_rel, explain=text)
-    if res.get('aavso'):
+    if res.get('usable') is False:
+        db.add_task(con, f'exo:check:{ds["id"]}', 'exowatch', 'review',
+                    f'{planet["pl_name"]} ({iso_date}): no usable transit, don\'t upload',
+                    'Space Lab could not see the transit in this dataset: ' + '; '.join(notes) +
+                    '. Check out a different dataset (a brighter star, higher in the sky) instead.', {'tab': 'exowatch', 'id': ds['id']}, 2)
+    elif res.get('aavso'):
         db.add_task(con, f'exo:upload:{ds["id"]}', 'exowatch', 'upload',
                     f'Upload your {planet["pl_name"]} transit ({iso_date}) to the AAVSO Exoplanet Database',
                     ('Looks good. ' if good else 'Check the plot first: ' + '; '.join(notes) + '. ') +
@@ -517,12 +569,7 @@ def run(ctx):
     except Exception as e:
         log(f'telescope inbox: {e}')
     
-    if added == 0 and cfg.get('telescope', {}).get('model') == '':
-        # No data — provide helpful guidance
-        log('No datasets in inbox. Check out a new NASA Exoplanet Watch dataset and drop it into the inbox.')
-        log('→ https://science.nasa.gov/citizen-science/exoplanet-watch/how-to-contribute/data-checkout/')
-        log('→ Or upload your own telescope FITS files to SpaceLab/inbox/')
-    
+
     if not cfg.get('aavso_code'):
         db.add_task(con, 'exo:aavso', 'exowatch', 'setup', 'One-time: create a free AAVSO account and enter your observer code in Setup',
                     'Your observer code goes into every result file so Exoplanet Watch can credit you on its papers.',
@@ -531,6 +578,8 @@ def run(ctx):
         db.close_task(con, 'exo:aavso')
     
     todo = db.rows(con, "SELECT * FROM exo WHERE status IN ('new','ready')")
+    if not todo and added == 0:
+        log('No new datasets. Check one out at ' + CHECKOUT_URL + ' and drop the zip into the inbox.')
     results = []
     for ds in todo:
         if ctx.time_left() < 600:

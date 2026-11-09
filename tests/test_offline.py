@@ -249,6 +249,29 @@ def exowatch_inits_and_results():
 
 
 @test
+def exowatch_first_frame_and_darks():
+    from astropy.io import fits
+    from spacelab import exowatch
+    d = Path(tempfile.mkdtemp())
+    (d / 'darks').mkdir()
+    rng = np.random.default_rng(3)
+    dark = np.full((60, 80), 100.0)
+    for i, (x, hh) in enumerate(((10, '04:52:38'), (30, '04:55:00'), (50, '04:58:00'))):
+        img = dark + rng.normal(0, 1, dark.shape)
+        img[20, x] += 500          # the star drifts between frames
+        h = fits.Header(); h['DATE-OBS'] = f'2020-04-16T{hh}'
+        fits.writeto(d / f'f{2 - i}.fits', img, h)          # file names in the opposite order to time
+    fits.writeto(d / 'darks' / 'Dark-1.fits', dark)
+    img, hdr, files = exowatch.read_frames(d)
+    assert hdr['DATE-OBS'].endswith('04:52:38'), hdr['DATE-OBS']
+    assert np.argmax(img[20]) == 10 and abs(np.median(img)) < 1, (np.argmax(img[20]), np.median(img))
+    assert exowatch.calib_dirs(d)['darks'].name == 'darks'
+    r = {'depth_pct': 0.0, 'tmid_err': 0.0097, 'scatter_pct': 90}
+    good, notes = exowatch.quality(r, None, {'pl_ratror': 0.132})
+    assert not good and r['usable'] is False and any('no clear transit' in n for n in notes), notes
+
+
+@test
 def exowatch_planet_name_from_readme():
     from spacelab import exowatch
     d = Path(tempfile.mkdtemp())
