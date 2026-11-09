@@ -131,13 +131,14 @@ const CHECKS = {
       }
     }
     // Links out are fine (they open in a new tab when clicked); loading anything from another site is not.
-    const LINKS_OK = ['https://github.com/TechAmatuer/Space-Lab', 'https://techamatuer.github.io/Space-Lab/', 'https://sky.esa.int/esasky/', 'http://www.w3.org/2000/svg',
+    const LINKS_OK = ['https://github.com/', 'https://sky.esa.int/esasky/', 'http://www.w3.org/2000/svg',
                       'https://www.openstreetmap.org/', 'https://www.lightpollutionmap.info/', 'https://calendar.google.com/calendar/',
                       'https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html', 'https://eyes.nasa.gov/apps/asteroids/'];
     for (const f of ['web/extras.js', 'web/beyond.js', 'web/home.js', 'web/stargazing.js', 'web/asteroids.js']) {
       const src = read(f);
       const urls = (src.match(/https?:\/\/[^\s'"`)]+/g) || []).filter(u => !LINKS_OK.some(ok => u.startsWith(ok)));
       if (urls.length) fails.push(f + ' may only link to the project, its page and ESASky; found: ' + urls.join(', '));
+      if (/https:\/\/github\.com\/[A-Za-z0-9]/.test(src) || /https:\/\/[A-Za-z0-9-]+\.github\.io/.test(src)) fails.push(f + ': do not write a GitHub account name in the code; build links from SpaceLab.data.site (repo, url)');
       if (/\balert\(|\bconfirm\(|\bprompt\(/.test(src)) fails.push(f + ': do not use alert/confirm/prompt; show messages inside the page');
       if (/\bfetch\(|XMLHttpRequest|import\(|new Image\(\)\.src\s*=\s*['"`]http|sendBeacon|WebSocket/.test(src)) fails.push(f + ' must not load anything from the internet (no fetch/XMLHttpRequest/beacons)');
     }

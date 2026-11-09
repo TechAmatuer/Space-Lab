@@ -10,7 +10,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch (_) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (_) { /* private mode: still works for this visit */ } },
   };
-  const ISSUES = 'https://github.com/TechAmatuer/Space-Lab/issues/new';
+  const ISSUES = () => { const r = (D().site || {}).repo; return r ? `https://github.com/${r}/issues/new` : ''; };   // from data.json
   // the same answers as the GitHub review form (.github/ISSUE_TEMPLATE/candidate-review.yml)
   const ANS = [['Planet-like', 'planet-like'], ['Eclipsing binary (two stars)', 'eclipsing-binary'], ['Comes from a nearby star', 'nearby-star'],
                ['Noise / instrument glitch', 'noise'], ['Not sure', 'not-sure']];
@@ -45,7 +45,7 @@
     const reveal = mine ? `<div class="note hm-thanks"><b>Your vote: ${esc(mine)}.</b> Daily streak: <b>${streak()}</b> day${streak() === 1 ? '' : 's'} 🔥. Results tomorrow.<br>
         For comparison: the local AI said <b>${esc(c.ai || 'nothing yet')}</b>${(c.flags || []).length ? '; automatic checks flagged ' + c.flags.map(esc).join(', ') : '; no automatic check raised a flag'}${c.fpp ? '; statistical test: ' + esc(c.fpp) : ''}.
         ${bars(d.votes || {}) ? '<div class="small muted">Votes so far today:</div>' + bars(d.votes) : ''}
-        <div><a class="small" target="_blank" rel="noopener" href="${ISSUES}?template=candidate-review.yml&title=${encodeURIComponent('TIC ' + c.tic + ' review')}&tic=${c.tic}&verdict=${encodeURIComponent(mine)}">Explain your reasoning on GitHub ↗</a></div></div>`
+        <div><a class="small" target="_blank" rel="noopener" href="${ISSUES()}?template=candidate-review.yml&title=${encodeURIComponent('TIC ' + c.tic + ' review')}&tic=${c.tic}&verdict=${encodeURIComponent(mine)}">Explain your reasoning on GitHub ↗</a></div></div>`
       : `<div class="row hm-answers">${ANS.map(([a, k]) => `<button type="button" class="b hm-vote" data-k="${k}">${esc(a)}</button>`).join('')}</div>
         <p class="small muted">One vote per day, no account needed. Everyone gets the same candidate; tomorrow you'll see how everyone voted.</p>`;
     box.innerHTML = `<div class="row"><h3>🪐 Candidate of the day</h3><span class="spacer"></span><span class="small muted">${esc(d.date)} (UTC)</span></div>
@@ -139,7 +139,7 @@
       <div class="card">${radarCard(false)}</div>
       ${S.local ? '' : `<div class="card"><h3>🙋 How you can help</h3><ul class="hm-list"><li><b>Vote</b> on the candidate of the day, or review more in <a href="#play" data-tabgo="play">Play & review</a>.</li>
         <li><b>Measure a transit</b> for NASA's Exoplanet Watch with free telescope data (see the Exoplanet Watch tab).</li>
-        <li><b>Suggest ideas or report mistakes</b> on <a href="https://github.com/TechAmatuer/Space-Lab/issues" target="_blank" rel="noopener">GitHub</a>.</li>
+        <li><b>Suggest ideas or report mistakes</b> with the 💬 button under any box${(D().site || {}).repo ? `, or on <a href="https://github.com/${esc(D().site.repo)}/issues" target="_blank" rel="noopener">GitHub</a>` : ''}.</li>
         <li><b>Follow along:</b> add <a href="feed.xml">the feed</a> to a news reader, or put this page on your phone's home screen.</li></ul></div>`}`;
     dailyCard(slots.querySelector('#today-daily'));
     const sg = window.SpaceLabStargazing, p = sg && sg.place();
@@ -281,7 +281,7 @@
           <p class="small muted">Suggestions are public on GitHub (free account needed) or paste them in the Discord channel.</p>`;
         f.appendChild(form);
         const ta = form.querySelector('textarea'), send = form.querySelector('.sl-sugsend');
-        const link = () => { send.href = `${ISSUES}?template=suggestion.yml&title=${encodeURIComponent('Suggestion: ' + section)}&section=${encodeURIComponent(section)}&idea=${encodeURIComponent(ta.value.slice(0, 1500))}`; };
+        const link = () => { send.href = `${ISSUES()}?template=suggestion.yml&title=${encodeURIComponent('Suggestion: ' + section)}&section=${encodeURIComponent(section)}&idea=${encodeURIComponent(ta.value.slice(0, 1500))}`; };
         ta.addEventListener('input', link); link();
         send.addEventListener('click', () => S.track('suggest', true));
         form.querySelector('.sl-sugcopy').addEventListener('click', () => {

@@ -338,7 +338,13 @@ def live_images(log, prev=None, max_age_min=50):
 
 # ------------------------------------------------------------------ asteroids on Wikipedia: summary + scientific citations
 WIKI = 'https://en.wikipedia.org'
-WIKI_UA = {'User-Agent': 'SpaceLab/1.0 (https://github.com/TechAmatuer/Space-Lab; citizen science, low request rate)'}
+WIKI_UA = {'User-Agent': 'SpaceLab/1.0 (open-source citizen-science project; low request rate)'}
+
+
+def wiki_ua(cfg=None):
+    """Wikimedia asks automated readers to say who they are: the project's public GitHub page (from Setup)."""
+    repo = (((cfg or {}).get('share') or {}).get('github_repo') or '').strip()
+    return {'User-Agent': f'SpaceLab/1.0 (https://github.com/{repo}; citizen science, low request rate)'} if '/' in repo else WIKI_UA
 FAMOUS = ['99942 Apophis', '101955 Bennu', '162173 Ryugu', '65803 Didymos', '2024 YR4', '433 Eros', '25143 Itokawa',
           '16 Psyche', '1 Ceres', '4 Vesta', '3200 Phaethon', '\u02bbOumuamua']
 CITE = re.compile(r'<cite[^>]*class="[^"]*citation (?:journal|arxiv|conference)[^"]*"[^>]*>(.*?)</cite>', re.S)
@@ -349,14 +355,15 @@ def _plain(h):
     return re.sub(r'\s+', ' ', _html.unescape(re.sub(r'<[^>]+>', '', h or ''))).strip()
 
 
-def wiki_page(title, log):
+def wiki_page(title, log, ua=None):
     """Summary and up to 6 journal citations (with DOI or arXiv links) from one Wikipedia article."""
     t = urllib.parse.quote(title.replace(' ', '_'), safe='')
-    summ = net.fetch_json(f'{WIKI}/api/rest_v1/page/summary/{t}', headers=WIKI_UA, timeout=40)
+    ua = ua or WIKI_UA
+    summ = net.fetch_json(f'{WIKI}/api/rest_v1/page/summary/{t}', headers=ua, timeout=40)
     if summ.get('type') == 'disambiguation' or not summ.get('extract'):
         return None
     page = net.fetch_json(f'{WIKI}/w/api.php', params={'action': 'parse', 'page': summ.get('title') or title, 'prop': 'text',
-                                                       'format': 'json', 'formatversion': 2, 'redirects': 1}, headers=WIKI_UA, timeout=60)
+                                                       'format': 'json', 'formatversion': 2, 'redirects': 1}, headers=ua, timeout=60)
     body = (page.get('parse') or {}).get('text') or ''
     cites = []
     for raw in CITE.findall(body):
@@ -372,13 +379,13 @@ def wiki_page(title, log):
             'citations': cites[:6]}
 
 
-def wiki_find(des, log):
+def wiki_find(des, log, ua=None):
     """Wikipedia article for an asteroid designation like '2024 YR4' or '(99942) Apophis', if there is one."""
     key = re.sub(r'[()]', '', des or '').strip()
     if not key:
         return None
     js = net.fetch_json(f'{WIKI}/w/api.php', params={'action': 'query', 'list': 'search', 'srsearch': f'"{key}" asteroid', 'srlimit': 3,
-                                                     'format': 'json'}, headers=WIKI_UA, timeout=40)
+                                                     'format': 'json'}, headers=ua or WIKI_UA, timeout=40)
     for hit in (js.get('query') or {}).get('search') or []:
         t = hit.get('title') or ''
         if key.lower() in t.lower() or key.split(' ')[0].lower() in t.lower().split(' '):
@@ -386,7 +393,7 @@ def wiki_find(des, log):
     return None
 
 
-def asteroid_wiki(con, log, prev=None, max_age_days=7, budget=40):
+def asteroid_wiki(con, log, prev=None, max_age_days=7, budget=40, cfg=None):
     """Plain-English summaries and journal citations for famous asteroids and the ones on this lab's lists (weekly)."""
     if prev and time.time() - (prev.get('t') or 0) < max_age_days * 86400:
         return prev
@@ -398,11 +405,12 @@ def asteroid_wiki(con, log, prev=None, max_age_days=7, budget=40):
     out, seen = {}, set()
     for n in names[:budget]:
         try:
-            title = n if n in FAMOUS else wiki_find(n, log)
+            ua = wiki_ua(cfg)
+            title = n if n in FAMOUS else wiki_find(n, log, ua)
             if not title or title in seen:
                 continue
             seen.add(title)
-            pg = wiki_page(title, log)
+            pg = wiki_page(title, log, ua)
             if pg:
                 pg['famous'] = n in FAMOUS
                 out[re.sub(r'[()]', '', n).strip()] = pg
@@ -804,7 +812,7 @@ def run(ctx):
              'earth': lambda: earth_images(log, prev.get('earth')), 'iss': lambda: iss_track(log, prev.get('iss')),
              'quakes': lambda: earthquakes(log), 'satellites': lambda: satellites(log, prev.get('satellites')),
              'darksky': lambda: dark_sky_map(log, prev.get('darksky')), 'zip': lambda: zip_index(log, prev.get('zip')),
-             'live': lambda: live_images(log, prev.get('live')), 'wiki': lambda: asteroid_wiki(con, log, prev.get('wiki'))}
+             'live': lambda: live_images(log, prev.get('live')), 'wiki': lambda: asteroid_wiki(con, log, prev.get('wiki'), cfg=cfg)}
     out, ok = {}, []
     for k, fn in parts.items():
         v = fn()

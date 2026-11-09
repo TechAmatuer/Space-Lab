@@ -454,7 +454,7 @@
     {
      "user": "stargazer-example",
      "text": "Add a Kp alert.",
-     "url": "https://github.com/TechAmatuer/Space-Lab/issues/1",
+     "url": "https://github.com/example/Space-Lab/issues/1",
      "date": "2026-11-09",
      "state": "open"
     }
@@ -4872,6 +4872,7 @@
  ],
  "site": {
   "url": "https://example.github.io/Space-Lab/",
-  "name": "Space Lab"
+  "name": "Space Lab",
+  "repo": "example/Space-Lab"
  }
 }

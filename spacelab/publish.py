@@ -185,7 +185,7 @@ def build_data(con, cfg):
                            for e in beyond['earth'] if f(e.get('path'))]
     data = {'name': public_name(cfg), 'updated': time.time(), 'schema': SCHEMA_VERSION,
             'beyond': beyond, 'daily': dly, 'radar': _radar_public(db.kv_get(con, 'radar') or {}), 'results': results,
-            'site': {'url': site_url(cfg), 'name': 'Space Lab'},
+            'site': {'url': site_url(cfg), 'name': 'Space Lab', 'repo': ((cfg.get('share') or {}).get('github_repo') or '').strip()},
             'community': db.kv_get(con, 'community') or {},
             'contributions': _contrib(con),
             'today': {'brief': {'t': brief_kv.get('t'), 'text': clean(brief_kv.get('text') or ''), 'model': brief_kv.get('model')},

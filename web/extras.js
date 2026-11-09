@@ -5,14 +5,14 @@
   const S = window.SpaceLab;
   if (!S) return;
   const esc = S.esc, num = S.num;
-  const PUBLIC_URL = 'https://techamatuer.github.io/Space-Lab/';
-  const ISSUES = 'https://github.com/TechAmatuer/Space-Lab/issues/new';
+  // the project's GitHub repository and web address come from data.json, so a renamed account needs no code change
   const LS = {
     get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch (_) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (_) { /* storage blocked: features still work for this visit */ } },
   };
   const D = () => S.data || {};
-  const site = () => ((D().site || {}).url) || PUBLIC_URL;
+  const site = () => ((D().site || {}).url) || '';
+  const ISSUES_URL = () => { const r = (D().site || {}).repo; return r ? `https://github.com/${r}/issues/new` : ''; };
   const cands = () => ((D().tess || {}).cands) || [];
   const periodic = () => cands().filter(c => c.kind === 'periodic' && c.period);
   const candBy = tic => cands().find(c => String(c.tic) === String(tic));
@@ -22,7 +22,7 @@
   const gauss = r => Math.sqrt(-2 * Math.log(r() || 1e-9)) * Math.cos(2 * Math.PI * r());
   const cardsIn = el => [...el.querySelectorAll('.card[data-tic]')];
   const download = (canvas, name) => { const a = document.createElement('a'); a.download = name; a.href = canvas.toDataURL('image/png'); a.click(); };
-  const reviewLink = (tic, verdict) => `${ISSUES}?template=candidate-review.yml&title=${encodeURIComponent('TIC ' + tic + ' review')}&tic=${encodeURIComponent(tic)}&verdict=${encodeURIComponent(verdict)}`;
+  const reviewLink = (tic, verdict) => `${ISSUES_URL()}?template=candidate-review.yml&title=${encodeURIComponent('TIC ' + tic + ' review')}&tic=${encodeURIComponent(tic)}&verdict=${encodeURIComponent(verdict)}`;
 
   // ------------------------------------------------------------------ star colour from temperature (approximate blackbody)
   function starRGB(teff) {
@@ -279,7 +279,7 @@
       <img src="${esc(a.gif || a.png || '')}" alt="survey frames of ${esc(a.des)}" class="plot"><div class="row">${AANS.map(x => `<button type="button" class="b sl-answer">${esc(x)}</button>`).join('')}</div>`;
     ast.querySelectorAll('.sl-answer').forEach(b => b.addEventListener('click', () => {
       LS.set('sl_ast_reviews', LS.get('sl_ast_reviews', []).concat(String(a.id))); badges();
-      const u = `${ISSUES}?template=asteroid-review.yml&title=${encodeURIComponent('Asteroid sighting review: ' + a.des)}&candidate=${encodeURIComponent(`${a.des}, ${a.night}, ${a.archive} (#${a.id})`)}&verdict=${encodeURIComponent(b.textContent)}`;
+      const u = `${ISSUES_URL()}?template=asteroid-review.yml&title=${encodeURIComponent('Asteroid sighting review: ' + a.des)}&candidate=${encodeURIComponent(`${a.des}, ${a.night}, ${a.archive} (#${a.id})`)}&verdict=${encodeURIComponent(b.textContent)}`;
       if (!ast.querySelector('.sl-send')) ast.insertAdjacentHTML('beforeend', `<p><a class="b sl-send" target="_blank" rel="noopener" href="${esc(u)}">Send my review</a> <span class="small muted">(GitHub account needed)</span></p>`);
     }));
   }
