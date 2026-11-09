@@ -249,6 +249,28 @@ def exowatch_inits_and_results():
 
 
 @test
+def exowatch_plate_solve_wide_catalog():
+    """The catalog circle (0.75 deg radius) is much bigger than a MicroObservatory frame; the solver must still match."""
+    from spacelab import exowatch
+    rng = np.random.default_rng(7)
+    n = 550
+    r = 0.75 * np.sqrt(rng.random(n)); th = rng.random(n) * 2 * np.pi
+    ra0, dec0 = 173.96, -29.16
+    cat = [{'ra': ra0 + r[i] * np.cos(th[i]) / np.cos(np.radians(dec0)), 'dec': dec0 + r[i] * np.sin(th[i]),
+            'g': float(rng.uniform(8.5, 14.5)), 'var': ''} for i in range(n)]
+    cat.sort(key=lambda s: s['g'])
+    cxy = exowatch.project(cat, ra0, dec0)
+    scale, rot = 5.17, np.radians(179.6)
+    R = np.array([[np.cos(rot), -np.sin(rot)], [np.sin(rot), np.cos(rot)]])
+    pix = (cxy / scale) @ R.T + np.array([300.0, 250.0])
+    inside = (pix[:, 0] > 5) & (pix[:, 0] < 645) & (pix[:, 1] > 5) & (pix[:, 1] < 495)
+    img_xy = pix[inside] + rng.normal(0, 0.3, (inside.sum(), 2))
+    keep = rng.random(len(img_xy)) > 0.15                 # some stars missed by detection
+    sol = exowatch.solve_field(img_xy[keep], cxy)
+    assert sol is not None and abs(sol[3] - scale) < 0.1 and sol[2] >= 10, sol and sol[2:]
+
+
+@test
 def exowatch_first_frame_and_darks():
     from astropy.io import fits
     from spacelab import exowatch

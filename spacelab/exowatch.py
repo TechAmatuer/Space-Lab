@@ -5,6 +5,7 @@ inbox/exoplanet-watch/. This job unpacks it, works out which planet it is, finds
 itself (Gaia + pattern matching), writes EXOTIC's inits.json, runs EXOTIC (NASA's official software) without
 prompts, checks the result, and leaves you one task: upload the AAVSO file it made.
 """
+import os
 import json
 import math
 import re
@@ -252,22 +253,30 @@ def project(stars, ra0, dec0):
     return np.column_stack([dra * math.cos(math.radians(dec0)) * 3600, (dec - dec0) * 3600])
 
 
-def solve_field(img_xy, cat_xy, n=40):
+def solve_field(img_xy, cat_xy):
     """Find the similarity transform (rotation, scale, shift, plus a possible mirror flip) from catalog
-    tangent-plane coordinates (arcsec) to image pixels. Returns (transform, flip, inliers) or None."""
+    tangent-plane coordinates (arcsec) to image pixels. Returns (transform, flip, inliers, scale) or None.
+    The catalog circle is bigger than the image, so its brightest stars include many outside the frame:
+    several list lengths are tried (more catalog stars than image stars) and the best fit wins."""
     import astroalign as aa
     best = None
-    for flip in (1.0, -1.0):
-        src = cat_xy[:n] * np.array([flip, 1.0])
-        try:
-            tf, (s_m, d_m) = aa.find_transform(src, img_xy[:n])
-        except Exception:
-            continue
-        scale_arcsec_px = 1.0 / tf.scale if tf.scale else 0
-        if not (0.8 <= scale_arcsec_px <= 20) or len(s_m) < 6:
-            continue
-        if best is None or len(s_m) > best[2]:
-            best = (tf, flip, len(s_m), scale_arcsec_px)
+    for n in (20, 30, 40, 60):
+        if len(img_xy) < 8:
+            break
+        for k in (1.5, 2.0, 3.0, 1.0):
+            m = int(n * k)
+            for flip in (1.0, -1.0):
+                try:
+                    tf, (s_m, d_m) = aa.find_transform(cat_xy[:m] * np.array([flip, 1.0]), img_xy[:n])
+                except Exception:
+                    continue
+                scale_arcsec_px = 1.0 / tf.scale if tf.scale else 0
+                if not (0.8 <= scale_arcsec_px <= 20) or len(s_m) < 8:
+                    continue
+                if best is None or len(s_m) > best[2]:
+                    best = (tf, flip, len(s_m), scale_arcsec_px)
+        if best and best[2] >= 15:
+            break
     return best
 
 
@@ -290,6 +299,7 @@ def choose_stars(img, target_radec, stars, xy_det, flux_det, peak_det):
         d = np.hypot(tree_xy[:, 0] - p[0], tree_xy[:, 1] - p[1])
         k = int(np.argmin(d))
         return (k, d[k]) if d[k] <= r else (None, d[k])
+    snap.xy = tree_xy
 
     tpix = to_pix([0.0, 0.0])
     k, dist = snap(tpix)
@@ -303,6 +313,16 @@ def choose_stars(img, target_radec, stars, xy_det, flux_det, peak_det):
             tgt_g = s['g']
             break
     tgt_g = tgt_g or cat[0]['g']
+    for edge in (60, 25):        # small telescopes drift during the night: keep comparison stars away from the edges
+        comps = pick_comps(cat, cat_xy, tgt_g, to_pix, snap, target, peak_det, sat, w, h, edge)
+        if len(comps) >= 3:
+            break
+    if len(comps) < 2:
+        raise ValueError(f'only {len(comps)} good comparison stars found')
+    return {'target': target, 'comps': comps, 'scale': round(float(scale), 3), 'matched': ninl}
+
+
+def pick_comps(cat, cat_xy, tgt_g, to_pix, snap, target, peak_det, sat, w, h, edge):
     comps = []
     for s, c in zip(cat, cat_xy):
         if not (tgt_g - 1.5 <= s['g'] <= tgt_g + 1.2):
@@ -310,7 +330,7 @@ def choose_stars(img, target_radec, stars, xy_det, flux_det, peak_det):
         if 'VARIABLE' in s['var'].upper():
             continue
         p = to_pix(c)
-        if p[0] < 25 or p[1] < 25 or p[0] > w - 26 or p[1] > h - 26:
+        if p[0] < edge or p[1] < edge or p[0] > w - edge - 1 or p[1] > h - edge - 1:
             continue
         if math.hypot(p[0] - target[0], p[1] - target[1]) < 25:
             continue
@@ -321,12 +341,9 @@ def choose_stars(img, target_radec, stars, xy_det, flux_det, peak_det):
         kk, dd = snap(p, 4.0)
         if kk is None or peak_det[kk] >= sat:
             continue
-        comps.append((abs(s['g'] - tgt_g), [int(round(tree_xy[kk, 0])), int(round(tree_xy[kk, 1]))]))
+        comps.append((abs(s['g'] - tgt_g), kk))
     comps.sort(key=lambda z: z[0])
-    comps = [c for _, c in comps[:5]]
-    if len(comps) < 2:
-        raise ValueError(f'only {len(comps)} good comparison stars found')
-    return {'target': target, 'comps': comps, 'scale': round(scale, 3), 'matched': ninl}
+    return [[int(round(snap.xy[k, 0])), int(round(snap.xy[k, 1]))] for _, k in comps[:5]]
 
 
 def save_preview(img, path, stars=None):
@@ -610,6 +627,9 @@ def run(ctx):
     else:
         db.close_task(con, 'exo:aavso')
     
+    if os.environ.get('SPACELAB_TRIGGER') == 'schedule':      # daily: retry automatic star finding that failed before
+        con.execute("UPDATE exo SET status='new', stars=NULL WHERE status='needs_stars' AND stars IS NULL")
+        con.commit()
     todo = db.rows(con, "SELECT * FROM exo WHERE status IN ('new','ready')")
     if not todo and added == 0:
         log('No new datasets. Check one out at ' + CHECKOUT_URL + ' and drop the zip into the inbox.')
