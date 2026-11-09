@@ -87,7 +87,7 @@ def _get(params, log, deadline=None):
             url = base + '?' + urllib.parse.urlencode(params)
             req = urllib.request.Request(url, headers={'User-Agent': net.UA})
             try:
-                with urllib.request.urlopen(req, timeout=min(120, max(30, deadline - time.time())), context=net.ssl_ctx()) as r:
+                with urllib.request.urlopen(req, timeout=min(300, max(30, deadline - time.time())), context=net.ssl_ctx()) as r:
                     return r.read()
             except urllib.error.HTTPError as e:
                 last = e
@@ -96,9 +96,9 @@ def _get(params, log, deadline=None):
                     time.sleep(min(max(wait, 5), 60, max(0, deadline - time.time() - 30)))
                     continue
                 break
-            except Exception as e:
+            except Exception as e:      # a timeout: this server is struggling, try the other one
                 last = e
-                time.sleep(5)
+                break
         log(f'  OAI endpoint {base} failed: {last}')
     raise RuntimeError(f'arXiv OAI-PMH unavailable: {last}')
 
@@ -165,6 +165,82 @@ def harvest(con, log, deadline, min_year=2006):
             break
         kv(con, 'token', token)
         time.sleep(5)    # be polite to arXiv
+    return added, pages
+
+
+# ------------------------------------------------------------------ harvest (arXiv search API, month by month)
+# arXiv's bulk OAI service is often overloaded; its regular search API (the one the daily digest uses) is reliable.
+# It is used to fill everything from where the library stops up to today, one month at a time.
+ARXIV_API = 'https://export.arxiv.org/api/query'
+ATOM = {'w': 'http://www.w3.org/2005/Atom', 'x': 'http://arxiv.org/schemas/atom'}
+ASTRO_CATS = '(' + ' OR '.join('cat:' + c for c in ('astro-ph', 'astro-ph.CO', 'astro-ph.EP', 'astro-ph.GA', 'astro-ph.HE',
+                                                     'astro-ph.IM', 'astro-ph.SR')) + ')'
+
+
+def parse_api(xml_bytes):
+    root = ET.fromstring(xml_bytes)
+    out = []
+    for e in root.iterfind('w:entry', ATOM):
+        raw = (e.findtext('w:id', default='', namespaces=ATOM) or '').strip()
+        m = re.search(r'arxiv\.org/abs/(.+?)(v\d+)?$', raw)
+        if not m:
+            continue
+        created = (e.findtext('w:published', default='', namespaces=ATOM) or '')[:10]
+        authors = [a.findtext('w:name', default='', namespaces=ATOM).strip() for a in e.iterfind('w:author', ATOM)]
+        out.append({'id': m.group(1), 'title': re.sub(r'\s+', ' ', e.findtext('w:title', default='', namespaces=ATOM)).strip(),
+                    'abstract': re.sub(r'\s+', ' ', e.findtext('w:summary', default='', namespaces=ATOM)).strip(),
+                    'authors': ', '.join(authors[:12]) + (' et al.' if len(authors) > 12 else ''),
+                    'cats': ' '.join(c.get('term', '') for c in e.iterfind('w:category', ATOM)),
+                    'year': int(created[:4]) if created[:4].isdigit() else 0, 'created': created,
+                    'doi': (e.findtext('x:doi', default='', namespaces=ATOM) or '').strip()})
+    return out
+
+
+def _next_month(ym):
+    y, m = int(ym[:4]), int(ym[5:7])
+    return f'{y + (m == 12)}-{1 if m == 12 else m + 1:02d}'
+
+
+def harvest_api(con, log, deadline, min_year=1992, per_page=1000):
+    month = kv(con, 'api_month')
+    if not month:
+        last = con.execute("SELECT MAX(created) FROM papers WHERE id NOT GLOB 'W[0-9]*'").fetchone()[0]
+        month = (last or f'{min_year}-01')[:7]
+    now = time.strftime('%Y-%m', time.gmtime())
+    added = pages = 0
+    while time.time() < deadline and month <= now:
+        y, m = int(month[:4]), int(month[5:7])
+        days = [31, 29 if y % 4 == 0 and (y % 100 or y % 400 == 0) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1]
+        q = f'{ASTRO_CATS} AND submittedDate:[{y}{m:02d}010000 TO {y}{m:02d}{days}2359]'
+        start, done_month = int(kv(con, 'api_start') or 0), False
+        while time.time() < deadline:
+            try:
+                xml = net.fetch_text(ARXIV_API, params={'search_query': q, 'start': start, 'max_results': per_page,
+                                                        'sortBy': 'submittedDate', 'sortOrder': 'ascending'}, timeout=120, min_gap=3.0)
+            except Exception as e:
+                log(f'  arXiv search API paused: {e}')
+                return added, pages
+            recs = parse_api(xml.encode('utf-8') if isinstance(xml, str) else xml)
+            for r in recs:
+                cur = con.execute('INSERT OR IGNORE INTO papers(id,title,authors,abstract,cats,year,created,doi) VALUES(?,?,?,?,?,?,?,?)',
+                                  (r['id'], r['title'], r['authors'], r['abstract'], r['cats'], r['year'], r['created'], r['doi']))
+                added += cur.rowcount
+            con.commit()
+            pages += 1
+            start += per_page
+            kv(con, 'api_start', start)
+            if len(recs) < per_page or start >= 30000:
+                done_month = True
+                break
+        if not done_month:
+            break
+        kv(con, 'api_start', 0)
+        if month == now:            # caught up: keep re-reading the current month for new papers
+            break
+        month = _next_month(month)
+        kv(con, 'api_month', month)
+    if pages:
+        log(f'  arXiv search API: {added} papers added, now at {month}')
     return added, pages
 
 
@@ -405,10 +481,17 @@ def run(ctx):
     arxiv_y0 = max(y0, 1992)
     if kv(con, 'min_year') != arxiv_y0:            # range changed: restart the arXiv pass (existing papers are kept)
         kv(con, 'token', None); kv(con, 'from', None); kv(con, 'complete', False); kv(con, 'min_year', arxiv_y0)
+    arx_end = start + 0.45 * total             # downloads get up to ~45%,
     try:
-        added, pages = harvest(con, ctx.log, start + 0.45 * total, arxiv_y0)      # downloads get up to ~45%,
+        added, pages = harvest(con, ctx.log, arx_end, arxiv_y0)
     except Exception as e:
-        ctx.log(f'arXiv harvest paused: {e}')
+        ctx.log(f'arXiv bulk service (OAI) paused: {e}')
+    if time.time() < arx_end - 60:
+        try:
+            a1, p1 = harvest_api(con, ctx.log, arx_end, arxiv_y0)
+            added += a1; pages += p1
+        except Exception as e:
+            ctx.log(f'arXiv search API paused: {e}')
     if y0 < 1992:
         try:
             a2, p2 = harvest_openalex(con, ctx.log, start + 0.6 * total, y0, 1991)  # the search index the rest

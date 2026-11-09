@@ -383,6 +383,28 @@ def fpp_verdicts():
 
 
 @test
+def library_arxiv_api_fallback():
+    from spacelab import library
+    atom = b"""<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom">
+  <entry><id>http://arxiv.org/abs/2101.01234v2</id><published>2021-01-04T19:00:01Z</published>
+    <title>A  warm Neptune
+      around an M dwarf</title><summary>We report a transiting planet.</summary>
+    <author><name>A. Example</name></author><author><name>B. Sample</name></author>
+    <arxiv:doi>10.3847/1538-3881/abc123</arxiv:doi>
+    <category term="astro-ph.EP" scheme="http://arxiv.org/schemas/atom"/><category term="astro-ph.SR"/></entry>
+  <entry><id>http://arxiv.org/abs/astro-ph/0101001v1</id><published>2001-01-01T00:00:00Z</published>
+    <title>Old style id</title><summary>x</summary><author><name>C. Old</name></author></entry>
+</feed>"""
+    recs = library.parse_api(atom)
+    assert [r['id'] for r in recs] == ['2101.01234', 'astro-ph/0101001'], recs
+    r = recs[0]
+    assert r['title'] == 'A warm Neptune around an M dwarf' and r['created'] == '2021-01-04' and r['year'] == 2021
+    assert r['authors'] == 'A. Example, B. Sample' and r['doi'] == '10.3847/1538-3881/abc123' and 'astro-ph.EP' in r['cats']
+    assert library._next_month('2021-12') == '2022-01' and library._next_month('2021-01') == '2021-02'
+
+
+@test
 def research_in_news_links():
     from spacelab import news
     page = """<a href="https://arxiv.org/abs/2611.01234">paper</a> <a href="https://www.nature.com/articles/s41550-026-02123-x">Nature Astronomy</a>
