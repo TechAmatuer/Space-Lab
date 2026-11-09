@@ -246,7 +246,7 @@ def api_arxiv(q):
         lib = library.status()
     except Exception as e:
         lib = {'error': str(e)}
-    return {'dates': dates, 'date': d, 'papers': papers, 'news': db.kv_get(con, 'news'), 'library': lib}
+    return {'dates': dates, 'date': d, 'papers': papers, 'news': db.kv_get(con, 'news'), 'paper_news': db.kv_get(con, 'paper_news'), 'library': lib}
 
 
 def api_tess():

@@ -1,11 +1,13 @@
-"""Paper library: every astro-ph paper on arXiv since 2006 (about 300,000), searchable by meaning.
+"""Paper library: 50 years of astronomy papers, searchable by meaning.
 
-* Harvest: arXiv's OAI-PMH bulk-metadata service (titles, authors, abstracts; no PDFs), resumed in chunks.
+* 1992 onward: every astro-ph paper on arXiv (OAI-PMH bulk metadata: titles, authors, abstracts; no PDFs).
+* 1976-1991 (before arXiv): journal papers with abstracts from OpenAlex (free, open scholarly index).
+  Both are resumed in chunks across runs.
 * Index: SQLite full-text search + bge-m3 embeddings (float16) so a question finds papers by meaning.
 * Topics: each paper gets 1-2 topic tags by comparing its embedding with short topic descriptions (instant).
 * AI review: for a search, Gemma reads the top abstracts, scores how well each answers your question (0-10)
   and writes one plain-English sentence. Reviews are cached.
-Disk: about 0.5 GB of text and index + about 0.6 GB of embeddings. Nothing leaves your Mac except the downloads.
+Disk: roughly 1 GB of text and index + 1 GB of embeddings for ~480,000 papers. Nothing leaves your Mac except the downloads.
 """
 import hashlib
 import json
@@ -61,8 +63,11 @@ def connect():
     return con
 
 
-def kv(con, k, v=None, default=None):
-    if v is None:
+_READ = object()
+
+
+def kv(con, k, v=_READ, default=None):
+    if v is _READ:
         r = con.execute('SELECT v FROM kv WHERE k=?', (k,)).fetchone()
         return json.loads(r[0]) if r else default
     con.execute('INSERT OR REPLACE INTO kv(k, v) VALUES(?,?)', (k, json.dumps(v)))
@@ -125,12 +130,20 @@ def parse_records(xml_bytes, min_year):
 
 def harvest(con, log, deadline, min_year=2006):
     token = kv(con, 'token')
-    since = kv(con, 'from', default=f'{min_year}-01-01')
+    since = kv(con, 'from') or f'{min_year}-01-01'
     added = pages = 0
     while time.time() < deadline:
         params = {'verb': 'ListRecords', 'resumptionToken': token} if token else \
                  {'verb': 'ListRecords', 'metadataPrefix': 'arXiv', 'set': 'physics:astro-ph', 'from': since}
-        recs, token, total = parse_records(_get(params, log), min_year)
+        try:
+            recs, token, total = parse_records(_get(params, log), min_year)
+        except RuntimeError as e:
+            if 'badResumptionToken' in str(e) and token:   # tokens expire; start the pass again (duplicates are skipped)
+                log('  arXiv resume point expired; restarting the pass')
+                token = None
+                kv(con, 'token', None)
+                continue
+            raise
         for r in recs:
             cur = con.execute('INSERT OR IGNORE INTO papers(id,title,authors,abstract,cats,year,created,doi) VALUES(?,?,?,?,?,?,?,?)',
                               (r['id'], r['title'], r['authors'], r['abstract'], r['cats'], r['year'], r['created'], r['doi']))
@@ -147,6 +160,69 @@ def harvest(con, log, deadline, min_year=2006):
             break
         kv(con, 'token', token)
         time.sleep(5)    # be polite to arXiv
+    return added, pages
+
+
+# ------------------------------------------------------------------ harvest (OpenAlex, before arXiv existed)
+OPENALEX = 'https://api.openalex.org/works'
+OA_SUBFIELD = '3103'     # OpenAlex subfield "Astronomy and Astrophysics"
+
+
+def oa_abstract(inv):
+    """OpenAlex stores abstracts as {word: [positions]}; rebuild the text."""
+    if not inv:
+        return ''
+    pos = [(p, w) for w, ps in inv.items() for p in ps]
+    return ' '.join(w for _, w in sorted(pos))
+
+
+def oa_records(js):
+    out = []
+    for w in js.get('results') or []:
+        title = re.sub(r'\s+', ' ', w.get('display_name') or w.get('title') or '').strip()
+        abstract = re.sub(r'\s+', ' ', oa_abstract(w.get('abstract_inverted_index'))).strip()
+        if not title or len(abstract) < 80:
+            continue
+        names = [(a.get('author') or {}).get('display_name') or a.get('raw_author_name') or '' for a in w.get('authorships') or []]
+        names = [n for n in names if n]
+        sub_ = ((w.get('primary_topic') or {}).get('subfield') or {}).get('display_name') or 'Astronomy and Astrophysics'
+        out.append({'id': (w.get('id') or '').rsplit('/', 1)[-1], 'title': title, 'abstract': abstract[:4000],
+                    'authors': ', '.join(names[:12]) + (' et al.' if len(names) > 12 else ''), 'cats': 'journal: ' + sub_,
+                    'year': int(w.get('publication_year') or 0), 'created': w.get('publication_date') or '',
+                    'doi': (w.get('doi') or '').replace('https://doi.org/', '')})
+    return out, (js.get('meta') or {}).get('next_cursor'), (js.get('meta') or {}).get('count')
+
+
+def harvest_openalex(con, log, deadline, y0=1976, y1=1991):
+    if kv(con, 'oa_complete'):
+        return 0, 0
+    cursor = kv(con, 'oa_cursor') or '*'
+    added = pages = 0
+    while time.time() < deadline:
+        params = {'filter': f'primary_topic.subfield.id:{OA_SUBFIELD},publication_year:{y0}-{y1},has_abstract:true',
+                  'select': 'id,doi,display_name,publication_year,publication_date,authorships,abstract_inverted_index,primary_topic',
+                  'per-page': 200, 'cursor': cursor}
+        try:
+            js = net.fetch_json(OPENALEX, params=params, timeout=120, min_gap=1.0)
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
+                log('  OpenAlex daily free budget used up; continuing tomorrow')
+                break
+            raise
+        recs, cursor, total = oa_records(js)
+        for r in recs:
+            cur = con.execute('INSERT OR IGNORE INTO papers(id,title,authors,abstract,cats,year,created,doi) VALUES(?,?,?,?,?,?,?,?)',
+                              (r['id'], r['title'], r['authors'], r['abstract'], r['cats'], r['year'], r['created'], r['doi']))
+            added += cur.rowcount
+        con.commit()
+        pages += 1
+        if total:
+            kv(con, 'oa_total', int(total))
+        if not cursor or not js.get('results'):
+            kv(con, 'oa_complete', True)
+            log(f'  OpenAlex {y0}-{y1}: complete')
+            break
+        kv(con, 'oa_cursor', cursor)
     return added, pages
 
 
@@ -201,8 +277,8 @@ def status(con=None):
     e = con.execute('SELECT COUNT(*) FROM papers WHERE erow IS NOT NULL').fetchone()[0]
     yr = con.execute('SELECT MIN(year), MAX(year) FROM papers').fetchone()
     size = sum(p.stat().st_size for p in (DB, EMB) if p.exists()) / 1e9
-    return {'papers': n, 'embedded': e, 'years': [yr[0], yr[1]], 'total_expected': kv(con, 'total'),
-            'complete': bool(kv(con, 'complete')), 'disk_gb': round(size, 2), 'topics': list(TOPICS)}
+    return {'papers': n, 'embedded': e, 'years': [yr[0], yr[1]], 'total_expected': (kv(con, 'total') or 0) + (kv(con, 'oa_total') or 0),
+            'complete': bool(kv(con, 'complete')) and bool(kv(con, 'oa_complete')), 'disk_gb': round(size, 2), 'topics': list(TOPICS)}
 
 
 # ------------------------------------------------------------------ search + AI review
@@ -253,9 +329,16 @@ def search(qtext, llm, y0=None, y1=None, cat=None, topic=None, k=40):
     for r in rows:
         r['score'] = round(scores[r['rowid']], 4)
         r['tags'] = json.loads(r['tags']) if r['tags'] else []
-        r['url'] = f'https://arxiv.org/abs/{r["id"]}'
+        r['url'] = paper_url(r)
     rows.sort(key=lambda r: -r['score'])
     return rows[:k]
+
+
+def paper_url(r):
+    pid = r['id']
+    if re.fullmatch(r'W\d+', pid):
+        return f'https://doi.org/{r["doi"]}' if r.get('doi') else f'https://openalex.org/{pid}'
+    return f'https://arxiv.org/abs/{pid}'
 
 
 def review(q, papers, llm, log=lambda *a: None):
@@ -298,10 +381,22 @@ def run(ctx):
     llm = LLM(ctx.cfg, ctx.log)
     end = time.time() + 60 * float(lc.get('time_budget_min', 45))
     added = pages = 0
+    y0 = int(lc.get('min_year', 1976))
+    arxiv_y0 = max(y0, 1992)
+    if kv(con, 'min_year') != arxiv_y0:            # range changed: restart the arXiv pass (existing papers are kept)
+        kv(con, 'token', None); kv(con, 'from', None); kv(con, 'complete', False); kv(con, 'min_year', arxiv_y0)
     try:
-        added, pages = harvest(con, ctx.log, end - 600, int(lc.get('min_year', 2006)))
+        added, pages = harvest(con, ctx.log, end - 900, arxiv_y0)
     except Exception as e:
-        ctx.log(f'harvest paused: {e}')
+        ctx.log(f'arXiv harvest paused: {e}')
+    if y0 < 1992:
+        try:
+            a2, p2 = harvest_openalex(con, ctx.log, end - 600, y0, 1991)
+            added += a2; pages += p2
+            if p2:
+                ctx.log(f'  OpenAlex {y0}-1991: {a2} papers added this run')
+        except Exception as e:
+            ctx.log(f'OpenAlex harvest paused: {e}')
     ctx.progress(f'{added} new papers; embedding')
     emb = embed_pending(con, llm, ctx.log, end - 60)
     st = status(con)

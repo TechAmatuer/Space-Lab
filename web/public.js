@@ -9,12 +9,29 @@ const LD_AU = 0.00256955529;
 const sizeFromH = h => (h === null || h === undefined || isNaN(+h)) ? null : 1329e3 / Math.sqrt(0.14) * Math.pow(10, -h / 5);
 const fmtSize = m => m === null ? '?' : m >= 1000 ? (m / 1000).toFixed(1) + ' km' : Math.round(m) + ' m';
 const day = t => t ? new Date(t * 1000).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+const ago = t => { if (!t) return 'never'; const s = Date.now() / 1000 - t; return s < 90 ? 'just now' : s < 5400 ? Math.round(s / 60) + ' min ago' : s < 129600 ? Math.round(s / 3600) + ' h ago' : Math.round(s / 86400) + ' days ago'; };
+const jdUTC = jd => jd ? new Date((jd - 2440587.5) * 864e5).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
 let D = null;
 
 function modal(html) { $('#modalBody').innerHTML = html; $('#modal').classList.add('on'); return $('#modalBody'); }
 
 // Fix #1 & #2: Shared error banner for viewer failures (LC + Orbit3D)
 const VIEWER_ERR = `<div class="card banner"><h3>⚠️ Failed to load</h3><p>The requested data is missing or the file is corrupted. Reload the page and try again.</p><button class="b primary" onclick="location.reload()">Reload</button></div>`;
+
+function today() {
+  const t = D?.today || {}, b = t.brief || {};
+  const jobs = (t.jobs || []).map(j => {
+    const sched = j.schedule ? (String(j.schedule).startsWith('every') ? esc(j.schedule) : 'daily at ' + esc(j.schedule)) : 'on demand';
+    const chip = j.status === 'ok' ? '<span class="chip ok">ok</span>' : j.status === 'running' ? '<span class="chip warn">running now</span>' : j.status ? `<span class="chip">${esc(j.status)}</span>` : '';
+    return `<div class="card"><div class="row"><h3>${esc(j.label)}</h3><span class="spacer"></span>${chip}</div>
+      <div class="small muted">${sched} · last run ${ago(j.started)}</div><div style="margin-top:6px">${esc(j.summary || '')}</div></div>`;
+  }).join('');
+  $('#v-today').innerHTML = `<div class="card"><div class="row"><h3>☕ Morning brief</h3><span class="spacer"></span><span class="small muted">${ago(b.t)}${b.model ? ' · written by a local AI (' + esc(b.model) + ')' : ''}</span></div>
+      <div class="brief" style="white-space:pre-wrap">${esc(b.text || 'The first brief is written after the overnight runs.')}</div></div>
+    <h2>What the lab is doing</h2>
+    <p class="small muted">${t.always_on ? 'This Mac runs full-time: when nothing is scheduled it keeps hunting through TESS stars and building the paper library.' : 'Jobs run on a schedule.'} Each card is the latest run of one pipeline.</p>
+    <div class="grid g2">${jobs || '<div class="card empty">No runs yet.</div>'}</div>`;
+}
 
 function tess() {
   const t = D?.tess, m = t?.model || {};
@@ -39,7 +56,14 @@ function tess() {
 
   $('#v-tess').innerHTML = `<div class="card"><h3>Looking for new planets in NASA TESS data</h3>
     <p>Each night a home Mac downloads TESS light curves of nearby small stars, searches for repeating dips, and runs the standard checks that expose eclipsing binary stars. These are the signals that survived. Most will still turn out to be false alarms; that\'s how planet hunting works. Opinions welcome.</p>
-    <div class="small muted">${t.stats.done || 0} stars checked so far · ${t.stats.queued || 0} waiting${m.ready ? ` · the volunteer\'s own model has learned from ${m.n_user} of their decisions` : ''}</div></div>
+    <div class="kv"><b>Stars checked</b><span>${t.stats.done || 0} (${t.stats.nodata || 0} had no TESS light curve, ${t.stats.error || 0} errors)</span><b>Waiting in line</b><span>${t.stats.queued || 0} cool dwarf stars</span><b>Skipped (already have planets/TOIs)</b><span>${t.stats.known || 0}</span></div>
+    ${t.engine ? `<div class="small muted">Last run: ${esc(t.engine.workers)} stars at a time; period search on ${t.engine.engine === 'mlx-gpu' ? 'the GPU (MLX)' : 'the CPU (astropy)'}.</div>` : ''}
+    <div class="small muted">Volunteer's own planet model: ${m.ready ? `trained on ${m.n_user} human decisions + ${m.n_auto} automatic labels (${pct(m.acc)} agreement); strongest clues: ${(m.top || []).map(x => esc(x[0])).join(', ')}` : `still learning (needs about ${m.need || 12} labelled signals)`}.</div></div>
+    <div class="card"><details><summary><b>How to read the plots</b></summary>
+      <p><b>Top left: brightness over time.</b> Each grey dot is the star's brightness (averaged over 30 minutes). The faint <span style="color:#d03b3b">red vertical lines</span> are drawn by the program, not by a person or the AI: they mark where the period search predicts each dip should be. A good candidate has a small dip in the dots under every red line, and the lines don't sit on data gaps or sudden jumps.</p>
+      <p><b>Top right: the period search.</b> How strongly each possible repeat interval matches the data. The red line marks the winner; a lone sharp peak is good, a forest of equal peaks is not.</p>
+      <p><b>Bottom left: all dips stacked.</b> Every dip lined up on top of each other. The red box is the simple transit model. A flat-bottomed U or box suits a planet; a sharp V often means two stars eclipsing.</p>
+      <p><b>Bottom right: odd vs even dips.</b> If odd and even dips have different depths, it's probably an eclipsing binary at twice the period. The dashed line is the brightness halfway between dips and should be flat (a dip there means a secondary eclipse, i.e. a star).</p></details></div>
     <div class="card"><details><summary>How this tab works</summary><p style="margin:0">A GPU-based Box Least Squares search finds repeating brightness dips in TESS light curves. Each candidate goes through false-positive checks (depth ratios, centroid test, star density) before being shown here. A local vision AI then reads the diagnostic plots to give a first verdict. Your personal ML model scores each one based on past decisions.</p></details></div>
     ${cards || '<div class="card empty">No signals under review right now.</div>'}`;
 }
@@ -57,9 +81,12 @@ function asteroids() {
   const tg = (a.targets || []).map(t => `<tr><td><b>${esc(t.fullname || t.des)}</b></td><td class="mono">${num(t.h, 1)} (${fmtSize(sizeFromH(t.h))})</td><td class="mono">${num(t.arc, 0)} d</td><td class="mono">${t.nimg || 0}</td><td>${t.orbit && t.orbit.a ? `<button class="b" data-orbit="${esc(t.des)}">3D orbit</button>` : ''}</td></tr>`).join('');
 
   $('#v-asteroids').innerHTML = `<div class="card"><h3>Planetary defense watch</h3><p>${esc(a.text || '')}</p></div>
-    <div class="card"><details><summary>How this tab works</summary><p style="margin:0">This page tracks near-Earth asteroids and does <b>precovery</b> — searching old Pan-STARRS images to find earlier sightings of known asteroids. Finding older positions extends the asteroid's "observed arc", which refines the orbit calculation and improves impact-risk estimates.</p></details></div>
+    <div class="card"><details><summary>How this tab works</summary><p style="margin:0">This page tracks near-Earth asteroids and does <b>precovery</b> — searching old Pan-STARRS and ZTF images to find earlier sightings of known asteroids. Finding older positions extends the asteroid's "observed arc", which refines the orbit calculation and improves impact-risk estimates.</p></details></div>
     <div class="grid g2"><div class="card"><h3>Close approaches, next 30 days</h3><table class="compact"><tr><th>date</th><th>object</th><th>distance</th><th>size*</th></tr>${cad}</table><p class="small muted">LD = lunar distance. *From brightness.</p></div>
     <div class="card"><h3>New objects awaiting confirmation</h3><table class="compact"><tr><th>name</th><th>NEO score</th><th>hazard score</th><th>H</th></tr>${nc || '<tr><td colspan=4 class="muted">—</td></tr>'}</table></div></div>
+    <div class="card"><h3>Highest impact-risk objects (NASA Sentry)</h3><table class="compact"><tr><th>object</th><th>impact chance</th><th>Palermo</th><th>Torino</th><th>years</th></tr>${(a.sentry || []).slice(0, 10).map(r => { const ip = parseFloat(r.ip); return `<tr><td><b>${esc(r.fullname || r.des)}</b></td><td class="mono">${ip ? '1 in ' + Math.round(1 / ip).toLocaleString() : '—'}</td><td class="mono">${esc(r.ps ?? '')}</td><td class="mono">${esc(r.ts_max ?? '')}</td><td class="mono">${esc(r.range || '')}</td></tr>`; }).join('') || '<tr><td colspan=5 class="muted">—</td></tr>'}</table><p class="small muted">Palermo below −2: no cause for concern. Torino 0: no hazard.</p></div>
+    <div class="card"><h3>Newly announced near-Earth asteroids: fast precovery check</h3><table class="compact"><tr><th>object</th><th>H</th><th>arc</th><th>checked</th><th>result</th></tr>${(a.new_neos || []).map(t => `<tr><td><b>${esc(t.fullname || t.des)}</b></td><td class="mono">${num(t.h, 1)}</td><td class="mono">${num(t.arc, 1)} d</td><td>${t.searched ? ago(t.searched) : 'queued'}</td><td class="small">${esc(t.note || '')}</td></tr>`).join('') || '<tr><td colspan=5 class="muted">None in the last days.</td></tr>'}</table>
+      <p class="small muted">New objects are checked in recent ZTF images first, then in older Pan-STARRS images once their orbits are good enough. NEO confirmation page last checked ${ago(a.neocp_t)}.</p></div>
     <h2>Precovery: possible sightings in old images</h2>${cands || '<div class="card empty">No precovery matches this run. This is normal — most searches find nothing, as these asteroids are very faint and buried in archival noise.</div>'}
     <h2>Asteroids searched</h2><div class="card"><table class="compact"><tr><th>object</th><th>H (size)</th><th>arc</th><th>images</th><th></th></tr>${tg}</table></div>`;
 }
@@ -72,12 +99,13 @@ function exowatch() {
     ${d.plot ? `<img class="plot" src="${esc(d.plot)}" alt="light curve" loading="lazy">` : ''}
     <div class="kv"><b>Mid-transit time</b><span class="mono">${num(d.tmid, 5)} ± ${num((d.tmid_err || 0) * 1440, 1)} min</span><b>vs prediction</b><span class="mono">${d.oc ? num(d.oc.oc_min, 1) + ' min' : '—'}</span><b>Depth</b><span class="mono">${num(d.depth_pct, 2)} %</span></div>
     <p>${esc(d.explain || '')}</p></div>`).join('');
-  const st = (e.stale || []).slice(0, 15).map(t => `<tr><td><b>${esc(t.name)}</b>${t.priority ? ` <span class="chip">${esc(t.priority)}</span>` : ''}</td><td class="mono">${num(t.vmag, 1)}</td><td class="mono">${num(t.depth_ppt, 1)} ppt</td><td class="mono">±${num(t.sigma_min, 0)} min</td></tr>`).join('');
+  const st = (e.stale || []).slice(0, 20).map(t => `<tr><td><b>${esc(t.name)}</b>${t.priority ? ` <span class="chip">${esc(t.priority)}</span>` : ''}</td><td class="mono">${num(t.vmag, 1)}</td><td class="mono">${num(t.depth_ppt, 1)} ppt</td><td class="mono">±${num(t.sigma_min, 0)} min</td><td>${jdUTC(t.next_jd)}</td></tr>`).join('');
 
   $('#v-exowatch').innerHTML = `<div class="card"><h3>Timing exoplanet transits for NASA Exoplanet Watch</h3><p>Measured transit times keep planets' schedules accurate so big telescopes like JWST don't miss them. Results go to the AAVSO Exoplanet Database and into Exoplanet Watch.</p></div>
     <div class="card"><details><summary>How this tab works</summary><p style="margin:0">When an exoplanet transits its star, it blocks a tiny fraction of light. By measuring the exact moment of each transit, citizen scientists help keep the planet's ephemeris accurate — so that JWST and other large telescopes point at the right time. This tab shows measurements from MicroObservatory observations, reduced with EXOTIC software.</p></details></div>
     ${res || '<div class="card empty">No transits measured yet.</div>'}
-    <h2>Planets whose predicted transit times have drifted most</h2><div class="card"><table class="compact"><tr><th>planet</th><th>star V</th><th>depth</th><th>timing uncertainty now</th></tr>${st || '<tr><td colspan=4 class="muted">—</td></tr>'}</table></div>`;
+    <div class="card"><h3>You can help too</h3><ol class="steps"><li>Request a free telescope dataset on NASA's <a href="https://science.nasa.gov/citizen-science/exoplanet-watch/how-to-contribute/data-checkout/" target="_blank" rel="noopener">Exoplanet Watch Data Checkout</a>, ideally for a planet in the table below.</li><li>Reduce it with NASA's free EXOTIC software (or run your own Space Lab, it's open source).</li><li>Own a Seestar or Dwarf? Record a transit from the table below and share your frames.</li></ol></div>
+    <h2>Planets whose predicted transit times have drifted most</h2><div class="card"><p class="small muted">One new measurement of these helps the most. Priorities and timings from ExoClock (ESA Ariel's monitoring project), updated ${ago(e.ephem_t)}.</p><table class="compact"><tr><th>planet</th><th>star V</th><th>depth</th><th>timing uncertainty now</th><th>next transit (your time)</th></tr>${st || '<tr><td colspan=5 class="muted">—</td></tr>'}</table></div>`;
 }
 
 function brief() {
@@ -86,7 +114,20 @@ function brief() {
 
   $('#v-brief').innerHTML = `<div class="card"><h3>Space brief ${esc(b.date || '')}</h3><p class="small muted">New astronomy papers from arXiv, explained in plain English by a local AI.</p></div>
     <div class="card"><details><summary>How this tab works</summary><p style="margin:0">A daily script scans arXiv for new astrophysics papers, ranks them by relevance using embeddings (bge-m3), and has a local AI summarize each paper in plain English with an explanation of why it matters for astronomy.</p></details></div>
-    ${(b.papers || []).map(p => `<div class="card"><h3><a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title)}</a></h3><div class="small muted">${esc(p.authors)}</div><p>${esc(p.summary || '')}</p>${p.why ? `<p><b>Why it matters:</b> ${esc(p.why)}</p>` : ''}</div>`).join('')}`;
+    ${libraryCard(b.library || {})}
+    ${(b.paper_news || []).length ? `<h2>Research in the news</h2><div class="card"><p class="small muted">Stories from popular science outlets this week that link to the research paper behind them.</p><ul class="list">${b.paper_news.slice(0, 15).map(n => `<li><span><a href="${esc(n.url)}" target="_blank" rel="noopener"><b>${esc(n.title)}</b></a> <span class="small muted">${esc(n.source)}${n.date ? ' · ' + day(n.date) : ''}</span><br><span class="small">📄 the paper: ${(n.papers || []).map(p => `<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title || p.id)}</a>${p.venue ? ` <span class="muted">(${esc(p.venue)}${p.year ? ', ' + p.year : ''})</span>` : ''}`).join(' · ')}</span></span></li>`).join('')}</ul></div>` : ''}
+    <h2>New on arXiv</h2>
+    ${(b.papers || []).map(p => `<div class="card"><h3><a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title)}</a></h3><div class="small muted">${esc(p.authors)}</div><p>${esc(p.summary || '')}</p>${p.why ? `<p><b>Why it matters:</b> ${esc(p.why)}</p>` : ''}</div>`).join('') || '<div class="card empty">No new papers today (arXiv posts Sunday–Thursday evenings).</div>'}
+    ${(b.news || []).length ? `<h2>Elsewhere this week</h2><div class="card"><ul class="list">${b.news.slice(0, 25).map(n => `<li><span><a href="${esc(n.url)}" target="_blank" rel="noopener">${esc(n.title)}</a><br><span class="small muted">${esc(n.source)}${n.date ? ' · ' + day(n.date) : ''}</span></span></li>`).join('')}</ul></div>` : ''}`;
+}
+
+function libraryCard(lib) {
+  const y = new Date().getFullYear();
+  return `<div class="card"><h3>📚 Search 50 years of astronomy papers</h3>
+    <p class="small muted">The volunteer's Mac keeps a library of ${lib.papers ? lib.papers.toLocaleString() + ' papers (' + lib.years[0] + '–' + lib.years[1] + ')' : 'astronomy papers (still building)'} that its local AI searches by meaning. This public page can't run that AI, so the search below uses NASA ADS, the free database astronomers themselves use, with the same filters.</p>
+    <div class="row"><input type="text" id="pubQ" placeholder="e.g. hot Jupiter orbital decay" style="flex:1;min-width:240px"><button class="b primary" id="pubGo">Search</button></div>
+    <div class="row small" style="margin-top:6px"><label>from <input type="number" id="pubY0" value="1976" style="width:72px"></label><label>to <input type="number" id="pubY1" value="${y}" style="width:72px"></label>
+    <label><input type="checkbox" id="pubRef" checked> peer-reviewed only</label></div></div>`;
 }
 
 function about() {
@@ -96,12 +137,20 @@ function about() {
     <ul><li><b>Planet hunting</b> in NASA TESS light curves, with the standard false-positive checks, a pixel-level centroid test, and a first look from a local vision AI.</li>
     <li><b>Asteroid precovery</b>: searching old Pan-STARRS images for asteroids whose orbits are still short, so their orbits (and impact-risk estimates) can be refined.</li>
     <li><b>Exoplanet Watch</b>: measuring exoplanet transit times for NASA's citizen-science project.</li>
-    <li><b>Space brief</b>: new research papers, summarized.</li></ul>
+    <li><b>Space brief</b>: new research papers summarized, stories from popular science outlets matched to the papers behind them, and a 50-year paper library.</li></ul>
+    <p>This page mirrors the volunteer's private dashboard. Two things stay on the Mac because they need its local AI: asking questions about the results, and searching the library by meaning (the public library search uses NASA ADS instead). Want all of it? Space Lab is free and open source: <a href="https://github.com/TechAmatuer/Space-Lab" target="_blank" rel="noopener">github.com/TechAmatuer/Space-Lab</a>.</p>
     <p>All AI runs locally. Every result is checked by a person before anything is reported to the AAVSO or the Minor Planet Center. Feedback from scientists is very welcome.</p>
-    <p class="small muted">Data: NASA TESS/MAST, NASA Exoplanet Archive, ExoFOP, JPL Small-Body Database, Sentry, Scout and Horizons, CADC SSOIS, Pan-STARRS1 (STScI), Gaia (ESA), arXiv.</p></div>`;
+    <p class="small muted">Data: NASA TESS/MAST, NASA Exoplanet Archive, ExoClock, ExoFOP, TESS EB catalog, JPL Small-Body Database, Sentry, Scout and Horizons, CADC SSOIS, Pan-STARRS1 (STScI), ZTF (IRSA/Caltech), Gaia (ESA), arXiv, OpenAlex, NASA ADS, and the news outlets linked in the Space brief.</p></div>`;
 }
 
-const R = { tess, asteroids, exowatch, brief, about };
+function adsSearch() {
+  const q = $('#pubQ').value.trim(); if (!q) return;
+  const y0 = +$('#pubY0').value || 1976, y1 = +$('#pubY1').value || new Date().getFullYear();
+  const full = `${q} year:${y0}-${y1} collection:astronomy${$('#pubRef').checked ? ' property:refereed' : ''}`;
+  window.open('https://ui.adsabs.harvard.edu/search/q=' + encodeURIComponent(full) + '&sort=' + encodeURIComponent('score desc'), '_blank', 'noopener');
+}
+
+const R = { today, brief, exowatch, tess, asteroids, about };
 function setTab(tab) {
   $$('nav.tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === tab));
   $$('section.view').forEach(v => v.classList.toggle('on', v.id === 'v-' + tab));
@@ -113,6 +162,7 @@ document.addEventListener('click', async e => {
   const t = e.target.closest('button, img.plot, #zoom');
   if (!t) return;
   if (t.matches('nav.tabs button')) return setTab(t.dataset.tab);
+  if (t.id === 'pubGo') return adsSearch();
   if (t.id === 'zoom') { t.style.display = 'none'; return; }
   if (t.id === 'modalClose') { $('#modal').classList.remove('on'); return; }
   if (t.matches('img.plot')) { $('#zoom img').src = t.src; $('#zoom').style.display = 'flex'; return; }
@@ -148,7 +198,7 @@ document.addEventListener('click', async e => {
   }
 });
 
-document.addEventListener('keydown', e => { if (e.key === 'Escape') $('#modal').classList.remove('on'); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') $('#modal').classList.remove('on'); if (e.key === 'Enter' && e.target.id === 'pubQ') adsSearch(); });
 
 // Fix #4: When data.json fails, show error in ALL tabs + reload button + explanation
 function showNetworkError(msg) {
@@ -165,7 +215,7 @@ fetch('data.json', { cache: 'no-store' })
   .then(d => {
     D = d;
     $('#updated').textContent = `updated ${new Date(d.updated * 1000).toLocaleString()}`;
-    const start = (location.hash || '#tess').slice(1);
-    setTab(R[start] ? start : 'tess');
+    const start = (location.hash || '#today').slice(1);
+    setTab(R[start] ? start : 'today');
   })
   .catch(err => showNetworkError(err?.message || 'Network error'));

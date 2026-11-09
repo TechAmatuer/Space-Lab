@@ -31,6 +31,14 @@ def _j(x):
         return None
 
 
+def clean(s):
+    """Remove folder paths (they contain the Mac user name) from free text before it is published."""
+    s = str(s or '')
+    for p in sorted({str(config.ROOT), str(config.DATA), str(Path.home())}, key=len, reverse=True):
+        s = s.replace(p, '…')
+    return s
+
+
 def public_name(cfg):
     return ((cfg.get('share') or {}).get('public_name') or '').strip()[:60] or 'a Space Lab volunteer'
 
@@ -59,6 +67,19 @@ def build_data(con, cfg):
                      'fpp': _j(c.get('fpp')),
                      'centroid': ({k: cen.get(k) for k in ('verdict', 'offset_arcsec', 'signif', 'snr')} | {'png': f(cen.get('png'))}) if cen else None})
     stats = {r['status']: r['n'] for r in db.rows(con, 'SELECT status, COUNT(*) AS n FROM tess_targets GROUP BY status')}
+    from .jobs import JOBS
+    runs = []
+    for job, spec in JOBS.items():
+        r = db.one(con, 'SELECT started, finished, status, summary FROM runs WHERE job=? ORDER BY started DESC LIMIT 1', (job,))
+        runs.append({'job': job, 'label': spec[1], 'schedule': (cfg.get('schedule') or {}).get(job),
+                     'started': r and r['started'], 'finished': r and r['finished'], 'status': r and r['status'],
+                     'summary': clean((r and r['summary']) or '')[:400]})
+    brief_kv = db.kv_get(con, 'brief') or {}
+    try:
+        from . import library
+        lib = library.status()
+    except Exception:
+        lib = {}
     w = db.kv_get(con, 'neo_watch') or {}
     pcs = []
     for c in db.rows(con, "SELECT * FROM pc_cands WHERE status IN ('new','real','unsure') ORDER BY created DESC LIMIT 40"):
@@ -93,23 +114,33 @@ def build_data(con, cfg):
                      (dates[0],)) if dates else []
     eph = db.kv_get(con, 'ephem') or {}
     data = {'name': public_name(cfg), 'updated': time.time(), 'schema': SCHEMA_VERSION,
-            'tess': {'stats': {k: stats.get(k, 0) for k in ('done', 'queued', 'nodata')}, 'cands': tess,
-                     'model': {k: (model or {}).get(k) for k in ('ready', 'n_user', 'n_auto', 'acc')}},
+            'today': {'brief': {'t': brief_kv.get('t'), 'text': clean(brief_kv.get('text') or ''), 'model': brief_kv.get('model')},
+                      'jobs': runs, 'always_on': bool(cfg.get('always_on'))},
+            'tess': {'stats': {k: stats.get(k, 0) for k in ('done', 'queued', 'nodata', 'error', 'known')}, 'cands': tess,
+                     'engine': db.kv_get(con, 'tess_engine'),
+                     'model': {k: (model or {}).get(k) for k in ('ready', 'n_user', 'n_auto', 'acc', 'top', 'need')}},
             'asteroids': {'text': (db.kv_get(con, 'neo_watch_text') or {}).get('text'), 'cad': (w.get('cad') or [])[:15],
                           'sentry': [{k: r.get(k) for k in ('des', 'fullname', 'ip', 'ps', 'ts_max', 'range', 'h', 'diameter')} for r in (w.get('sentry') or [])[:12]],
-                          'neocp': neocp, 'cands': pcs, 'targets': targets},
-            'exowatch': {'results': exo, 'stale': (eph.get('stale') or [])[:30]},
-            'brief': {'date': dates[0] if dates else None, 'papers': papers}}
+                          'neocp': neocp, 'cands': pcs, 'targets': targets, 'scout': (w.get('scout') or [])[:15],
+                          'neocp_t': (db.kv_get(con, 'neocp_snapshot') or {}).get('t'),
+                          'new_neos': [{k: (clean(v) if k == 'note' else v) for k, v in r.items()} for r in db.rows(con,
+                                       "SELECT des, fullname, h, arc, searched, nimg, ncand, note FROM pc_targets WHERE origin='new-neo' ORDER BY rowid DESC LIMIT 20")]},
+            'exowatch': {'results': exo, 'stale': (eph.get('stale') or [])[:30], 'ephem_t': eph.get('t')},
+            'brief': {'date': dates[0] if dates else None, 'papers': papers,
+                      'news': ((db.kv_get(con, 'news') or {}).get('items') or [])[:30],
+                      'paper_news': ((db.kv_get(con, 'paper_news') or {}).get('items') or [])[:25],
+                      'library': {k: lib.get(k) for k in ('papers', 'embedded', 'years', 'complete', 'topics')}}}
     return data, files
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 # The public page (web/public.js) reads exactly these keys. Change them only together with public.js and bump SCHEMA_VERSION.
 SCHEMA = {'name': str, 'updated': float, 'schema': int,
+          'today': {'jobs': list, 'brief': dict},
           'tess': {'stats': dict, 'cands': list, 'model': dict},
           'asteroids': {'cad': list, 'sentry': list, 'neocp': list, 'cands': list, 'targets': list},
           'exowatch': {'results': list, 'stale': list},
-          'brief': {'papers': list}}
+          'brief': {'papers': list, 'news': list, 'paper_news': list, 'library': dict}}
 CAND_KEYS = ('id', 'tic', 'period', 'depth', 'snr', 'flags', 'status')
 
 

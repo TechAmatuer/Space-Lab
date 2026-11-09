@@ -337,6 +337,38 @@ def fpp_verdicts():
     assert fpp.verdict(None, None) == 'not computed'
 
 
+@test
+def research_in_news_links():
+    from spacelab import news
+    page = """<a href="https://arxiv.org/abs/2611.01234">paper</a> <a href="https://www.nature.com/articles/s41550-026-02123-x">Nature Astronomy</a>
+      <a href='https://iopscience.iop.org/article/10.3847/1538-4357/ad1234/meta'>ApJ</a> <a href="https://doi.org/10.1126/science.abc1234.">Science</a>
+      <a href="https://arxiv.org/pdf/2611.01234v2">again</a> <a href="https://www.space.com/other-story">not a paper</a>"""
+    refs = news.cited_papers(page)
+    assert refs == [('arxiv', '2611.01234'), ('doi', '10.1038/s41550-026-02123-x'), ('doi', '10.3847/1538-4357/ad1234'),
+                    ('doi', '10.1126/science.abc1234')], refs
+
+
+@test
+def openalex_records_and_kv_clear():
+    from spacelab import library
+    js = {'meta': {'count': 2, 'next_cursor': 'abc'}, 'results': [
+        {'id': 'https://openalex.org/W1', 'doi': 'https://doi.org/10.1086/167900', 'display_name': 'Extinction  law',
+         'publication_year': 1989, 'publication_date': '1989-10-01',
+         'authorships': [{'author': {'display_name': 'J. Cardelli'}}],
+         'abstract_inverted_index': {'The': [0], 'extinction': [1, 4], 'law': [2], 'and': [3], 'depends': [5], 'on': [6], 'one': [7],
+                                     'parameter': [8], 'across': [9], 'the': [10], 'infrared': [11], 'optical': [12], 'ultraviolet.': [13]},
+         'primary_topic': {'subfield': {'display_name': 'Astronomy and Astrophysics'}}},
+        {'id': 'https://openalex.org/W2', 'display_name': 'No abstract', 'publication_year': 1980, 'abstract_inverted_index': None}]}
+    recs, cur, total = library.oa_records(js)
+    assert len(recs) == 1 and recs[0]['id'] == 'W1' and recs[0]['doi'] == '10.1086/167900' and cur == 'abc' and total == 2, recs
+    assert recs[0]['abstract'].startswith('The extinction law and extinction depends'), recs[0]['abstract']
+    assert library.paper_url({'id': 'W1', 'doi': '10.1086/167900'}) == 'https://doi.org/10.1086/167900'
+    assert library.paper_url({'id': '1001.0001', 'doi': ''}) == 'https://arxiv.org/abs/1001.0001'
+    con = library.connect()
+    library.kv(con, 'token', 'xyz'); library.kv(con, 'token', None)
+    assert library.kv(con, 'token') is None
+
+
 # ---------------------------------------------------------------- publishing safety
 @test
 def publish_schema_and_privacy():

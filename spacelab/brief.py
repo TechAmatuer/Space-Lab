@@ -17,6 +17,11 @@ def facts(con):
     top = db.rows(con, 'SELECT title FROM arxiv WHERE digest=? ORDER BY rank LIMIT 3', (today,))
     if top:
         out.append('Top papers today: ' + ' | '.join(t['title'] for t in top))
+    pn = (db.kv_get(con, 'paper_news') or {}).get('items') or []
+    fresh = [i for i in pn if (i.get('date') or 0) > time.time() - 36 * 3600][:4]
+    for i in fresh:
+        p = i['papers'][0]
+        out.append(f"In the news: {i['source']} story \"{i['title']}\" is about the paper \"{p.get('title') or p['id']}\"")
     w = db.kv_get(con, 'neo_watch_text')
     if w and w.get('facts'):
         out.append('Asteroid watch: ' + ' | '.join(w['facts'][:3]))
@@ -27,7 +32,7 @@ def run(ctx):
     con = ctx.con
     f = facts(con)
     llm = LLM(ctx.cfg, ctx.log)
-    text = llm.chat('Write a friendly morning brief (4 short bullet points, plain English, start each with an emoji) for a '
+    text = llm.chat('Write a friendly morning brief (4-6 short bullet points, plain English, start each with an emoji) for a '
                     'space hobbyist about what his computer did overnight and what is waiting for him. Only use these facts:\n\n- '
                     + '\n- '.join(f), system='You are a concise assistant. Never invent results.', max_tokens=260)
     if not text:

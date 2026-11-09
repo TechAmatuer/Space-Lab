@@ -110,6 +110,11 @@ def run(ctx):
         log(f'{n} news items from {len(ok)} other sources')
     except Exception as e:
         log(f'news feeds: {e}')
+    try:
+        from . import news
+        news.papers_in_news(con, log)
+    except Exception as e:
+        log(f'research in the news: {e}')
     papers = fetch_new(cfg, log)
     known = {r['id'] for r in db.rows(con, 'SELECT id FROM arxiv')}
     new = [p for p in papers if p['id'] not in known]

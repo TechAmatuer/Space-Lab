@@ -87,7 +87,7 @@ DEFAULTS = {
         'new_days': 10,           # newly announced near-Earth asteroids from the last N days get a fast precovery check
         'max_searches': 3,
     },
-    'library': {'time_budget_min': 45, 'min_year': 2006},
+    'library': {'time_budget_min': 45, 'min_year': 1976},   # 50 years: arXiv from 1992, OpenAlex before that
     'targets': {'time_budget_min': 15, 'days_ahead': 7, 'mobs_vmax': 12.5, 'mobs_depth_ppt': 5.0},
     'telescope': {                # your own smart telescope (private: location is never shared)
         'model': '',              # 'Seestar S50', 'Dwarf 3' or ''

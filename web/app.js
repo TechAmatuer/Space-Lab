@@ -145,9 +145,9 @@ function renderArxiv(d) {
     const cats = [['', 'all of astro-ph'], ['astro-ph.EP', 'planets & solar system'], ['astro-ph.SR', 'stars & Sun'], ['astro-ph.GA', 'galaxies'],
       ['astro-ph.CO', 'cosmology'], ['astro-ph.HE', 'high-energy'], ['astro-ph.IM', 'instruments & methods']];
     $('#v-arxiv').innerHTML = `<div id="arxivTop"></div>
-      <div class="card" id="libBox"><div class="row"><h3>📚 Library: 20 years of astronomy papers</h3><span class="spacer"></span><span class="small muted" id="libStatus"></span></div>
+      <div class="card" id="libBox"><div class="row"><h3>📚 Library: 50 years of astronomy papers</h3><span class="spacer"></span><span class="small muted" id="libStatus"></span></div>
         <div class="row"><input type="text" id="libQ" placeholder="e.g. hot Jupiter orbital decay; precovery of near-Earth asteroids; TRAPPIST-1 atmospheres" style="flex:1;min-width:260px"><button class="b primary" id="libGo">Search</button></div>
-        <div class="row small" style="margin-top:6px"><label>from <input type="number" id="libY0" value="2006" style="width:72px"></label><label>to <input type="number" id="libY1" value="${new Date().getFullYear()}" style="width:72px"></label>
+        <div class="row small" style="margin-top:6px"><label>from <input type="number" id="libY0" value="1976" style="width:72px"></label><label>to <input type="number" id="libY1" value="${new Date().getFullYear()}" style="width:72px"></label>
           <label>area <select id="libCat">${cats.map(c => `<option value="${c[0]}">${c[1]}</option>`).join('')}</select></label>
           <label>topic <select id="libTopic"><option value="">any</option>${(lib.topics || []).map(t => `<option>${esc(t)}</option>`).join('')}</select></label>
           <label><input type="checkbox" id="libAI" checked> AI reads the top 15 abstracts and ranks them (about a minute)</label></div>
@@ -156,9 +156,11 @@ function renderArxiv(d) {
   }
   $('#libStatus').textContent = lib.papers ? `${lib.papers.toLocaleString()} papers (${lib.years[0]}–${lib.years[1]}), ${lib.embedded.toLocaleString()} searchable by meaning${lib.complete ? '' : ' · still downloading'} · ${lib.disk_gb} GB` : 'building: the first download starts with the next library run';
   const news = (d.news && d.news.items) || [];
+  const pn = (d.paper_news && d.paper_news.items) || [];
   $('#arxivTop').innerHTML = `<div class="row"><h2 style="margin:4px 0">Space brief</h2><span class="spacer"></span>${d.dates.length ? `<select id="arxivDate">${opts}</select>` : ''}</div>
     <p class="muted small">New astronomy papers from arXiv, ranked against your interests by your local embedding model, explained by your local AI. Edit your interests in Setup.</p>`;
-  $('#arxivBody').innerHTML = (cards || '<div class="card empty">No digest yet. It runs every morning (arXiv posts new papers Sunday–Thursday evenings).</div>') +
+  $('#arxivBody').innerHTML = (pn.length ? `<h2>Research in the news</h2><div class="card"><p class="small muted">Stories from popular science outlets this week that link to the research paper behind them.</p><ul class="list">${pn.slice(0, 15).map(paperNewsLi).join('')}</ul></div>` : '') +
+    (cards || '<div class="card empty">No digest yet. It runs every morning (arXiv posts new papers Sunday–Thursday evenings).</div>') +
     (news.length ? `<h2>Elsewhere this week</h2><div class="card"><ul class="list">${news.slice(0, 25).map(n => `<li><span><a href="${esc(n.url)}" target="_blank" rel="noopener">${esc(n.title)}</a><br><span class="small muted">${esc(n.source)}${n.date ? ' · ' + new Date(n.date * 1000).toLocaleDateString() : ''}</span></span></li>`).join('')}</ul></div>` : '');
   afterRender();
 }
@@ -251,7 +253,7 @@ function tessCard(c) {
     ${c.lc ? `<button class="b primary" data-lc="${esc(c.lc)}" data-p="${c.period || ''}" data-t0="${c.t0}" data-dur="${c.duration}" data-dep="${c.depth}">Interactive view</button>` : ''}
     ${S.tessShared ? `<button class="b" data-share="tess" data-id="${c.id}">${c.shared ? 'Shared ✓' : 'Share to Discord'}</button>` : ''}<span class="spacer"></span>
     <a href="https://exofop.ipac.caltech.edu/tess/target.php?id=${c.tic}" target="_blank" rel="noopener">ExoFOP page ↗</a></div>
-    <details class="small"><summary>What to look for</summary><ul><li>Top left: the red lines should sit on real dips, not on gaps or jumps.</li><li>Bottom left: a clean U or box shape. A V shape often means two stars.</li><li>Bottom right: odd and even dips should be equally deep, and the dashed halfway line flat.</li></ul></details></div>`;
+    <details class="small"><summary>What to look for</summary><ul><li>Top left: grey dots are the star's brightness; the red lines are drawn by the period search (not the AI) where it predicts each dip. They should sit on real dips, not on gaps or jumps.</li><li>Top right: the period search; one sharp peak at the red line is good.</li><li>Bottom left: a clean U or box shape. A V shape often means two stars.</li><li>Bottom right: odd and even dips should be equally deep, and the dashed halfway line flat.</li></ul></details></div>`;
 }
 function tessExtras(c) {
   const out = [];
@@ -514,6 +516,10 @@ document.addEventListener('click', async e => {
     if (t.id === 'stopJob') { if (confirm('Stop the job that is running now?')) await api('api/stop/x', {}); return refreshState(); }
   } catch (err) { alert(err.message); }
 });
+function paperNewsLi(n) {
+  return `<li><span><a href="${esc(n.url)}" target="_blank" rel="noopener"><b>${esc(n.title)}</b></a> <span class="small muted">${esc(n.source)}${n.date ? ' · ' + new Date(n.date * 1000).toLocaleDateString() : ''}</span><br>
+    <span class="small">📄 the paper: ${n.papers.map(p => `<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title || p.id)}</a>${p.venue ? ` <span class="muted">(${esc(p.venue)}${p.year ? ', ' + p.year : ''})</span>` : ''}`).join(' · ')}</span></span></li>`;
+}
 async function libSearch() {
   const q = $('#libQ').value.trim(); if (!q) return;
   const ai = $('#libAI').checked, out = $('#libOut');

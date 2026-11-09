@@ -11,16 +11,18 @@
 <header>
   <h1>🔭 Space Lab</h1>
   <nav class="tabs" role="tablist">
-    <button role="tab" data-tab="tess" aria-selected="true">Planet candidates</button>
-    <button role="tab" data-tab="asteroids" aria-selected="false">Asteroids</button>
-    <button role="tab" data-tab="exowatch" aria-selected="false">Exoplanet Watch</button>
+    <button role="tab" data-tab="today" aria-selected="true">Today</button>
     <button role="tab" data-tab="brief" aria-selected="false">Space brief</button>
+    <button role="tab" data-tab="exowatch" aria-selected="false">Exoplanet Watch</button>
+    <button role="tab" data-tab="tess" aria-selected="false">TESS hunter</button>
+    <button role="tab" data-tab="asteroids" aria-selected="false">Asteroids</button>
     <button role="tab" data-tab="about" aria-selected="false">About</button>
   </nav>
   <div class="status"><span id="updated">loading…</span></div>
 </header>
 <main>
-  <section class="view on" id="v-tess"></section>
+  <section class="view on" id="v-today"></section>
+  <section class="view" id="v-tess"></section>
   <section class="view" id="v-asteroids"></section>
   <section class="view" id="v-exowatch"></section>
   <section class="view" id="v-brief"></section>
