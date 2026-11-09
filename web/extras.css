@@ -1,1 +1,51 @@
-/* Styles for web/extras.js. Reuse the variables from style.css (var(--line), var(--muted), ...). */
+/* Extras styles — reuses variables from style.css */
+
+/* Task 1: Glossary tooltips */
+.sl-gl{border-bottom:2px dotted var(--line-2);cursor:help;position:relative}
+#sl-glossary-popup{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);max-width:min(340px,92vw);background:var(--panel);border:1px solid var(--line-2);border-radius:10px;padding:12px 16px;color:var(--ink);font-size:13px;line-height:1.5;z-index:60;box-shadow:var(--shadow);display:none;text-align:center}
+#sl-glossary-popup.on{display:block}
+#sl-glossary-popup .close{position:absolute;top:6px;right:8px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;padding:2px 6px}
+
+/* Task 4: Basic/Expert toggle */
+.sl-level-toggle{display:inline-block;margin-left:auto;font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--line-2);background:none;color:var(--muted);cursor:pointer}
+body[data-level="expert"] .kv, body[data-level="expert"] details, body[data-level="expert"] table.compact td:nth-child(n+3), body[data-level="expert"] .note:not(:first-of-type) { display: unset !important; }
+body:not([data-level]) .kv, body:not([data-level]) details > p, body:not([data-level]) .compact td:nth-child(n+3) { opacity: .15; }
+body[data-level="basic"] .compact td:nth-child(n+3){display:none}
+
+/* Task 3: Listen button */
+.sl-listen-btn{font-size:12px;padding:3px 8px;margin-left:4px}
+.sl-listen-btn.playing{background:var(--bad)!important;color:#fff!important;border-color:var(--bad)!important}
+
+/* Task 5/6: Review tab */
+.sl-review-card{text-align:center;padding:20px 10px}
+.sl-review-card img.plot{max-width:480px;margin:10px auto;cursor:default}
+.sl-verdicts{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:12px}
+.sl-verdicts button{font-size:13px;padding:6px 14px;border-radius:8px;border:1px solid var(--line-2);background:var(--panel-2);color:var(--ink);cursor:pointer}
+.sl-verdicts button.sel{border-color:var(--accent);background:var(--accent-soft)}
+.sl-result{text-align:center;margin-top:16px;padding:12px;background:var(--panel-2);border-radius:8px}
+
+/* Task 7: Period finder */
+#sl-canvas{width:100%;max-width:600px;height:200px;border:1px solid var(--line);border-radius:8px;background:#000;cursor:crosshair}
+.sl-folded-view{height:120px;border:1px solid var(--line);border-radius:8px;margin-top:8px}
+
+/* Task 8: Postcard */
+#sl-postcard-btn{margin-top:8px}
+
+/* Task 9: My list */
+.sl-star-link{color:var(--muted);cursor:pointer;text-decoration:none;font-size:16px}
+.sl-star-link:hover{color:var(--warn)}
+.sl-star-link.on{color:var(--warn)}
+
+/* Task 10: Walkthrough */
+.sl-step{text-align:center;padding:20px}
+.sl-step h3{margin-bottom:8px}
+
+/* Task 11: Badges */
+.sl-badge-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.sl-badge{padding:4px 12px;border-radius:999px;border:1px solid var(--line-2);font-size:11px;color:var(--ink-2)}
+.sl-badge.earned{border-color:var(--warn);color:var(--warn)}
+
+/* Task 6: Asteroid review */
+.sl-asteroid-review{text-align:center}
+.sl-asteroid-review img.blink{width:300px;max-width:100%}
+.sl-astr-verdicts button{margin:4px}
