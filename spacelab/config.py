@@ -32,6 +32,7 @@ DEFAULTS = {
         'vision': ['gemma4:26b'],   # looks at plots (Gemma 4 can read images)
         'embed': 'bge-m3',
     },
+    'always_on': False,         # full-time mode: keep the Mac awake and run TESS + library back-to-back when idle
     'schedule': {               # local time, 24h. Jobs run one at a time.
         'tess': '01:30',
         'precovery': '03:30',

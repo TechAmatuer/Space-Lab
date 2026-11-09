@@ -377,6 +377,7 @@ function renderSetup(cfg) {
     <h2>Schedule</h2><div class="card">${sched}<div class="row"><label class="f"><span>TESS stars per night</span><input type="number" id="sTessN" min="5" max="1000" value="${esc(cfg.tess.max_targets)}"></label>
       <label class="f"><span>TESS stars at a time (0 = automatic)</span><input type="number" id="sTessW" min="0" max="12" value="${esc(cfg.tess.workers || 0)}"></label>
       <label class="f"><span>Asteroids per night</span><input type="number" id="sPcN" min="1" max="30" value="${esc(cfg.precovery.max_targets)}"></label></div>
+      <label class="f" style="margin-top:8px"><input type="checkbox" id="sAlways" ${cfg.always_on ? 'checked' : ''}> <b>Full-time mode</b>: keep this Mac awake and keep hunting (TESS stars and the paper library run back-to-back whenever nothing else is scheduled). Keep the Mac plugged in; closing a laptop lid still puts it to sleep.</label>
       <button class="b primary" id="saveSched">Save</button> <span id="saved2" class="small ok-t"></span>
       <p class="small muted">Jobs run one at a time, at night, so they never compete with you or with Meridian for memory.</p></div>
     <h2>Space brief interests</h2><div class="card"><label class="f"><span>One interest per line. Papers are ranked by how close they are in meaning (local bge-m3 embeddings).</span><textarea id="sInterests">${esc(cfg.arxiv.interests.join('\n'))}</textarea></label>
@@ -478,7 +479,7 @@ document.addEventListener('click', async e => {
     }
     if (t.id === 'saveSched') {
       const schedule = {}; $$('[data-sched]').forEach(i => schedule[i.dataset.sched] = i.value);
-      await api('api/settings', { schedule, tess: { max_targets: +$('#sTessN').value, workers: +$('#sTessW').value }, precovery: { max_targets: +$('#sPcN').value } });
+      await api('api/settings', { schedule, always_on: $('#sAlways').checked, tess: { max_targets: +$('#sTessN').value, workers: +$('#sTessW').value }, precovery: { max_targets: +$('#sPcN').value } });
       $('#saved2').textContent = 'Saved'; return;
     }
     if (t.id === 'saveInterests') {

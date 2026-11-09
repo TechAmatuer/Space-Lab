@@ -120,6 +120,50 @@ def prune_logs(d, keep=30):
             pass
 
 
+FILLERS = ('tess', 'library')     # what full-time mode runs when nothing else is due
+
+
+def library_busy():
+    try:
+        from . import library
+        s = library.status()
+        return not s['complete'] or s['embedded'] < s['papers']
+    except Exception:
+        return True
+
+
+def keep_awake(on):
+    """macOS: caffeinate stops idle and system sleep (on power) while Space Lab runs. The screen can still turn off."""
+    p = STATE.get('caffeinate')
+    alive = p is not None and p.poll() is None
+    if on and not alive and sys.platform == 'darwin' and shutil.which('caffeinate'):
+        STATE['caffeinate'] = subprocess.Popen(['caffeinate', '-i', '-m', '-s', '-w', str(os.getpid())],
+                                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        log('full-time mode: keeping the Mac awake')
+    elif not on and alive:
+        p.terminate()
+        STATE['caffeinate'] = None
+        log('full-time mode off: the Mac may sleep normally')
+
+
+def fill_idle(cfg, con):
+    with LOCK:
+        idle = not QUEUED and not STATE['running']
+    if not idle:
+        return
+    i = STATE.get('filler', 0)
+    for k in range(len(FILLERS)):
+        job = FILLERS[(i + k) % len(FILLERS)]
+        if job == 'library' and not library_busy():
+            continue
+        last = con.execute('SELECT MAX(started) FROM runs WHERE job=?', (job,)).fetchone()[0]
+        if last and time.time() - last < 600:     # a run that ends at once (no internet, nothing to do) won't loop
+            continue
+        STATE['filler'] = (i + k + 1) % len(FILLERS)
+        enqueue(job, 'full-time mode')
+        return
+
+
 def scheduler():
     last_inbox = 0
     while True:
@@ -160,6 +204,9 @@ def scheduler():
                 if any(p for d in (config.EXO_INBOX, tele) for p in d.iterdir()
                        if not p.name.startswith('.') and p.name not in ('processed', 'failed')):
                     enqueue('exowatch', 'new dataset')
+            keep_awake(bool(cfg.get('always_on')))
+            if cfg.get('always_on'):
+                fill_idle(cfg, con)
         except Exception as e:
             log(f'scheduler: {e}')
         time.sleep(30)
@@ -182,7 +229,7 @@ def state():
         runs[job] = r
     done_today = con.execute("SELECT COUNT(*) FROM tasks WHERE status='done' AND updated > ?", (time.time() - 86400,)).fetchone()[0]
     return {'now': time.time(), 'brief': db.kv_get(con, 'brief'), 'tasks': tasks, 'runs': runs, 'done_today': done_today,
-            'running': STATE['running'], 'queue': sorted(QUEUED), 'schedule': cfg['schedule'],
+            'running': STATE['running'], 'queue': sorted(QUEUED), 'schedule': cfg['schedule'], 'always_on': bool(cfg.get('always_on')),
             'jobs': {k: v[1] for k, v in JOBS.items()}, 'inbox': str(config.EXO_INBOX),
             'profile': {k: cfg.get(k) for k in ('observer_name', 'aavso_code', 'contact_email', 'sarc_verified')},
             'selftest': db.kv_get(con, 'selftest')}
@@ -287,7 +334,7 @@ def api_logs(q):
     return {'job': job, 'file': str(files[-1]) if files else None, 'text': tail(files[-1]) if files else '(no runs yet)'}
 
 
-SETTABLE = {'observer_name', 'aavso_code', 'contact_email', 'sarc_verified', 'discord_webhook', 'discord_alerts', 'schedule', 'arxiv',
+SETTABLE = {'always_on', 'observer_name', 'aavso_code', 'contact_email', 'sarc_verified', 'discord_webhook', 'discord_alerts', 'schedule', 'arxiv',
             'tess', 'precovery', 'llm', 'telescope', 'share', 'neocp', 'targets'}
 MASK = '••••••••'
 
