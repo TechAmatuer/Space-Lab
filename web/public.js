@@ -178,6 +178,7 @@ function setTab(tab) {
   $$('nav.tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === tab));
   $$('section.view').forEach(v => v.classList.toggle('on', v.id === 'v-' + tab));
   history.replaceState(null, '', '#' + tab);
+  const tb = document.querySelector(`nav.tabs button[data-tab="${tab}"]`); if (tb && tb.scrollIntoView && innerWidth <= 1100) tb.scrollIntoView({ block: 'nearest', inline: 'center' });
   if (R[tab]) R[tab]();
   runExtras(tab);
 }

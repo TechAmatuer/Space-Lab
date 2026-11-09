@@ -108,9 +108,9 @@
   function backyard(c) {
     const m = c.star && c.star.tmag, ppt = (c.depth || 0) * 1000;
     if (!m) return '';
-    const eye = m < 6 ? 'visible to the naked eye under dark skies' : m < 9 ? 'visible in binoculars' : m < 12.5 ? 'visible in a small backyard telescope' : m < 15 ? 'needs a large amateur telescope or a camera' : 'too faint for most amateur telescopes';
+    const eye = m < 6 ? 'can be seen with the naked eye under dark skies' : m < 9 ? 'shows up in binoculars' : m < 12.5 ? 'shows up in a small backyard telescope' : m < 15 ? 'needs a large amateur telescope or a camera' : 'is too faint for most amateur telescopes';
     const dip = ppt >= 5 && m < 13 ? 'the dip is deep enough that a careful amateur with a camera could measure it' : ppt >= 2 && m < 12 ? 'measuring the dip would take a good camera and very steady conditions' : 'the dip itself is too shallow to measure from the ground with amateur gear: it needs TESS or a big telescope';
-    return `<div class="small sl-backyard">🔭 <b>From your backyard:</b> the star (magnitude ${num(m, 1)}) is ${eye}; ${dip} (${num(ppt, 1)} parts per thousand).</div>`;
+    return `<div class="small sl-backyard">🔭 <b>From your backyard:</b> the star (magnitude ${num(m, 1)}) ${eye}; ${dip} (${num(ppt, 1)} parts per thousand).</div>`;
   }
   function shareText(c) {
     return `🔭 Planet candidate TIC ${c.tic}: ${c.period ? 'a dip every ' + num(c.period, 2) + ' days, ' : ''}about ${num(c.rp, 1)}× Earth's size if it's real. ` +

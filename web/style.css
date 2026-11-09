@@ -83,3 +83,19 @@ pre.log{max-height:420px;overflow:auto;background:var(--panel-2);border:1px soli
 .checks li{margin:3px 0;list-style:none} .checks{padding-left:0}
 .thumb{max-width:260px;border-radius:6px;border:1px solid var(--line);cursor:zoom-in;vertical-align:top}
 table.compact td,table.compact th{padding:3px 8px}
+/* header with many tabs: one tidy row on wide screens; on narrow screens the tabs get their own row and scroll sideways */
+header{flex-wrap:wrap;row-gap:6px}
+nav.tabs{flex:1 1 auto;min-width:0}
+nav.tabs button{white-space:nowrap}
+@media (max-width: 1100px){
+  header{padding:8px 12px;gap:10px}
+  nav.tabs{order:3;flex:1 1 100%;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding-bottom:2px}
+  nav.tabs::-webkit-scrollbar{display:none}
+  nav.tabs button{flex:none}
+  .status{white-space:normal;text-align:right}
+}
+@media (max-width: 600px){
+  main{padding:10px}
+  .g2,.g3{grid-template-columns:1fr}
+  .status{font-size:11px}
+}
