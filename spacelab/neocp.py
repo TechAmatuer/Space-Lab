@@ -110,7 +110,7 @@ def run(ctx):
             break
         try:
             from . import ztf
-            nimg, ncand = ztf.search(ctx, t)          # recent ZTF images first: best chance for a new object
+            nimg, ncand = ztf.search(ctx, t, days_back=int(nc.get('ztf_days_back', 365)))          # recent ZTF images first: best chance for a new object
             if ncand == 0:
                 n2, ncand = precovery.search_target(ctx, t)
                 nimg += n2

@@ -10,7 +10,7 @@ two images of the same night, exactly like the Pan-STARRS search.
 import io
 import math
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 
@@ -80,12 +80,13 @@ def cutout(url):
         return hd[0].data.astype(np.float32), hd[0].header.copy()
 
 
-def search(ctx, t, max_nights=3):
-    """Returns (images used, possible sightings)."""
+def search(ctx, t, max_nights=3, days_back=None):
+    """Returns (images used, possible sightings). days_back limits the image query (much faster for new objects)."""
     con, cfg, log = ctx.con, ctx.cfg, ctx.log
     des = t['des']
+    begin = (datetime.now(timezone.utc) - timedelta(days=days_back)).strftime('%Y-%m-%d') if days_back else '2018-03-17'
     try:
-        ims = images(des)
+        ims = images(des, begin=begin)
     except Exception as e:
         log(f'  ZTF: image search failed ({e})')
         return 0, 0
