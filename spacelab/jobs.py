@@ -81,6 +81,8 @@ def main(argv):
                              (job, time.time(), 'running', 'terminal')).lastrowid
     cfg = config.load()
     budget = (cfg.get(job) or {}).get('time_budget_min') if isinstance(cfg.get(job), dict) else None
+    if budget and os.environ.get('SPACELAB_TRIGGER') == 'full-time mode':
+        budget = min(float(budget), 50.0)     # background runs stay short so scheduled and requested jobs never wait long
     ctx = Ctx(job, run_id, budget)
     ctx.log(f'=== {JOBS[job][1]} (run {run_id}) ===')
     try:

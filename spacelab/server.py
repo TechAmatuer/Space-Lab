@@ -60,6 +60,7 @@ def worker():
         timeout = (budget + 45) * 60 if job != 'exowatch' else (cfg['exowatch']['timeout_min'] + 30) * 60
         env = config.job_env()
         env['SPACELAB_RUN_ID'] = str(run_id)
+        env['SPACELAB_TRIGGER'] = str(trigger)
         status = 'error'
         try:
             with open(logf, 'w') as fh:
