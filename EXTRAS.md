@@ -30,6 +30,9 @@ ai.verdict, fpp.verdict), `data.asteroids.cands[]` (des, night, archive, gif, pn
    names, emails or locations.
 7. Plain JavaScript, no libraries, no build step. Keep each feature under ~150 lines.
 8. Works on a phone (narrow screen) and with dark colors from `style.css` variables.
+9. Every element you add gets a class starting with `sl-` (the checker strips them to verify the original text is untouched).
+10. Never add anything to `nav.tabs` except through `SpaceLab.addTab` (every button there is treated as a tab).
+11. In loops, use `const`/`let` or `forEach` so each button remembers ITS OWN card (a `var` in a loop makes every button use the last card).
 
 ## Try it on your Mac before committing
 ```
@@ -43,5 +46,6 @@ Open http://localhost:8800/public.html (images won't show locally; that's normal
 ## Checks before every commit
 ```
 node --check web/extras.js
+node tests/extras/check.js          (one-time setup: cd tests/extras && npm install)
 python tests/test_offline.py
 ```

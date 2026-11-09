@@ -30,4 +30,5 @@ jobs:
           python-version: '3.12'
       - run: pip install -r requirements.txt
       - run: python tests/test_offline.py
-      - run: node --check web/app.js && node --check web/public.js
+      - run: node --check web/app.js && node --check web/public.js && node --check web/extras.js
+      - run: cd tests/extras && npm ci --silent && cd ../.. && node tests/extras/check.js G

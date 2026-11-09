@@ -1,0 +1,6 @@
+{
+  "name": "spacelab-extras-checks",
+  "private": true,
+  "description": "Browser checks for web/extras.js (run: node tests/extras/check.js)",
+  "devDependencies": { "jsdom": "24.1.3" }
+}

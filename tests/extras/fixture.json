@@ -1,0 +1,354 @@
+{
+ "name": "a Space Lab volunteer",
+ "updated": 1794200000,
+ "schema": 3,
+ "today": {
+  "brief": {
+   "t": 1794190000,
+   "text": "🔭 Checked 60 stars overnight.\n☄️ No new hazards.",
+   "model": "example-model"
+  },
+  "jobs": [
+   {
+    "job": "arxiv",
+    "label": "arXiv digest",
+    "schedule": "06:00",
+    "started": null,
+    "finished": null,
+    "status": null,
+    "summary": ""
+   },
+   {
+    "job": "exowatch",
+    "label": "Exoplanet Watch",
+    "schedule": "05:00",
+    "started": null,
+    "finished": null,
+    "status": null,
+    "summary": ""
+   },
+   {
+    "job": "tess",
+    "label": "TESS planet hunter",
+    "schedule": "01:30",
+    "started": 1794193318.1229186,
+    "finished": 1794196858.12292,
+    "status": "ok",
+    "summary": "checked 60 stars; log at …/x"
+   },
+   {
+    "job": "precovery",
+    "label": "Asteroid watch + precovery",
+    "schedule": "03:30",
+    "started": null,
+    "finished": null,
+    "status": null,
+    "summary": ""
+   },
+   {
+    "job": "brief",
+    "label": "Morning brief",
+    "schedule": "06:40",
+    "started": null,
+    "finished": null,
+    "status": null,
+    "summary": ""
+   },
+   {
+    "job": "neocp",
+    "label": "NEO confirmation watch",
+    "schedule": "every 2h",
+    "started": null,
+    "finished": null,
+    "status": null,
+    "summary": ""
+   },
+   {
+    "job": "targets",
+    "label": "Transit timing targets",
+    "schedule": "07:00",
+    "started": null,
+    "finished": null,
+    "status": null,
+    "summary": ""
+   },
+   {
+    "job": "publish",
+    "label": "Shared page update",
+    "schedule": "07:15",
+    "started": null,
+    "finished": null,
+    "status": null,
+    "summary": ""
+   },
+   {
+    "job": "library",
+    "label": "Paper library (20 years)",
+    "schedule": "every 3h",
+    "started": null,
+    "finished": null,
+    "status": null,
+    "summary": ""
+   },
+   {
+    "job": "selftest",
+    "label": "Self-test",
+    "schedule": null,
+    "started": null,
+    "finished": null,
+    "status": null,
+    "summary": ""
+   },
+   {
+    "job": "report",
+    "label": "Maintenance & coverage report",
+    "schedule": null,
+    "started": null,
+    "finished": null,
+    "status": null,
+    "summary": ""
+   },
+   {
+    "job": "export",
+    "label": "Data export (JSON/CSV)",
+    "schedule": null,
+    "started": null,
+    "finished": null,
+    "status": null,
+    "summary": ""
+   }
+  ],
+  "always_on": false
+ },
+ "tess": {
+  "stats": {
+   "done": 1200,
+   "queued": 300,
+   "nodata": 40,
+   "error": 2,
+   "known": 15
+  },
+  "cands": [
+   {
+    "id": 11,
+    "tic": 111111,
+    "kind": "periodic",
+    "period": 3.2,
+    "t0": 3001.5,
+    "duration": 0.1,
+    "depth": 0.004,
+    "snr": 12.0,
+    "sde": 9.0,
+    "ntr": 7,
+    "rp": 2.3,
+    "flags": [],
+    "known": null,
+    "explain": "A transit-like dip that repeats every 3.2 days.",
+    "status": "under review",
+    "plot": "files/plots/tess/111111.png",
+    "lc": "files/lc/111111.json",
+    "created": 1794100000,
+    "ai": {
+     "verdict": "planet-like",
+     "confidence": 0.7,
+     "reasons": [
+      "flat bottom"
+     ]
+    },
+    "model_score": 0.6,
+    "fpp": {
+     "fpp": 0.2,
+     "nfpp": 0.0004,
+     "verdict": "likely planet"
+    },
+    "centroid": {
+     "verdict": "on target",
+     "offset_arcsec": 2,
+     "signif": 0.5,
+     "snr": 8,
+     "png": null
+    }
+   },
+   {
+    "id": 12,
+    "tic": 222222,
+    "kind": "periodic",
+    "period": 5.5,
+    "t0": 3002.1,
+    "duration": 0.12,
+    "depth": 0.012,
+    "snr": 25.0,
+    "sde": 14.0,
+    "ntr": 4,
+    "rp": 9.1,
+    "flags": [
+     "odd and even dips differ"
+    ],
+    "known": null,
+    "explain": "A deep V-shaped dip; it may be two stars.",
+    "status": "under review",
+    "plot": "files/plots/tess/222222.png",
+    "lc": "files/lc/222222.json",
+    "created": 1794000000,
+    "ai": {
+     "verdict": "eclipsing binary",
+     "confidence": 0.8,
+     "reasons": [
+      "V shape"
+     ]
+    },
+    "model_score": 0.2,
+    "fpp": null,
+    "centroid": null
+   },
+   {
+    "id": 13,
+    "tic": 333333,
+    "kind": "single",
+    "period": null,
+    "t0": 3005.0,
+    "duration": 0.2,
+    "depth": 0.002,
+    "snr": 8.0,
+    "sde": null,
+    "ntr": 1,
+    "rp": 1.5,
+    "flags": [],
+    "known": null,
+    "explain": "One lone dip; the period is unknown.",
+    "status": "unsure",
+    "plot": "files/plots/tess/333333.png",
+    "lc": null,
+    "created": 1793900000,
+    "ai": null,
+    "model_score": null,
+    "fpp": null,
+    "centroid": null
+   }
+  ],
+  "engine": null,
+  "model": {
+   "ready": null,
+   "n_user": null,
+   "n_auto": null,
+   "acc": null,
+   "top": null,
+   "need": null
+  }
+ },
+ "asteroids": {
+  "text": null,
+  "cad": [],
+  "sentry": [
+   {
+    "des": "2026 XY",
+    "fullname": "(2026 XY)",
+    "ip": "1e-5",
+    "ps": -3.1,
+    "ts_max": 0,
+    "range": "2080-2090"
+   }
+  ],
+  "neocp": [],
+  "cands": [
+   {
+    "id": 7,
+    "des": "2026 AB1",
+    "night": "2019-04-12",
+    "archive": "Pan-STARRS",
+    "offset": 3.2,
+    "obs": [
+     {
+      "obsTime": "2019-04-12T08:01:00Z",
+      "ra": 150.1,
+      "dec": 12.3,
+      "filter": "r",
+      "snr": 6.1
+     }
+    ],
+    "gif": "files/plots/precovery/7.gif",
+    "png": "files/plots/precovery/7.png",
+    "status": "new"
+   },
+   {
+    "id": 8,
+    "des": "2026 CD2",
+    "night": "2020-02-02",
+    "archive": "ZTF",
+    "offset": 1.1,
+    "obs": [],
+    "gif": "files/plots/precovery/8.gif",
+    "png": null,
+    "status": "new"
+   }
+  ],
+  "targets": [],
+  "scout": [],
+  "neocp_t": null,
+  "new_neos": []
+ },
+ "exowatch": {
+  "results": [],
+  "stale": [],
+  "ephem_t": null
+ },
+ "brief": {
+  "date": null,
+  "papers": [
+   {
+    "title": "A hot Jupiter with a decaying orbit",
+    "authors": "A. Example, B. Sample",
+    "url": "https://arxiv.org/abs/2611.00001",
+    "summary": "The orbital period of a giant planet is shrinking.",
+    "why": "Tests tidal theory."
+   }
+  ],
+  "news": [
+   {
+    "source": "AAS Nova",
+    "title": "News item",
+    "url": "https://aasnova.org/x",
+    "date": 1794196918.123678
+   }
+  ],
+  "paper_news": [
+   {
+    "source": "Space.com",
+    "title": "Weird planet",
+    "url": "https://space.com/x",
+    "date": 1794196918.1234148,
+    "papers": [
+     {
+      "id": "2611.01234",
+      "title": "A weird planet",
+      "url": "https://arxiv.org/abs/2611.01234"
+     }
+    ]
+   }
+  ],
+  "library": {
+   "papers": 0,
+   "embedded": 0,
+   "years": [
+    null,
+    null
+   ],
+   "complete": false,
+   "topics": [
+    "exoplanets",
+    "asteroids & comets",
+    "solar system",
+    "the Sun",
+    "stars",
+    "star & planet formation",
+    "compact objects",
+    "gravitational waves",
+    "transients",
+    "galaxies",
+    "cosmology",
+    "instruments & methods",
+    "astrobiology"
+   ]
+  }
+ }
+}

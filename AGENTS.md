@@ -29,6 +29,7 @@ and keep old keys working. `publish.validate` refuses to publish data that does 
 python tests/test_offline.py
 node --check web/app.js
 node --check web/public.js
+node tests/extras/check.js G      (needs: cd tests/extras && npm install)
 ```
 All tests must pass. Add a test for anything new. Tests run with a temporary data folder (`SPACELAB_DATA`).
 

@@ -22,3 +22,4 @@ settings.json
 /.nojekyll
 *_gaia_background.csv
 web/data.json
+node_modules/
