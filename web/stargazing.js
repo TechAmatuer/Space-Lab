@@ -112,10 +112,14 @@
       im.src = ds.url;
     });
   }
-  const SKY_CLASS = [[0.25, 'Excellent dark sky', 'the Milky Way is bright and detailed'], [0.5, 'Good dark sky', 'the Milky Way is easy to see'],
-    [0.75, 'Rural sky', 'the Milky Way shows on good nights'], [0.9, 'Suburban sky', 'the Milky Way is faint or invisible; bright planets and stars are fine'],
-    [1.01, 'Bright city sky', 'only the Moon, planets and the brightest stars']];
-  const skyClass = (ds, v) => SKY_CLASS.find(c => (ds.cdf[v] ?? 1) <= c[0]) || SKY_CLASS[4];
+  // Sky brightness as artificial light compared with a natural dark sky (1 = light pollution as bright as the sky itself).
+  // Calibrated so known places land in the right class: big-city centres ~12x, Shenandoah ~0.25x, Spruce Knob WV and
+  // Cherry Springs PA below 0.1x, west Texas ~0.003x. A rough guide, good enough to compare places.
+  const ARTIFICIAL = (ds, v) => 12 * Math.pow(10, (v - 254) / 254 * (ds.hi - ds.lo));
+  const SKY_CLASS = [[0.15, 'Excellent dark sky', 'the Milky Way is bright and detailed'], [0.5, 'Good dark sky', 'the Milky Way is easy to see'],
+    [1.5, 'Rural sky', 'the Milky Way shows, washed out near the horizon'], [4, 'Suburban sky', 'the Milky Way is faint or invisible; planets and bright stars are fine'],
+    [Infinity, 'Bright city sky', 'only the Moon, planets and the brightest stars']];
+  const skyClass = (ds, v) => SKY_CLASS.find(c => ARTIFICIAL(ds, v) < c[0]);
   function darkFinder(box) {
     const ds = B().darksky, p = place();
     box.innerHTML = `<h3>🌌 Find dark skies near you</h3>${!ds || !ds.url ? '<p class="muted small">The dark-sky map appears after the next update.</p>'
