@@ -21,7 +21,7 @@ from . import classifier, config, db, net
 API = 'https://api.github.com'
 SITE = config.DATA / 'public'
 WEB = config.ROOT / 'web'
-SITE_FILES = ('public.html', 'public.js', 'style.css', 'lcviewer.js', 'orbit3d.js', 'extras.js', 'extras.css')
+SITE_FILES = ('public.html', 'public.js', 'style.css', 'lcviewer.js', 'orbit3d.js', 'extras.js', 'extras.css', 'beyond.js')
 
 
 def _j(x):
@@ -29,6 +29,19 @@ def _j(x):
         return json.loads(x) if isinstance(x, str) else x
     except Exception:
         return None
+
+
+def _beyond_public(b):
+    """Sky watch / Beyond astronomy data is all public and location-free already; drop anything unexpected."""
+    keep = ('t', 'space_weather', 'fireballs', 'comets', 'gw', 'supernovae', 'launches', 'habitable', 'sky', 'earth', 'iss', 'quakes')
+    return {k: b[k] for k in keep if k in b}
+
+
+def _contrib(con):
+    try:
+        return db.contributions(con)
+    except Exception:
+        return {}
 
 
 def clean(s):
@@ -55,8 +68,11 @@ def build_data(con, cfg):
 
     model = db.kv_get(con, 'clf')
     tess = []
+    stars = {r['tic']: r for r in db.rows(con, 'SELECT tic, teff, rad, dist, tmag FROM tess_targets WHERE tic IN '
+                                                "(SELECT tic FROM tess_cands WHERE status IN ('new','real','unsure'))")}
     for c in db.rows(con, "SELECT * FROM tess_cands WHERE status IN ('new','real','unsure') ORDER BY created DESC LIMIT 120"):
         ai, cen = _j(c.get('ai')) or {}, _j(c.get('centroid')) or {}
+        st = stars.get(c['tic']) or {}
         tess.append({'id': c['id'], 'tic': c['tic'], 'kind': c['kind'], 'period': c['period'], 't0': c['t0'], 'duration': c['duration'],
                      'depth': c['depth'], 'snr': c['snr'], 'sde': c['sde'], 'ntr': c['ntr'], 'rp': c['rp'],
                      'flags': _j(c['flags']) or [], 'known': c['known'], 'explain': c['explain'],
@@ -65,6 +81,7 @@ def build_data(con, cfg):
                      'ai': {k: ai.get(k) for k in ('verdict', 'confidence', 'reasons')} if ai else None,
                      'model_score': classifier.score(model, c),
                      'fpp': _j(c.get('fpp')),
+                     'star': {'teff': st.get('teff'), 'radius_sun': st.get('rad'), 'dist_pc': st.get('dist'), 'tmag': st.get('tmag')},
                      'centroid': ({k: cen.get(k) for k in ('verdict', 'offset_arcsec', 'signif', 'snr')} | {'png': f(cen.get('png'))}) if cen else None})
     stats = {r['status']: r['n'] for r in db.rows(con, 'SELECT status, COUNT(*) AS n FROM tess_targets GROUP BY status')}
     from .jobs import JOBS
@@ -113,7 +130,14 @@ def build_data(con, cfg):
     papers = db.rows(con, 'SELECT id,title,authors,url,published,summary,why,project,rank FROM arxiv WHERE digest=? ORDER BY rank',
                      (dates[0],)) if dates else []
     eph = db.kv_get(con, 'ephem') or {}
+    beyond = _beyond_public(db.kv_get(con, 'beyond') or {})
+    if beyond.get('earth'):
+        beyond['earth'] = [{k: e.get(k) for k in ('key', 'caption', 'source', 'date')} | {'img': f(e.get('path'))}
+                           for e in beyond['earth'] if f(e.get('path'))]
     data = {'name': public_name(cfg), 'updated': time.time(), 'schema': SCHEMA_VERSION,
+            'beyond': beyond,
+            'community': db.kv_get(con, 'community') or {},
+            'contributions': _contrib(con),
             'today': {'brief': {'t': brief_kv.get('t'), 'text': clean(brief_kv.get('text') or ''), 'model': brief_kv.get('model')},
                       'jobs': runs, 'always_on': bool(cfg.get('always_on'))},
             'tess': {'stats': {k: stats.get(k, 0) for k in ('done', 'queued', 'nodata', 'error', 'known')}, 'cands': tess,
@@ -133,10 +157,10 @@ def build_data(con, cfg):
     return data, files
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 # The public page (web/public.js) reads exactly these keys. Change them only together with public.js and bump SCHEMA_VERSION.
 SCHEMA = {'name': str, 'updated': float, 'schema': int,
-          'today': {'jobs': list, 'brief': dict},
+          'today': {'jobs': list, 'brief': dict}, 'beyond': dict, 'community': dict, 'contributions': dict,
           'tess': {'stats': dict, 'cands': list, 'model': dict},
           'asteroids': {'cad': list, 'sentry': list, 'neocp': list, 'cands': list, 'targets': list},
           'exowatch': {'results': list, 'stale': list},

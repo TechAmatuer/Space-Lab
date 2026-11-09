@@ -43,6 +43,7 @@ DEFAULTS = {
         'publish': '07:15',
         'neocp': 'every 2h',
         'library': 'every 3h',
+        'beyond': 'every 3h',
     },
     'arxiv': {
         'categories': ['astro-ph.EP', 'astro-ph.SR', 'astro-ph.IM', 'astro-ph.GA', 'astro-ph.HE', 'astro-ph.CO'],

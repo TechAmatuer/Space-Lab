@@ -117,3 +117,14 @@ def close_task(con, key, status='done'):
 def close_tasks_like(con, pattern, status='done', except_key=None):
     con.execute("UPDATE tasks SET status=?, updated=? WHERE key LIKE ? AND status='open' AND key != ?",
                 (status, time.time(), pattern, except_key or ''))
+
+
+def contributions(con):
+    """What you have done: reviews, uploads, reports. Counts only; nothing personal."""
+    one = lambda sql, a=(): con.execute(sql, a).fetchone()[0]
+    return {'tess_reviewed': one("SELECT COUNT(*) FROM tess_cands WHERE status IN ('real','fake','unsure')"),
+            'tess_planet_like': one("SELECT COUNT(*) FROM tess_cands WHERE status='real'"),
+            'asteroid_sightings_checked': one("SELECT COUNT(*) FROM pc_cands WHERE status IN ('real','fake','unsure')"),
+            'exowatch_reduced': one("SELECT COUNT(*) FROM exo WHERE status='done'"),
+            'uploads_done': one("SELECT COUNT(*) FROM tasks WHERE status='done' AND (key LIKE 'exo:upload:%' OR key LIKE 'pc:%' OR key LIKE '%submit%')"),
+            'stars_searched': one("SELECT COUNT(*) FROM tess_targets WHERE status='done'")}

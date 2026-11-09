@@ -17,6 +17,7 @@ JOBS = {
     'targets': ('spacelab.ephem', 'Transit timing targets'),
     'publish': ('spacelab.publish', 'Shared page update'),
     'library': ('spacelab.library', 'Paper library (50 years)'),
+    'beyond': ('spacelab.beyond', 'Sky watch & Beyond astronomy'),
     'selftest': ('spacelab.selftest', 'Self-test'),
     'report': ('spacelab.reanalyze', 'Maintenance & coverage report'),
     'export': ('spacelab.export', 'Data export (JSON/CSV)'),

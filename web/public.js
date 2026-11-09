@@ -64,7 +64,7 @@ function tess() {
   const cards = t.cands.map(c => {
     const ai = c.ai, cen = c.centroid;
     const what = c.kind === 'periodic' ? `dips every <b class="mono">${num(c.period, 4)} days</b>` : 'one lone dip (period unknown)';
-    return `<div class="card" id="tic-${c.tic}"><div class="row"><h3>TIC ${c.tic}</h3><span class="chip">${esc(c.status)}</span>${c.known ? `<span class="chip ok">known: ${esc(c.known)}</span>` : ''}<span class="spacer"></span><span class="small muted">found ${day(c.created)}</span></div>
+    return `<div class="card" id="tic-${c.tic}" data-tic="${c.tic}"><div class="row"><h3>TIC ${c.tic}</h3><span class="chip">${esc(c.status)}</span>${c.known ? `<span class="chip ok">known: ${esc(c.known)}</span>` : ''}<span class="spacer"></span><span class="small muted">found ${day(c.created)}</span></div>
       <div class="small" style="margin:4px 0 8px">${what} · depth <b class="mono">${Math.round(c.depth * 1e6)} ppm</b> · ${num(c.duration * 24, 1)} h · SNR ${num(c.snr, 1)} · ~<b>${num(c.rp, 1)}× Earth</b> if it is a planet</div>
       ${(Array.isArray(c.flags) ? c.flags : []).map(f => `<span class="chip warn">${esc(f)}</span>`).join('')}
       ${c.plot ? `<img class="plot" src="${esc(c.plot)}" alt="diagnostic plots" loading="lazy">` : ''}
@@ -97,7 +97,7 @@ function asteroids() {
 
   const cad = (a.cad || []).slice(0, 12).map(r => `<tr><td class="mono">${esc(r.cd)}</td><td><b>${esc(r.des)}</b></td><td class="mono">${num(parseFloat(r.dist) / LD_AU, 1)} LD</td><td>${fmtSize(sizeFromH(parseFloat(r.h)))}</td></tr>`).join('');
   const nc = (a.neocp || []).slice(0, 12).map(r => `<tr><td class="mono">${esc(r.name)}</td><td class="mono">${esc(r.neoScore ?? '')}</td><td class="mono">${esc(r.phaScore ?? '')}</td><td class="mono">${esc(r.H ?? '')}</td></tr>`).join('');
-  const cands = (a.cands || []).map(c => `<div class="card"><div class="row"><h3>${esc(c.des)} · ${esc(c.night)}</h3><span class="chip">${esc(c.archive)}</span><span class="spacer"></span><span class="chip">${esc(c.status)}</span></div>
+  const cands = (a.cands || []).map(c => `<div class="card" data-pc="${c.id}"><div class="row"><h3>${esc(c.des)} · ${esc(c.night)}</h3><span class="chip">${esc(c.archive)}</span><span class="spacer"></span><span class="chip">${esc(c.status)}</span></div>
     <p class="small muted">A moving dot ${num(c.offset, 0)}″ from JPL's predicted position, in two images from the same night, missing from the deep stack. If confirmed, these old positions would extend the asteroid's observed orbit.</p>
     <div class="row" style="align-items:flex-start">${c.gif ? `<img class="blink" src="${esc(c.gif)}" alt="blink">` : ''}<div style="flex:1;min-width:260px">${c.png ? `<img class="plot" src="${esc(c.png)}" alt="cutouts">` : ''}</div></div>
     <button class="b" data-orbit="${esc(c.des)}">3D orbit</button></div>`).join('');

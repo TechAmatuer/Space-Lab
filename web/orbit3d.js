@@ -66,9 +66,24 @@ const Orbit3D = (() => {
       ctx.fillText(`${ast.name}: a ${(+ast.a).toFixed(2)} AU · e ${(+ast.e).toFixed(2)} · i ${(+ast.i).toFixed(1)}° · ${dist.toFixed(2)} AU from Earth on this date`, 10, H - 12);
     }
     let drag = null;
-    cv.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY, yaw: st.yaw, pitch: st.pitch }; cv.setPointerCapture(e.pointerId); });
-    cv.addEventListener('pointermove', e => { if (!drag) return; st.yaw = drag.yaw + (e.clientX - drag.x) * 0.01; st.pitch = Math.max(-1.55, Math.min(1.55, drag.pitch + (e.clientY - drag.y) * 0.01)); draw(); });
-    cv.addEventListener('pointerup', () => { drag = null; });
+    // one finger / mouse drags to rotate; two fingers pinch to zoom (phones and tablets)
+    const pts = new Map();
+    let pinch = null;
+    const spread = () => { const [a, b] = [...pts.values()]; return Math.hypot(a.x - b.x, a.y - b.y) || 1; };
+    cv.addEventListener('pointerdown', e => {
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); cv.setPointerCapture(e.pointerId);
+      if (pts.size === 2) { drag = null; pinch = { d: spread(), zoom: st.zoom }; }
+      else if (pts.size === 1) drag = { x: e.clientX, y: e.clientY, yaw: st.yaw, pitch: st.pitch };
+    });
+    cv.addEventListener('pointermove', e => {
+      if (!pts.has(e.pointerId)) return;
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinch && pts.size === 2) { st.zoom = Math.max(0.05, Math.min(50, pinch.zoom * pinch.d / spread())); draw(); return; }
+      if (!drag) return;
+      st.yaw = drag.yaw + (e.clientX - drag.x) * 0.01; st.pitch = Math.max(-1.55, Math.min(1.55, drag.pitch + (e.clientY - drag.y) * 0.01)); draw();
+    });
+    const up = e => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null; drag = null; };
+    cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
     cv.addEventListener('wheel', e => { e.preventDefault(); st.zoom *= e.deltaY > 0 ? 1.15 : 0.87; draw(); }, { passive: false });
     slider.oninput = () => { st.dt = +slider.value; draw(); };
     new ResizeObserver(() => draw()).observe(cv);

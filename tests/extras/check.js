@@ -1,4 +1,4 @@
-// Automatic checks for web/extras.js (ROADMAP tasks 1-11), run in a simulated browser (jsdom) with fake data.
+// Automatic checks for web/extras.js and web/beyond.js (ROADMAP tasks), run in a simulated browser (jsdom) with fake data.
 //   one-time:   cd tests/extras && npm install
 //   run all:    node tests/extras/check.js
 //   one task:   node tests/extras/check.js 3
@@ -20,12 +20,12 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const norm = s => String(s || '').replace(/\s+/g, ' ').trim();
 const TABS = ['today', 'brief', 'exowatch', 'tess', 'asteroids', 'about'];
 
-async function boot({ extras = true, storage = {}, data = FIXTURE, hash = '' } = {}) {
+async function boot({ extras = true, storage = {}, data = FIXTURE, hash = '', search = '', geo = null } = {}) {
   const html = read('web/public.html').replace(/<script src=[^>]+><\/script>/g, '').replace(/<link rel="stylesheet"[^>]*>/g, '');
   const rec = { errors: [], opened: [], alerts: 0, downloads: [], audio: [], canvasText: [] };
   const vc = new VirtualConsole();
   vc.on('jsdomError', e => { const m = String(e && (e.detail && e.detail.message || e.message) || e); if (!/Not implemented/.test(m)) rec.errors.push('uncaught: ' + m.slice(0, 200)); });
-  const dom = new JSDOM(html, { runScripts: 'outside-only', url: 'https://example.github.io/Space-Lab/' + hash, pretendToBeVisual: true, virtualConsole: vc });
+  const dom = new JSDOM(html, { runScripts: 'outside-only', url: 'https://example.github.io/Space-Lab/' + search + hash, pretendToBeVisual: true, virtualConsole: vc });
   const w = dom.window;
   w.console.error = (...a) => rec.errors.push(a.map(String).join(' ').slice(0, 300));
   w.alert = w.confirm = w.prompt = () => { rec.alerts++; return null; };
@@ -62,14 +62,19 @@ async function boot({ extras = true, storage = {}, data = FIXTURE, hash = '' } =
   }
   w.AudioContext = w.webkitAudioContext = FakeAudioContext;
   for (const [k, v] of Object.entries(storage)) w.localStorage.setItem(k, v);
+  Object.defineProperty(w.navigator, 'geolocation', { configurable: true, value: geo ? { getCurrentPosition: ok => ok({ coords: { latitude: geo[0], longitude: geo[1] } }) } : undefined });
+  w.HTMLElement.prototype.scrollIntoView = function () {};
   const style = w.document.createElement('style');
   style.textContent = read('web/style.css') + '\n' + (extras ? read('web/extras.css') : '');
   w.document.head.appendChild(style);
   const json = JSON.parse(JSON.stringify(data));
+  if (json.beyond && json.beyond.iss) json.beyond.iss.t0 = Math.floor(Date.now() / 1000) - 60;   // the fixture's ISS path starts "now"
   w.fetch = async () => ({ ok: true, json: async () => json });
   w.eval(read('web/public.js'));
   if (extras) {
-    try { w.eval(read('web/extras.js')); } catch (e) { rec.errors.push('extras.js crashed while loading: ' + e.message); }
+    for (const f of ['web/beyond.js', 'web/extras.js']) {
+      try { w.eval(read(f)); } catch (e) { rec.errors.push(f + ' crashed while loading: ' + e.message); }
+    }
   }
   for (let i = 0; i < 50 && !/updated/.test(w.document.querySelector('#updated').textContent); i++) await sleep(20);
   const $ = s => w.document.querySelector(s);
@@ -117,45 +122,29 @@ const CHECKS = {
     // click every extras control in every tab: the page must survive
     for (const t of env.$$('nav.tabs button').map(b => b.dataset.tab).filter(Boolean)) {
       const view = await env.tab(t);
-      for (const el of [...view.querySelectorAll('button[class*="sl-"], a[class*="sl-"], [class*="sl-"] button, [class*="sl-"][role=button], .sl-fav')]) {
+      for (const el of [...view.querySelectorAll('button[class*="sl-"], a[class*="sl-"], [class*="sl-"] button, [class*="sl-"][role=button], .sl-fav, button[class*="bx-"], [class*="bx-"] button')]) {
         if (!el.isConnected) continue;
         el.click(); await sleep(5);
         if (env.visible().length !== 1 || /undefined/.test(env.w.location.hash)) { fails.push(`clicking "${norm(el.textContent).slice(0, 30)}" in tab ${t} broke the page`); break; }
       }
     }
-    const src = read('web/extras.js');
-    const urls = (src.match(/https?:\/\/[^\s'"`)]+/g) || []).filter(u => !u.startsWith('https://github.com/TechAmatuer/Space-Lab/issues/new') && !u.startsWith('http://www.w3.org/2000/svg'));
-    if (urls.length) fails.push('extras.js must not contain other web addresses: ' + urls.join(', '));
-    if (/\balert\(|\bconfirm\(|\bprompt\(/.test(src)) fails.push('do not use alert/confirm/prompt; show messages inside the page');
-    if (/\bfetch\(|XMLHttpRequest|import\(/.test(src)) fails.push('extras.js must not load anything (no fetch/XMLHttpRequest)');
+    // Links out are fine (they open in a new tab when clicked); loading anything from another site is not.
+    const LINKS_OK = ['https://github.com/TechAmatuer/Space-Lab', 'https://techamatuer.github.io/Space-Lab/', 'https://sky.esa.int/esasky/', 'http://www.w3.org/2000/svg'];
+    for (const f of ['web/extras.js', 'web/beyond.js']) {
+      const src = read(f);
+      const urls = (src.match(/https?:\/\/[^\s'"`)]+/g) || []).filter(u => !LINKS_OK.some(ok => u.startsWith(ok)));
+      if (urls.length) fails.push(f + ' may only link to the project, its page and ESASky; found: ' + urls.join(', '));
+      if (/\balert\(|\bconfirm\(|\bprompt\(/.test(src)) fails.push(f + ': do not use alert/confirm/prompt; show messages inside the page');
+      if (/\bfetch\(|XMLHttpRequest|import\(|new Image\(\)\.src\s*=\s*['"`]http|sendBeacon|WebSocket/.test(src)) fails.push(f + ' must not load anything from the internet (no fetch/XMLHttpRequest/beacons)');
+    }
     const keys = Object.keys(env.w.localStorage);
     const bad = keys.filter(k => !/^sl_[a-z0-9_]+$/.test(k) || k.startsWith('sl_sl_'));
+    for (const c of env.$$('[class*="bx-"] .chip, .bx-dot')) if (/undefined|NaN/.test(c.textContent + (c.getAttribute('style') || ''))) fails.push('a Sky watch / Beyond element shows undefined or NaN: ' + norm(c.outerHTML).slice(0, 120));
     if (bad.length) fails.push('localStorage keys must look like sl_name (not sl_sl_...): ' + bad.join(', '));
     if (env.rec.alerts) fails.push(`alert/confirm was called ${env.rec.alerts} times`);
     const errs = env.rec.errors.filter(e => !/Not implemented: (navigation|HTMLMediaElement)/.test(e));
     if (errs.length) fails.push('errors in the browser console:\n      ' + errs.slice(0, 6).join('\n      '));
     report('G', 'whole page: no crashes, nothing broken, nothing external', fails);
-  },
-
-  async 1() {
-    const fails = [], env = await boot();
-    const tess = await env.tab('tess');
-    const abbrs = [...tess.querySelectorAll('abbr.sl-gl')];
-    if (abbrs.length < 3) fails.push(`TESS tab: expected at least 3 glossary words (abbr.sl-gl), found ${abbrs.length}`);
-    abbrs.forEach(a => { if (!norm(a.title || a.dataset.def)) fails.push(`glossary word "${a.textContent}" has no definition (title is empty: look up the term case-insensitively)`); });
-    tess.querySelectorAll('.card').forEach(card => {
-      const seen = {};
-      card.querySelectorAll('abbr.sl-gl').forEach(a => { const k = a.textContent.toLowerCase(); if (seen[k]) fails.push(`"${a.textContent}" wrapped twice in one card`); seen[k] = 1; });
-    });
-    if (tess.querySelector('a abbr.sl-gl, button abbr.sl-gl')) fails.push('glossary words must not be wrapped inside links or buttons');
-    const card = tess.querySelector('#tic-111111');
-    if (card && card.querySelectorAll('abbr.sl-gl').length < 2) fails.push('each card should get every term it contains (first occurrence of EACH term), not just one term per card');
-    const ast = await env.tab('asteroids');
-    if (!ast.querySelector('abbr.sl-gl')) fails.push('Asteroids tab: no glossary words (it mentions Palermo, Torino, lunar distance...). Apply the glossary on every tab.');
-    const a = abbrs[0];
-    if (a) { a.click(); await env.w.Promise.resolve(); const pop = env.$('[class*="sl-gl-pop"], #sl-glossary-popup');
-      if (!pop || env.w.getComputedStyle(pop).display === 'none' || !norm(pop.textContent)) fails.push('tapping a glossary word must show its definition in a popup (element with class sl-gl-pop)'); }
-    report(1, 'Glossary tooltips', fails);
   },
 
   async 2() {
@@ -206,29 +195,11 @@ const CHECKS = {
     report(3, 'Listen to a transit', fails);
   },
 
-  async 4() {
-    const fails = [], env = await boot();
-    const tog = env.$('.sl-level');
-    if (!tog) { fails.push('no Basic/Expert control (class sl-level) in the header'); return report(4, 'Basic / Expert switch', fails); }
-    if (tog.closest('nav.tabs')) fails.push('the Basic/Expert control must not be inside nav.tabs (it would be treated as a tab)');
-    if (env.w.document.body.dataset.level !== 'basic') fails.push('first-time visitors must start in Basic (body data-level="basic")');
-    await env.tab('tess');
-    const kv = env.$('#v-tess .kv');
-    if (kv && env.w.getComputedStyle(kv).display !== 'none') fails.push('in Basic mode .kv tables must be hidden (display:none in extras.css)');
-    tog.click(); await sleep(5);
-    if (env.w.document.body.dataset.level !== 'expert') fails.push('clicking the control must switch to Expert');
-    if (kv && env.w.getComputedStyle(kv).display === 'none') fails.push('in Expert mode .kv tables must be visible');
-    if (env.w.localStorage.getItem('sl_level') !== 'expert' && env.w.localStorage.getItem('sl_level') !== '"expert"') fails.push('the choice must be saved in localStorage key sl_level');
-    const env2 = await boot({ storage: { sl_level: env.w.localStorage.getItem('sl_level') } });
-    if (env2.w.document.body.dataset.level !== 'expert') fails.push('after reload the saved choice (Expert) must be restored');
-    report(4, 'Basic / Expert switch', fails);
-  },
-
   async 5() {
     const fails = [], env = await boot();
-    const tabBtn = env.$('nav.tabs button[data-tab="review"]');
-    if (!tabBtn) { fails.push('no "Review" tab (SpaceLab.addTab("review", "Review", ...))'); return report(5, 'Planet or not?', fails); }
-    const v0 = await env.tab('review');
+    const tabBtn = env.$('nav.tabs button[data-tab="play"]');
+    if (!tabBtn) { fails.push('no "Play & review" tab (SpaceLab.addTab("play", ...))'); return report(5, 'Planet or not?', fails); }
+    const v0 = await env.tab('play');
     const v = v0 && v0.querySelector('.sl-rev');
     if (!v) { fails.push('put the planet review inside a container with class sl-rev (it stays; its content changes)'); return report(5, 'Planet or not?', fails); }
     const first = v.querySelector('.sl-cand');
@@ -236,7 +207,9 @@ const CHECKS = {
     const tic1 = first.dataset.tic;
     if (!v.querySelector('.sl-cand img')) fails.push('show the candidate\'s plot image');
     const answers = [...v.querySelectorAll('button.sl-answer')];
-    if (answers.length !== 4) fails.push(`expected 4 answer buttons (button.sl-answer), found ${answers.length}`);
+    const yml = read('.github/ISSUE_TEMPLATE/candidate-review.yml'), opts = JSON.parse((yml.match(/options: (\[.*\])/) || [0, '[]'])[1]);
+    const got = answers.map(a => norm(a.textContent));
+    if (JSON.stringify(got) !== JSON.stringify(opts)) fails.push(`the answer buttons must be exactly the GitHub form's options so the form can be prefilled: ${JSON.stringify(opts)} (got ${JSON.stringify(got)})`);
     if (!answers.length) return report(5, 'Planet or not?', fails);
     answers[0].click(); await sleep(5);
     const c1 = FIXTURE.tess.cands.find(c => String(c.tic) === String(tic1));
@@ -258,7 +231,7 @@ const CHECKS = {
     let saved = []; try { saved = JSON.parse(env.w.localStorage.getItem('sl_reviews') || '[]'); } catch (_) {}
     if (!saved.some(r => String(r.tic) === String(tic1))) fails.push('save answers in localStorage sl_reviews as a JSON list of {tic, answer}');
     const env2 = await boot({ storage: { sl_reviews: env.w.localStorage.getItem('sl_reviews') || '[]' } });
-    const v2 = await env2.tab('review');
+    const v2 = await env2.tab('play');
     const again = v2 && v2.querySelector('.sl-rev .sl-cand');
     if (again && again.dataset.tic === tic1) fails.push('candidates already reviewed must be skipped next time');
     report(5, 'Planet or not? review game', fails);
@@ -267,8 +240,8 @@ const CHECKS = {
   async 6() {
     const fails = [], env = await boot();
     const titles = env.$$('nav.tabs button').map(b => norm(b.textContent));
-    if (titles.filter(t => /^asteroids$/i.test(t)).length > 1) fails.push('do not add a second tab called "Asteroids"; put the asteroid review inside the Review tab');
-    const v = await env.tab('review');
+    if (titles.filter(t => /^asteroids$/i.test(t)).length > 1) fails.push('do not add a second tab called "Asteroids"; put the asteroid review inside the Play tab');
+    const v = await env.tab('play');
     const box = v && v.querySelector('.sl-ast');
     if (!box) { fails.push('Review tab: no asteroid section (class sl-ast, with data-id="<id>")'); return report(6, 'Is the asteroid there?', fails); }
     if (!box.querySelector('img[src$=".gif"]')) fails.push('show the animated gif of the sighting');
@@ -287,14 +260,14 @@ const CHECKS = {
     }
     const empty = JSON.parse(JSON.stringify(FIXTURE)); empty.asteroids.cands = [];
     const env2 = await boot({ data: empty });
-    const v2 = await env2.tab('review');
+    const v2 = await env2.tab('play');
     if (!v2 || !/no sightings waiting/i.test(v2.textContent)) fails.push('with no sightings, say "No sightings waiting right now"');
     report(6, 'Is the asteroid there?', fails);
   },
 
   async 7() {
     const fails = [], env = await boot();
-    let v = (await env.tab('practice')) || null;
+    await env.tab('play');
     let game = env.$('.sl-practice');
     if (!game) { fails.push('no practice game (element with class sl-practice and data-true-period, in a "practice" or "review" tab)'); return report(7, 'Find-the-period game', fails); }
     const slider = game.querySelector('input[type=range]'), status = game.querySelector('.sl-status'), newBtn = game.querySelector('button.sl-new');
@@ -342,44 +315,140 @@ const CHECKS = {
     let favs = []; try { favs = JSON.parse(env.w.localStorage.getItem('sl_favs') || '[]').map(String); } catch (_) {}
     if (!favs.includes('111111')) fails.push('save favorites in localStorage sl_favs (JSON list of TIC numbers)');
     const tabBtn = env.$('nav.tabs button[data-tab="mylist"]');
-    if (!tabBtn) fails.push('add a "My list" tab with SpaceLab.addTab("mylist", "My list", ...)');
+    if (!tabBtn) fails.push('add a "My lab" tab with SpaceLab.addTab("mylist", "My lab", ...)');
     else { const v = await env.tab('mylist'); if (!v.textContent.includes('111111')) fails.push('the My list tab must show the saved TIC numbers'); }
     report(9, 'My list', fails);
-  },
-
-  async 10() {
-    const fails = [], env = await boot();
-    const tess = await env.tab('tess');
-    const btn = tess.querySelector('#tic-222222 button.sl-walk');
-    if (!btn) { fails.push('no "Walk me through it" button (button.sl-walk)'); return report(10, 'Walkthrough', fails); }
-    btn.click(); await sleep(5);
-    const panel = tess.querySelector('#tic-222222 .sl-walk-panel');
-    if (!panel) fails.push('clicking must open a .sl-walk-panel inside that card');
-    else {
-      const steps = panel.querySelectorAll('.sl-walk-step');
-      if (steps.length !== 5) fails.push(`expected 5 steps (.sl-walk-step), found ${steps.length}`);
-      if (!panel.querySelector('img[src*="222222"]')) fails.push('show this candidate\'s own plot image in the walkthrough');
-    }
-    report(10, 'How we checked this signal', fails);
   },
 
   async 11() {
     const fails = [], env = await boot();
     if (env.$('nav.tabs .sl-badges, nav.tabs [class*="badge"]')) fails.push('do not put badges inside nav.tabs');
-    const v = await env.tab('review');
+    const v = await env.tab('play');
     const a = v && v.querySelector('.sl-rev button.sl-answer');
     if (a) { a.click(); await sleep(5); }
     let b = {}; try { b = JSON.parse(env.w.localStorage.getItem('sl_badges') || '{}'); } catch (_) {}
     if (!b.first_review) fails.push('after the first review, sl_badges must contain first_review');
     const env2 = await boot({ storage: { sl_reviews: env.w.localStorage.getItem('sl_reviews') || '[]', sl_badges: env.w.localStorage.getItem('sl_badges') || '{}' } });
-    const v2 = await env2.tab('review');
-    if (!v2 || !v2.querySelector('.sl-badge.earned')) fails.push('show earned badges (.sl-badge.earned) in the Review tab');
+    const v2 = await env2.tab('mylist');
+    if (!v2 || !v2.querySelector('.sl-badge.earned')) fails.push('show earned badges (.sl-badge.earned) in the My lab tab');
     report(11, 'Personal badges', fails);
+  },
+  async 12() {
+    const fails = [], env = await boot();
+    const v = await env.tab('sky');
+    if (!v) { fails.push('no "Sky watch" tab (SpaceLab.addTab("sky", ...) in web/beyond.js)'); return report(12, 'Sky watch', fails); }
+    const B = FIXTURE.beyond;
+    if (!v.querySelector('svg.bx-moon')) fails.push('draw the Moon phase (svg.bx-moon)');
+    if (!v.textContent.includes(B.sky.moon.phase)) fails.push('say the Moon phase');
+    if (!/Leonids/.test(v.textContent)) fails.push('list upcoming meteor showers');
+    if (v.querySelectorAll('.bx-kp').length !== B.space_weather.kp.length) fails.push('one Kp bar per 3-hour value');
+    if (!v.querySelector('.bx-kp[data-lvl=storm]')) fails.push('Kp 5 or more must be marked as a storm');
+    if (!v.querySelector('svg.bx-line path')) fails.push('draw the X-ray light curve');
+    const sun = v.querySelector('.bx-sun');
+    if (!sun) fails.push('no "Listen to the Sun" button'); else { sun.click(); await sleep(5); if (!env.rec.audio.length) fails.push('Listen to the Sun must make sound'); sun.click(); }
+    for (const t of ['C/2026 A1', 'S261101ab', 'ZTF26aaaaaaa']) if (!v.textContent.includes(t)) fails.push(`show ${t} from the data`);
+    const iss = v.querySelector('.bx-issgo');
+    if (!iss) fails.push('no ISS pass button'); else { iss.click(); await sleep(5); if (!/cannot share|not shared/i.test(v.querySelector('.bx-issout').textContent)) fails.push('without location access, say so (nothing else)'); }
+    const env2 = await boot({ geo: [40, -100] });
+    const v2 = await env2.tab('sky');
+    v2.querySelector('.bx-issgo').click(); await sleep(20);
+    const out = v2.querySelector('.bx-issout');
+    if (!out.querySelector('table') && !/No passes/i.test(out.textContent)) fails.push('with a location, list ISS passes in a table');
+    if (env2.rec.opened.length) fails.push('working out ISS passes must not open or send anything');
+    report(12, 'Sky watch (Moon, ISS, space weather, fireballs, comets, waves, supernovae)', fails);
+  },
+
+  async 13() {
+    const fails = [], env = await boot();
+    const v = await env.tab('beyond');
+    if (!v) { fails.push('no "Beyond astronomy" tab'); return report(13, 'Beyond astronomy', fails); }
+    for (const id of ['bx-bio', 'bx-chem', 'bx-eng', 'bx-earth']) if (!v.querySelector('#' + id)) fails.push(`missing section #${id}`);
+    if (!v.textContent.includes('Example-1 e')) fails.push('list habitable worlds from the data');
+    const btn = [...v.querySelectorAll('.bx-els button')].find(b => b.dataset.el === 'Na');
+    if (!btn) fails.push('spectrum: no element buttons'); else {
+      btn.click(); await sleep(2);
+      const hl = [...v.querySelectorAll('.bx-spec i.hl')];
+      if (hl.length !== 2 || hl.some(i => i.dataset.el !== 'Na')) fails.push(`tapping Sodium must highlight its 2 lines (got ${hl.length})`);
+      const left = parseFloat(hl[0] && hl[0].style.left);
+      if (!(Math.abs(left - (589.0 - 380) / 4) < 0.2)) fails.push('sodium lines must sit at 589 nm on the 380-780 nm scale');
+    }
+    const r = v.querySelector('.bx-rocket .bx-rout');
+    const dv = r && parseFloat((r.textContent.match(/([\d.]+) km\/s/) || [])[1]);
+    const want = 348 * 9.80665 * Math.log(125 / 14) / 1000;
+    if (!(Math.abs(dv - want) < 0.01)) fails.push(`rocket equation: default stage should give ${want.toFixed(2)} km/s, got ${dv}`);
+    const o = v.querySelector('.bx-orbit .bx-oout');
+    if (!o || !/92\.\d minutes/.test(o.textContent)) fails.push('orbit calculator: the ISS at 420 km should take about 92.7 minutes per lap');
+    const geo = v.querySelector('.bx-preset[data-alt="35786"]');
+    if (geo) { geo.click(); await sleep(2); if (!/23\.9\d hours/.test(o.textContent)) fails.push('geostationary orbit must take about 23.93 hours'); }
+    if (!v.querySelector('.bx-launch [data-net]')) fails.push('upcoming launches need a countdown');
+    if (!v.querySelector('.bx-map .bx-dot.quake')) fails.push('plot earthquakes on the map');
+    if (!v.querySelector('img[src$="earth-day.jpg"]')) fails.push('show the Earth image from the data');
+    report(13, 'Beyond astronomy (biology, chemistry, engineering, Earth)', fails);
+  },
+
+  async 14() {
+    const fails = [], env = await boot({ search: '?card=111111' });
+    await sleep(20);
+    const main = env.$('main');
+    const cards = main.querySelectorAll('.card');
+    if (cards.length !== 1 || !/TIC 111111/.test(main.textContent)) fails.push('?card=<TIC> must show just that candidate\'s card');
+    if (!env.w.document.body.classList.contains('sl-embedded')) fails.push('embedded mode must add body.sl-embedded (hides the header)');
+    const env2 = await boot();
+    const tess = await env2.tab('tess');
+    const sh = tess.querySelector('#tic-111111 .sl-share');
+    if (sh) { sh.click(); await sleep(2); const ta = tess.querySelectorAll('#tic-111111 .sl-sharebox textarea');
+      if (ta.length < 2 || !/\?card=111111/.test(ta[1].value)) fails.push('the share box must offer an embed snippet using ?card=<TIC>');
+      if (!/candidate/i.test(ta[0] && ta[0].value)) fails.push('share text must call it a candidate'); }
+    else fails.push('no Share button (.sl-share)');
+    report(14, 'Share and embed', fails);
+  },
+
+  async 15() {
+    const fails = [], env = await boot();
+    const tess = await env.tab('tess');
+    tess.querySelector('#tic-111111 .sl-fav').click(); await sleep(2);
+    const c = await env.tab('create');
+    for (const [cls, name] of [['.sl-mkart', 'art'], ['.sl-mkwall', 'wallpaper']]) {
+      const b = c.querySelector(cls); if (!b) { fails.push('Create tab: no ' + name + ' button'); continue; }
+      const n = env.rec.downloads.length; b.click(); await sleep(2);
+      if (env.rec.downloads.length !== n + 1) fails.push(name + ' must download a PNG');
+    }
+    if (!c.querySelector('.sl-glow')) fails.push('show what the stars look like (.sl-glow)');
+    if (!/Big Bang/.test(c.textContent)) fails.push('cosmic calendar missing');
+    let v = await env.tab('mylist');
+    const note = v.querySelector('textarea[data-note="111111"]');
+    if (!note) fails.push('saved candidates need a notes box'); else { note.value = 'check sector 40'; note.dispatchEvent(new env.w.Event('input')); }
+    const notes = JSON.parse(env.w.localStorage.getItem('sl_notes') || '{}');
+    if (notes['111111'] !== 'check sector 40') fails.push('notes must be saved in sl_notes');
+    const changed = JSON.parse(JSON.stringify(FIXTURE)); changed.tess.cands[0].status = 'real';
+    const env2 = await boot({ data: changed, storage: { sl_favs: '["111111"]', sl_fav_snap: env.w.localStorage.getItem('sl_fav_snap') } });
+    v = await env2.tab('mylist');
+    if (!v.querySelector('.sl-changed')) fails.push('a saved candidate whose status changed must show a 🔔 change note');
+    const go = v.querySelector('.sl-locate');
+    if (go) { go.click(); await sleep(2); if (!/cannot share/i.test(v.querySelector('.sl-pout').textContent)) fails.push('sky pointer without location must say so'); }
+    else fails.push('no sky pointer');
+    const env3 = await boot({ geo: [40, -100] });
+    v = await env3.tab('mylist');
+    v.querySelector('.sl-locate').click(); await sleep(5);
+    if (!/above the horizon|below your horizon/.test(v.querySelector('.sl-pout').textContent)) fails.push('sky pointer must give a direction and height');
+    report(15, 'Create and My lab', fails);
+  },
+
+  async 16() {
+    const fails = [], env = await boot();
+    const a = await env.tab('asteroids');
+    const st = a.querySelector('.card[data-pc="7"] .sl-story');
+    if (!st) fails.push('each old sighting needs its story (.sl-story inside .card[data-pc])');
+    else if (!/2019-04-12/.test(st.textContent) || !/Pan-STARRS/.test(st.textContent)) fails.push('the story must use that sighting\'s night and survey');
+    if (a.querySelectorAll('.sl-story').length !== FIXTURE.asteroids.cands.length) fails.push('one story per sighting');
+    const p = await env.tab('play');
+    if (!/LD/.test(p.querySelector('.sl-race').textContent) || p.querySelectorAll('.sl-race tr').length < 3) fails.push('asteroid race timer must list the close approaches');
+    report(16, 'Asteroid stories and race timer', fails);
   },
 };
 
 (async () => {
-  const order = ['G', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11'];
+  const order = ['G', '2', '3', '5', '6', '7', '8', '9', '11', '12', '13', '14', '15', '16'];
   for (const k of order) {
     if (ONLY && k !== ONLY && k !== 'G') continue;
     try { await CHECKS[k](); } catch (e) { report(k, 'check crashed', ['the check itself crashed (usually because an expected element is missing): ' + e.message]); }

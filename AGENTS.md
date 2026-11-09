@@ -16,7 +16,7 @@ and changed the public data format, which broke the website.
 - Never open the owner's live database (`data/spacelab.db`) for writing from outside the app.
 
 ## Fun / learning features for the public page
-Build them in `web/extras.js` and `web/extras.css` only, following [EXTRAS.md](EXTRAS.md). Pick tasks from
+Build them in `web/extras.js`, `web/beyond.js` and `web/extras.css` only, following [EXTRAS.md](EXTRAS.md). Pick tasks from
 [ROADMAP.md](ROADMAP.md) in order, one task per branch.
 
 ## The public data format

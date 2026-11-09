@@ -1,1 +1,71 @@
-/* Styles for web/extras.js. Reuse the variables from style.css (var(--line), var(--muted), ...). */
+/* Styles for web/extras.js and web/beyond.js. Reuse the variables from style.css (var(--line), var(--muted), ...). */
+
+/* ---- TESS card tools */
+.sl-tools{border-top:1px dashed var(--line);margin:8px 0;padding-top:8px}
+.sl-row{gap:6px;flex-wrap:wrap;align-items:center}
+.sl-size svg{max-width:100%;height:auto;color:var(--ink-2)}
+.sl-starcolor{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-2);margin:2px 0 6px}
+.sl-starcolor i{display:inline-block;width:14px;height:14px;border-radius:50%;box-shadow:0 0 8px currentColor}
+.sl-fav.on{border-color:var(--warn);color:var(--warn)}
+.sl-listen.playing{border-color:var(--accent);background:var(--accent-soft)}
+.sl-sharebox textarea{width:100%;font:12px var(--f-mono);background:var(--panel-2);color:var(--ink);border:1px solid var(--line-2);border-radius:6px;padding:6px;margin:4px 0}
+.sl-newtag{margin-bottom:6px}
+.sl-consensus{margin:6px 0}
+
+/* ---- games */
+.sl-practice canvas,.sl-dip canvas,.sl-blink canvas{width:100%;max-width:640px;height:auto;display:block;background:var(--panel-2);border-radius:6px;margin:6px 0}
+.sl-practice input[type=range]{width:100%;max-width:640px}
+.sl-status{min-height:1.4em;color:var(--ok);font-weight:600}
+.sl-cand img.plot{max-width:100%}
+
+/* ---- badges, cards, log */
+.sl-badges{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.sl-badge{font-size:12px;padding:2px 9px;border-radius:999px;border:1px dashed var(--line-2);color:var(--muted);opacity:.6}
+.sl-badge.earned{border-style:solid;border-color:var(--warn);color:var(--ink);opacity:1;background:var(--panel-2)}
+.sl-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.sl-tcard{border:2px solid var(--line-2);border-radius:10px;padding:8px;background:linear-gradient(160deg,var(--panel-2),var(--panel))}
+.sl-tcard textarea{width:100%;font:12px var(--f-body);background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:6px;margin-top:6px}
+.sl-changed{color:var(--warn);font-size:12px}
+.sl-logentry{border-top:1px solid var(--line);padding:6px 0}
+.sl-logimg{max-width:240px;border-radius:6px;margin-top:4px}
+.sl-log input,.sl-log textarea,.sl-create select,.sl-pointer select{font:inherit;background:var(--panel-2);color:var(--ink);border:1px solid var(--line-2);border-radius:6px;padding:4px 6px}
+.sl-arrow{font-size:46px;line-height:1;width:60px;text-align:center;transition:transform .3s}
+.sl-stars{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end}
+.sl-starcard{display:flex;flex-direction:column;align-items:center;gap:4px;width:120px;text-align:center}
+.sl-glow{border-radius:50%}
+body.sl-embedded header,body.sl-embedded nav.tabs,body.sl-embedded footer{display:none}
+body.sl-embedded main{padding:6px}
+
+/* ---- Sky watch / Beyond astronomy */
+.bx-moon{flex:none}
+.bx-kpbars{display:flex;align-items:flex-end;gap:2px;height:64px;margin:10px 0 2px;border-bottom:1px solid var(--line)}
+.bx-kp{flex:1;background:var(--ok);border-radius:2px 2px 0 0;min-width:3px}
+.bx-kp[data-lvl=active]{background:var(--warn)} .bx-kp[data-lvl=storm]{background:var(--bad)}
+.bx-line{width:100%;height:160px;display:block;background:var(--panel-2);border-radius:6px;margin:6px 0}
+.bx-path{fill:none;stroke:var(--warn);stroke-width:1.5;vector-effect:non-scaling-stroke}
+.bx-grid{stroke:var(--line-2);stroke-dasharray:3 4;vector-effect:non-scaling-stroke}
+.bx-ax{fill:var(--muted);font-size:11px}
+.bx-map{position:relative;width:100%;aspect-ratio:2/1;border-radius:8px;overflow:hidden;background:#0a1a2a;margin:8px 0}
+.bx-map.small{max-width:560px}
+.bx-map img,.bx-mapbg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.bx-mapbg{background:repeating-linear-gradient(90deg,transparent 0 calc(100%/12 - 1px),rgba(255,255,255,.08) calc(100%/12 - 1px) calc(100%/12)),repeating-linear-gradient(0deg,transparent 0 calc(100%/6 - 1px),rgba(255,255,255,.08) calc(100%/6 - 1px) calc(100%/6)),#0a1a2a}
+.bx-dot{position:absolute;transform:translate(-50%,-50%);border-radius:50%;background:rgba(255,140,66,.75);border:1px solid #fff;box-shadow:0 0 6px rgba(0,0,0,.6)}
+.bx-dot.fire{background:rgba(255,90,40,.8)} .bx-dot.quake{background:rgba(230,103,103,.7)}
+.bx-dot.iss{background:#ffd84a;animation:pulse 1.5s infinite}
+.bx-earths{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.bx-earth{margin:0} .bx-earth img{width:100%;border-radius:8px}
+.bx-dl dt{font-weight:600;margin-top:8px} .bx-dl dd{margin:2px 0 0 0;color:var(--ink-2)}
+.bx-spec{position:relative;height:56px;border-radius:6px;margin:8px 0 2px}
+.bx-spec i{position:absolute;top:0;bottom:0;width:2px;background:rgba(0,0,0,.85);transform:translateX(-1px)}
+.bx-spec i.hl{background:#fff;box-shadow:0 0 6px #fff;width:3px}
+.bx-specax{display:flex;justify-content:space-between;padding:0 4% 0 5%}
+.bx-els{gap:6px;flex-wrap:wrap;margin-top:6px}
+.bx-elnote{min-height:1.4em}
+.bx-form{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin:8px 0}
+.bx-form label{display:flex;flex-direction:column;font-size:12px;color:var(--muted);gap:2px}
+.bx-form input,.bx-form select{font:inherit;background:var(--panel-2);color:var(--ink);border:1px solid var(--line-2);border-radius:6px;padding:4px 6px;max-width:260px}
+.bx-form input[type=number]{width:110px}
+.bx-meter{display:inline-block;width:60px;height:8px;border-radius:4px;background:var(--panel-2);border:1px solid var(--line);vertical-align:middle;overflow:hidden}
+.bx-meter i{display:block;height:100%;background:var(--ok)}
+.bx-jump{gap:6px;flex-wrap:wrap}
+h4{margin:12px 0 4px;font-size:13px;color:var(--ink-2)}

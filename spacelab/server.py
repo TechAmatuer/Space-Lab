@@ -96,7 +96,9 @@ def alert(con, job, status, run_id):
     run = db.one(con, 'SELECT started, summary FROM runs WHERE id=?', (run_id,))
     lines = []
     if status != 'ok' and job != 'selftest' and want.get('errors', True):
-        lines.append(f"⚠️ **{JOBS[job][1]}** had a problem: {run['summary']}")
+        prev = db.rows(con, 'SELECT status FROM runs WHERE job=? AND id<? ORDER BY id DESC LIMIT 1', (job, run_id))
+        if prev and prev[0]['status'] not in ('ok', 'running'):      # one failure is often a busy server; two in a row is worth a ping
+            lines.append(f"⚠️ **{JOBS[job][1]}** failed twice in a row: {run['summary']}")
     if want.get('tasks', True):
         new = db.rows(con, "SELECT title FROM tasks WHERE status='open' AND created >= ?", (run['started'],))
         if new:
@@ -233,7 +235,7 @@ def state():
             'running': STATE['running'], 'queue': sorted(QUEUED), 'schedule': cfg['schedule'], 'always_on': bool(cfg.get('always_on')),
             'jobs': {k: v[1] for k, v in JOBS.items()}, 'inbox': str(config.EXO_INBOX),
             'profile': {k: cfg.get(k) for k in ('observer_name', 'aavso_code', 'contact_email', 'sarc_verified')},
-            'selftest': db.kv_get(con, 'selftest')}
+            'selftest': db.kv_get(con, 'selftest'), 'disk': db.kv_get(con, 'disk'), 'contributions': db.contributions(con)}
 
 
 def api_arxiv(q):
@@ -247,7 +249,29 @@ def api_arxiv(q):
         lib = library.status()
     except Exception as e:
         lib = {'error': str(e)}
-    return {'dates': dates, 'date': d, 'papers': papers, 'news': db.kv_get(con, 'news'), 'paper_news': db.kv_get(con, 'paper_news'), 'library': lib}
+    return {'dates': dates, 'date': d, 'papers': papers, 'news': db.kv_get(con, 'news'), 'paper_news': db.kv_get(con, 'paper_news'), 'library': lib,
+            'tracked': db.kv_get(con, 'arxiv_tracked')}
+
+
+SEVERE = ('eclipsing binary', 'odd and even', 'secondary eclipse', 'off target', 'nearby star', 'known')
+
+
+def ctoi_draft(c):
+    """Community TOI (CTOI) draft for ExoFOP, for candidates you marked as planet-like and that passed the checks.
+    Returns None when a check argues against it."""
+    if c.get('kind') != 'periodic' or not c.get('period'):
+        return None
+    if any(any(s in str(f).lower() for s in SEVERE) for f in c.get('flags') or []):
+        return None
+    fpp = c.get('fpp') or {}
+    if fpp.get('nfpp') is not None and fpp['nfpp'] > 0.1:
+        return None
+    epoch = (c['t0'] or 0) + 2457000.0
+    notes = 'Found in TESS 2-min/FFI light curves with a BLS search; passed odd/even, secondary-eclipse, centroid'
+    notes += (f", TRICERATOPS FPP={fpp.get('fpp'):.3f}" if fpp.get('fpp') is not None else '') + ' checks. Citizen-science vetting (Space Lab).'
+    return {'tic': c['tic'], 'period_days': round(c['period'], 6), 'epoch_bjd_tdb': round(epoch, 5),
+            'depth_ppm': round((c['depth'] or 0) * 1e6), 'duration_hours': round((c['duration'] or 0) * 24, 3),
+            'notes': notes, 'url': 'https://exofop.ipac.caltech.edu/tess/upload_ctoi.php'}
 
 
 def api_tess():
@@ -263,6 +287,7 @@ def api_tess():
         c['ai'] = j(c.get('ai'))
         c['centroid'] = j(c.get('centroid'))
         c['fpp'] = j(c.get('fpp'))
+        c['ctoi'] = ctoi_draft(c) if c['status'] == 'real' else None
     return {'stats': stats, 'cands': cands, 'engine': db.kv_get(con, 'tess_engine'),
             'model': {k: (model or {}).get(k) for k in ('ready', 'n_user', 'n_auto', 'acc', 'top', 'need')},
             'shared': bool(((config.load().get('share') or {}).get('discord_webhook')))}
@@ -348,12 +373,36 @@ def masked_settings():
     return cfg
 
 
+CLOUD_PROMPT = ('This is a photo of the sky taken by an amateur astronomer. Name the main cloud type (one of: clear sky, cirrus, '
+                'cirrostratus, cirrocumulus, altostratus, altocumulus, stratus, stratocumulus, nimbostratus, cumulus, cumulonimbus, fog/haze, '
+                'not a sky photo). Reply as JSON: {"type": "...", "confidence": 0-1, "why": "one short sentence on the visual clues", '
+                '"observing": "one short sentence on what this means for stargazing tonight"}')
+
+
+def cloud_check(b64):
+    """Meridian only: the local vision model names the clouds in a sky photo. The photo is not saved."""
+    import base64
+    if not b64 or len(b64) > 12_000_000:
+        return 400, {'error': 'send one photo under about 8 MB'}
+    try:
+        base64.b64decode(b64[:4000] + '=' * (-len(b64[:4000]) % 4), validate=True)
+    except Exception:
+        return 400, {'error': 'not an image'}
+    from .llm import LLM
+    r = LLM(config.load(), log).chat(CLOUD_PROMPT, kind='vision', json_mode=True, max_tokens=200, images=[b64], temperature=0.1)
+    if not isinstance(r, dict) or not r.get('type'):
+        return 503, {'error': 'the local vision model did not answer (is Ollama running with a vision model?)'}
+    return 200, {k: r.get(k) for k in ('type', 'confidence', 'why', 'observing')}
+
+
 def post_action(path, body):
     con = db.connect()
     parts = path.strip('/').split('/')   # api, kind, id
     kind = parts[1] if len(parts) > 1 else ''
     oid = parts[2] if len(parts) > 2 else ''
     now = time.time()
+    if kind == 'cloud-check':
+        return cloud_check(body.get('image') or '')
     if kind == 'task':
         st = {'done': 'done', 'dismiss': 'dismissed', 'reopen': 'open'}.get(body.get('action'))
         if not st:
@@ -557,6 +606,14 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, api_exo())
             if p == '/api/neo':
                 return self.send(200, api_neo())
+            if p == '/api/public-data':      # the same data the public page gets, so Meridian shows the same extras
+                from . import publish
+                data, _ = publish.build_data(db.connect(), config.load())
+                return self.send(200, data)
+            if p == '/api/export/eclipsing-binaries.csv':     # rejected signals that look like two stars, for AAVSO VSX
+                from . import export
+                txt, _n = export.eb_csv(db.connect())
+                return self.send(200, txt, 'text/csv', {'Content-Disposition': 'attachment; filename="eclipsing-binary-candidates.csv"'})
             if p == '/api/logs':
                 return self.send(200, api_logs(q))
             if p == '/api/settings':
@@ -595,6 +652,8 @@ class H(BaseHTTPRequestHandler):
             return self.send(403, {'error': 'missing header'})
         try:
             n = int(self.headers.get('Content-Length') or 0)
+            if n > 16_000_000:
+                return self.send(413, {'error': 'too large'})
             body = json.loads(self.rfile.read(n) or b'{}') if n else {}
             code, out = post_action(urllib.parse.urlsplit(self.path).path, body)
             return self.send(code, out)

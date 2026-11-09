@@ -42,6 +42,27 @@ def _clean_row(row, json_keys=('flags', 'metrics', 'ai', 'centroid')):
     return out
 
 
+def eb_csv(con):
+    """Rejected TESS signals that look like eclipsing binaries: useful for the AAVSO Variable Star Index (VSX)."""
+    rows = con.execute("SELECT c.tic, c.period, c.t0, c.depth, c.duration, c.flags, c.ai, t.ra, t.dec, t.tmag "
+                       "FROM tess_cands c LEFT JOIN tess_targets t ON t.tic=c.tic WHERE c.kind='periodic'").fetchall()
+    out = io.StringIO()
+    w = csv.writer(out)
+    w.writerow(['tic', 'ra_deg', 'dec_deg', 'tmag', 'period_days', 'epoch_bjd', 'depth_pct', 'duration_h', 'why'])
+    n = 0
+    for tic, period, t0, depth, dur, flags, ai, ra, dec, tmag in rows:
+        fl = (flags or '').lower()
+        aiv = (json.loads(ai).get('verdict') if ai else '') or ''
+        why = [x for x in ('eclipsing binary' if 'eclipsing binary' in fl else '', 'odd/even depths differ' if 'odd and even' in fl else '',
+                           'secondary eclipse' if 'secondary' in fl else '', 'AI: binary' if 'binary' in aiv.lower() else '') if x]
+        if not why:
+            continue
+        n += 1
+        w.writerow([tic, ra, dec, tmag, f'{period:.6f}' if period else '', f'{(t0 or 0) + 2457000:.5f}', f'{(depth or 0) * 100:.3f}',
+                    f'{(dur or 0) * 24:.2f}', '; '.join(why)])
+    return out.getvalue(), n
+
+
 def tess_csv(con, fmt='csv'):
     """Export TESS candidates as CSV or JSON."""
     cands = con.execute('SELECT * FROM tess_cands ORDER BY created DESC').fetchall()
@@ -160,6 +181,9 @@ def run(ctx):
         ts = datetime.now().strftime('%Y%m%d_%H%M')
         (export_dir / f'space-lab-{ts}.json').write_text(json_str)
         (export_dir / f'tess-cands-{ts}.csv').write_text(csv_str)
+        eb, n_eb = eb_csv(con)
+        (export_dir / 'eclipsing-binary-candidates.csv').write_text(eb)
+        log(f'eclipsing-binary list: {n_eb} stars (for the AAVSO Variable Star Index)')
         
         return f'Exported JSON + CSV to data/exports/ ({msg_json})'
     except Exception as e:

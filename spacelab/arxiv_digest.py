@@ -1,6 +1,7 @@
 """Daily arXiv digest: fetch new astro-ph papers, rank them against your interests with local embeddings
 (bge-m3), and have the local LLM explain the top ones in plain English."""
 import hashlib
+import json
 import math
 import re
 import time
@@ -101,6 +102,48 @@ def explain(p, llm):
     return first_sentences(p['abstract']), '', 'none'
 
 
+def tracked_names(con):
+    """Stars, planets and asteroids Space Lab works on, as regex patterns -> label."""
+    import re as _re
+    names = {}
+    for r in db.rows(con, "SELECT DISTINCT tic FROM tess_cands"):
+        names[rf'\bTIC[ -]?{r["tic"]}\b'] = f'TIC {r["tic"]} (your TESS candidate)'
+    for r in db.rows(con, "SELECT planet FROM exo WHERE planet IS NOT NULL"):
+        try:
+            host = (json.loads(r['planet']) or {}).get('hostname')
+        except Exception:
+            host = None
+        if host:
+            names[r'\b' + _re.escape(host) + r'\b'] = f'{host} (your Exoplanet Watch target)'
+    for t in ((db.kv_get(con, 'ephem') or {}).get('stale') or [])[:30]:
+        host = (t.get('name') or '').rsplit(' ', 1)[0]
+        if len(host) > 3:
+            names[r'\b' + _re.escape(host) + r'\b'] = f'{host} (needs new transit timings)'
+    for r in db.rows(con, "SELECT des FROM pc_targets ORDER BY rowid DESC LIMIT 200"):
+        if r['des'] and _re.match(r'^\d{4} [A-Z]{2}\d*$', r['des']):
+            names[r'\b' + _re.escape(r['des']) + r'\b'] = f'{r["des"]} (an asteroid you searched)'
+    return names
+
+
+def tracked_mentions(con, papers):
+    import re as _re
+    pats = [(_re.compile(p), lab) for p, lab in tracked_names(con).items()]
+    old = db.kv_get(con, 'arxiv_tracked') or []
+    seen = {h['id'] for h in old}
+    hits = []
+    for p in papers:
+        text = p['title'] + ' ' + p['abstract']
+        labs = sorted({lab for rx, lab in pats if rx.search(text)})
+        if labs and p['id'] not in seen:
+            hits.append({'id': p['id'], 'title': p['title'], 'url': p['url'], 'matches': labs, 't': time.time()})
+    keep = [h for h in hits + old if h['t'] > time.time() - 60 * 86400][:50]
+    db.kv_set(con, 'arxiv_tracked', keep)
+    for h in hits:
+        db.add_task(con, f"arxiv:tracked:{h['id']}", 'arxiv', 'read', f"New paper mentions {h['matches'][0].split(' (')[0]}",
+                    h['title'], {'tab': 'arxiv', 'url': h['url']}, priority=2)
+    return hits
+
+
 def run(ctx):
     cfg, con, log = ctx.cfg, ctx.con, ctx.log
     llm = LLM(cfg, log)
@@ -116,6 +159,12 @@ def run(ctx):
     except Exception as e:
         log(f'research in the news: {e}')
     papers = fetch_new(cfg, log)
+    try:
+        hits = tracked_mentions(con, papers)
+        if hits:
+            log(f'{len(hits)} papers mention something you track')
+    except Exception as e:
+        log(f'tracked-object check: {e}')
     known = {r['id'] for r in db.rows(con, 'SELECT id FROM arxiv')}
     new = [p for p in papers if p['id'] not in known]
     log(f'{len(new)} not seen before')

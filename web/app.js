@@ -13,6 +13,36 @@ async function api(path, body) {
   if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
   return j;
 }
+// ------------------------------------------------------------------ extras (web/extras.js, web/beyond.js)
+// The public page and Meridian run the same extras through window.SpaceLab, so both show the same features.
+// The extras read the public data (api/public-data = exactly what GitHub Pages gets) and never write anything here.
+const HOOKS = [], EXTRA_TABS = {}, PUB_NAME = { arxiv: 'brief' };   // Meridian tab name -> public tab name
+let PUB = null;
+async function loadPublicData() {
+  try { PUB = await api('api/public-data'); if (EXTRA_TABS[S.tab]) runExtras(S.tab); } catch (e) { console.warn('public data', e); }
+}
+function runExtras(tab) {
+  const el = $('#v-' + tab);
+  if (!el) return;
+  if (EXTRA_TABS[tab]) { try { EXTRA_TABS[tab](el, PUB); } catch (e) { console.error('extras tab', tab, e); el.innerHTML = '<div class="card empty">This extra is having a problem.</div>'; } }
+  for (const fn of HOOKS) { try { fn(PUB_NAME[tab] || tab, el, PUB); } catch (e) { console.error('extras hook', e); } }
+}
+window.SpaceLab = {
+  get data() { return PUB; },
+  esc: s => esc(s), num: (x, d) => num(x, d), local: true,
+  onRender(fn) { HOOKS.push(fn); },
+  addTab(id, title, render) {
+    if (EXTRA_TABS[id] || $('#v-' + id)) return;
+    EXTRA_TABS[id] = render;
+    const b = document.createElement('button');
+    b.setAttribute('role', 'tab'); b.dataset.tab = id; b.setAttribute('aria-selected', 'false'); b.textContent = title;
+    $('nav.tabs').insertBefore(b, $('nav.tabs button[data-tab=setup]'));
+    const s = document.createElement('section'); s.className = 'view'; s.id = 'v-' + id;
+    $('main').appendChild(s);
+  },
+  // Meridian only: the local vision AI names the clouds in a sky photo (the public page has no AI)
+  cloudCheck: dataUrl => api('api/cloud-check', { image: String(dataUrl).split(',').pop() }),
+};
 function ago(t) {
   if (!t) return 'never';
   const s = Date.now() / 1000 - t;
@@ -57,7 +87,12 @@ function setTab(tab, focus) {
   load(tab);
 }
 async function load(tab) {
+  await loadCore(tab);
+  runExtras(tab);
+}
+async function loadCore(tab) {
   try {
+    if (EXTRA_TABS[tab]) return;
     if (tab === 'today') return renderToday(S.state || await refreshState());
     if (tab === 'arxiv') return renderArxiv(await api('api/arxiv' + (S.arxivDate ? '?date=' + S.arxivDate : '')));
     if (tab === 'exowatch') { const x = await api('api/exo'); S.lastExo = x.datasets; return renderExo(x); }
@@ -126,7 +161,10 @@ function renderToday(st) {
       <div class="row"><input type="text" id="askQ" placeholder="e.g. Which TESS signals look most promising? What's new on the asteroid watch?" style="flex:1;min-width:240px"><button class="b primary" id="askBtn">Ask</button></div>
       <div id="askOut" class="answer"></div></div><div id="todayBody"></div>`;
   }
-  $('#todayBody').innerHTML = `${brief}<h2>Your tasks (${st.tasks.length})</h2>${tasks}<h2>What your computer does</h2><div class="grid g3">${runs}</div>`;
+  const dk = st.disk, co = st.contributions || {};
+  const house = `<div class="grid g2"><div class="card"><h3>📊 Your contributions</h3><div class="kv"><b>Stars searched</b><span>${co.stars_searched ?? '—'}</span><b>Candidates you reviewed</b><span>${co.tess_reviewed ?? '—'} (${co.tess_planet_like ?? 0} planet-like)</span><b>Asteroid sightings checked</b><span>${co.asteroid_sightings_checked ?? '—'}</span><b>Exoplanet Watch light curves</b><span>${co.exowatch_reduced ?? '—'}</span><b>Results submitted</b><span>${co.uploads_done ?? '—'}</span></div></div>
+    <div class="card"><h3>💾 Storage</h3>${dk ? `<div class="kv"><b>Space Lab data</b><span>${dk.total_gb} GB</span><b>Free on this Mac</b><span>${dk.free_gb} GB</span><b>Largest parts</b><span>${(dk.largest || []).map(x => esc(x[0]) + ' ' + x[1] + ' GB').join(', ')}</span></div><p class="small muted">Temporary downloads older than 60 days are cleaned up and the database is backed up every night (7 copies kept in data/backups).</p>` : '<p class="small muted">Measured after the next Sky watch run.</p>'}</div></div>`;
+  $('#todayBody').innerHTML = `${brief}<h2>Your tasks (${st.tasks.length})</h2>${tasks}<h2>What your computer does</h2><div class="grid g3">${runs}</div>${house}`;
 }
 
 // ------------------------------------------------------------------ arXiv
@@ -159,7 +197,8 @@ function renderArxiv(d) {
   const pn = (d.paper_news && d.paper_news.items) || [];
   $('#arxivTop').innerHTML = `<div class="row"><h2 style="margin:4px 0">Space brief</h2><span class="spacer"></span>${d.dates.length ? `<select id="arxivDate">${opts}</select>` : ''}</div>
     <p class="muted small">New astronomy papers from arXiv, ranked against your interests by your local embedding model, explained by your local AI. Edit your interests in Setup.</p>`;
-  $('#arxivBody').innerHTML = (pn.length ? `<h2>Research in the news</h2><div class="card"><p class="small muted">Stories from popular science outlets this week that link to the research paper behind them.</p><ul class="list">${pn.slice(0, 15).map(paperNewsLi).join('')}</ul></div>` : '') +
+  const tr = (d.tracked || []).slice(0, 10);
+  $('#arxivBody').innerHTML = (tr.length ? `<h2>New papers about your targets</h2><div class="card"><ul class="list">${tr.map(h => `<li><span><a href="${esc(h.url)}" target="_blank" rel="noopener"><b>${esc(h.title)}</b></a><br><span class="small muted">mentions ${h.matches.map(esc).join(', ')} · ${ago(h.t)}</span></span></li>`).join('')}</ul></div>` : '') + (pn.length ? `<h2>Research in the news</h2><div class="card"><p class="small muted">Stories from popular science outlets this week that link to the research paper behind them.</p><ul class="list">${pn.slice(0, 15).map(paperNewsLi).join('')}</ul></div>` : '') +
     (cards || '<div class="card empty">No digest yet. It runs every morning (arXiv posts new papers Sunday–Thursday evenings).</div>') +
     (news.length ? `<h2>Elsewhere this week</h2><div class="card"><ul class="list">${news.slice(0, 25).map(n => `<li><span><a href="${esc(n.url)}" target="_blank" rel="noopener">${esc(n.title)}</a><br><span class="small muted">${esc(n.source)}${n.date ? ' · ' + new Date(n.date * 1000).toLocaleDateString() : ''}</span></span></li>`).join('')}</ul></div>` : '');
   afterRender();
@@ -244,7 +283,7 @@ function tessCard(c) {
     ? `every <b class="mono">${num(c.period, 4)} d</b> · depth <b class="mono">${Math.round(c.depth * 1e6)} ppm</b> · ${num(c.duration * 24, 1)} h · SNR ${num(c.snr, 1)} · SDE ${num(c.sde, 1)} · ${c.ntr} dips · ~<b>${num(c.rp, 1)}× Earth</b>`
     : `one dip · depth <b class="mono">${Math.round(c.depth * 1e6)} ppm</b> · ${num(c.duration * 24, 1)} h · SNR ${num(c.snr, 1)} · ~<b>${num(c.rp, 1)}× Earth</b>`;
   const v = c.status;
-  return `<div class="card" id="item-tess-${c.id}"><div class="row"><h3>TIC ${c.tic}</h3><span class="chip">${periodic ? 'repeating dips' : 'lone dip'}</span>${c.known ? `<span class="chip ok">known: ${esc(c.known)}</span>` : ''}<span class="spacer"></span><span class="chip ${v === 'real' ? 'ok' : v === 'new' ? 'warn' : ''}">${esc(v)}</span></div>
+  return `<div class="card" id="item-tess-${c.id}" data-tic="${c.tic}"><div class="row"><h3>TIC ${c.tic}</h3><span class="chip">${periodic ? 'repeating dips' : 'lone dip'}</span>${c.known ? `<span class="chip ok">known: ${esc(c.known)}</span>` : ''}<span class="spacer"></span><span class="chip ${v === 'real' ? 'ok' : v === 'new' ? 'warn' : ''}">${esc(v)}</span></div>
     <div class="small" style="margin:4px 0 8px">${metrics}</div><div style="margin-bottom:8px">${flags}</div>
     <img class="plot" src="${fileUrl(c.plot)}" alt="plots" loading="lazy">
     <p>${esc(c.explain || '')}</p>
@@ -262,6 +301,11 @@ function tessExtras(c) {
   if (c.model_score !== null && c.model_score !== undefined) out.push(`<div class="note"><b>Your model</b>: ${pct(c.model_score)} planet-like <span class="small muted">(learned from your past decisions)</span></div>`);
   const fp = c.fpp;
   if (fp) out.push(`<div class="note ${fp.nfpp > 0.1 ? 'bad' : fp.fpp < 0.5 && fp.nfpp < 0.001 ? 'ok' : 'warn'}"><b>False-positive probability</b> (TRICERATOPS): FPP ${num(fp.fpp, 3)}, nearby-star FPP ${num(fp.nfpp, 4)} — ${esc(fp.verdict)}</div>`);
+  const ct = c.ctoi;
+  if (ct) out.push(`<details class="note ok"><summary><b>Ready to report as a Community TOI?</b> You marked it planet-like and no check argues against it.</summary>
+    <p class="small">Check ExoFOP first (is it already a TOI or a known binary?), then fill in the ExoFOP CTOI form with these values:</p>
+    <div class="kv mono small"><b>TIC</b><span>${ct.tic}</span><b>Period (days)</b><span>${ct.period_days}</span><b>Epoch (BJD_TDB)</b><span>${ct.epoch_bjd_tdb}</span><b>Depth (ppm)</b><span>${ct.depth_ppm}</span><b>Duration (hours)</b><span>${ct.duration_hours}</span></div>
+    <p class="small">Notes: ${esc(ct.notes || '')}</p><a class="b primary" href="${esc(ct.url)}" target="_blank" rel="noopener">Open the ExoFOP CTOI form ↗</a> <span class="small muted">(needs a free ExoFOP login; you submit it yourself)</span></details>`);
   const cen = c.centroid;
   if (cen) out.push(`<div class="note ${cen.verdict === 'off target' ? 'bad' : cen.verdict === 'on target' ? 'ok' : 'warn'}"><b>Centroid test</b>: ${esc(cen.verdict)} — the dip's light comes from ${num(cen.offset_arcsec, 0)}″ from the star (${num(cen.signif, 1)}σ; signal strength ${num(cen.snr, 0)})${cen.png ? `<br><img class="thumb plot" src="${fileUrl(cen.png)}" alt="centroid test" loading="lazy">` : ''}</div>`);
   return out.join('');
@@ -278,7 +322,7 @@ function renderTess(x) {
       <p class="small muted">Each night your Mac downloads TESS light curves (2-minute data, or full-frame images for stars without it), searches for repeating dips, and runs the standard checks that catch eclipsing binary stars. Survivors get a pixel-level centroid test and an AI first look. Expect mostly false alarms; that's normal.</p>
       ${x.engine ? `<div class="small muted">Last night: ${x.engine.workers} stars at a time; period search on ${x.engine.engine === 'mlx-gpu' ? 'the GPU (MLX)' : 'the CPU (astropy)'}${x.engine.gpu_s ? ` — speed test GPU ${x.engine.gpu_s}s vs CPU ${x.engine.astropy_s}s per star` : ''}.</div>` : ''}
       <div class="small muted">Your planet model: ${x.model && x.model.ready ? `trained on ${x.model.n_user} of your decisions + ${x.model.n_auto} automatic labels (agrees with its training labels ${pct(x.model.acc)}); strongest clues: ${(x.model.top || []).map(t => esc(t[0])).join(', ')}` : `still learning — it needs about ${(x.model && x.model.need) || 12} labelled signals with both planets and non-planets (your clicks count 3×)`}.</div></div>
-    <div class="row" style="margin:6px 0 12px">${btn('new', 'To review')}${btn('reviewed', 'Reviewed')}${btn('rejected', 'Auto-rejected')}${btn('all', 'All')}</div>
+    <div class="row" style="margin:6px 0 12px">${btn('new', 'To review')}${btn('reviewed', 'Reviewed')}${btn('rejected', 'Auto-rejected')}${btn('all', 'All')}<span class="spacer"></span><a class="b" href="api/export/eclipsing-binaries.csv" title="Signals that look like two stars eclipsing each other: new variable stars you can submit to the AAVSO VSX catalog">Download eclipsing-binary list (CSV)</a></div>
     ${list.length ? list.map(tessCard).join('') : '<div class="card empty">Nothing here yet.</div>'}`;
   afterRender();
 }
@@ -299,7 +343,7 @@ function renderNeo(x) {
   const cands = x.cands.map(c => {
     const obs = (c.obs || []).map(o => `<tr><td class="mono">${esc(o.obsTime)}</td><td class="mono">${num(o.ra, 5)}</td><td class="mono">${num(o.dec, 5)}</td><td>${esc(o.filter)}</td><td class="mono">${num(o.snr, 1)}</td></tr>`).join('');
     const real = c.status === 'real';
-    return `<div class="card" id="item-asteroids-${c.id}"><div class="row"><h3>${esc(c.des)} · ${esc(c.night)}</h3><span class="chip">${esc(c.archive)}</span><span class="spacer"></span><span class="chip ${real ? 'ok' : c.status === 'new' ? 'warn' : ''}">${esc(c.status)}</span></div>
+    return `<div class="card" id="item-asteroids-${c.id}" data-pc="${c.id}"><div class="row"><h3>${esc(c.des)} · ${esc(c.night)}</h3><span class="chip">${esc(c.archive)}</span><span class="spacer"></span><span class="chip ${real ? 'ok' : c.status === 'new' ? 'warn' : ''}">${esc(c.status)}</span></div>
       <p class="small muted">The dot sits ${num(c.offset, 0)}″ from where JPL's orbit predicts (inside the 3-sigma search area). A real asteroid shows up in both night images, moves slightly between them, and is missing from the deep stack.</p>
       <div class="row" style="align-items:flex-start"><img class="blink" src="${fileUrl(c.gif)}" alt="blink"><div style="flex:1;min-width:280px"><img class="plot" src="${fileUrl(c.png)}" alt="cutouts"></div></div>
       <table style="margin-top:8px"><tr><th>time (UTC)</th><th>RA°</th><th>Dec°</th><th>filter</th><th>SNR</th></tr>${obs}</table>
@@ -549,6 +593,7 @@ document.addEventListener('change', e => {
 
 // ------------------------------------------------------------------ start
 const start = (location.hash || '#today').slice(1);
-refreshState().then(() => setTab(['today', 'arxiv', 'exowatch', 'tess', 'asteroids', 'setup'].includes(start) ? start : 'today'));
+Promise.all([refreshState(), loadPublicData()]).then(() => setTab(['today', 'arxiv', 'exowatch', 'tess', 'asteroids', 'setup'].includes(start) || EXTRA_TABS[start] ? start : 'today'));
+setInterval(() => { if (document.visibilityState === 'visible') loadPublicData(); }, 300000);
 setInterval(refreshState, 20000);
 setInterval(() => { if (document.visibilityState === 'visible' && ['tess', 'asteroids', 'exowatch'].includes(S.tab) && !Object.values(S.starClicks).some(a => a.length)) load(S.tab); }, 90000);

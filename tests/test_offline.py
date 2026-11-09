@@ -486,7 +486,8 @@ def server_endpoints():
     base = f'http://127.0.0.1:{port}'
     st = json.loads(urllib.request.urlopen(base + '/api/state').read())
     assert any(t['id'] == tid for t in st['tasks'])
-    for path in ('/', '/web/app.js', '/api/arxiv', '/api/tess', '/api/exo', '/api/neo', '/api/logs?job=server', '/api/settings'):
+    for path in ('/', '/web/app.js', '/api/arxiv', '/api/tess', '/api/exo', '/api/neo', '/api/logs?job=server', '/api/settings',
+                 '/api/public-data', '/api/export/eclipsing-binaries.csv', '/web/extras.js', '/web/beyond.js'):
         assert urllib.request.urlopen(base + path).status == 200, path
     try:
         urllib.request.urlopen(urllib.request.Request(base + '/api/task/%d' % tid, data=b'{"action":"done"}', method='POST'))
@@ -504,6 +505,81 @@ def server_endpoints():
         assert e.code in (403, 404)
     httpd.shutdown()
     con.execute("DELETE FROM tasks WHERE key='test:1'")
+
+
+# ---------------------------------------------------------------- Beyond astronomy, community, CTOI, exports
+@test
+def beyond_offline_parts():
+    from spacelab import beyond
+    f = beyond.parse_issue('### TIC number\n\n25799110\n\n### What do you think it is?\n\nPlanet-like\n\n### Why?\n\n_No response_')
+    assert f['tic number'] == '25799110' and f['what do you think it is?'] == 'Planet-like', f
+    assert beyond._rows([['time_tag', 'Kp'], ['2026-11-08 00:00', '3.33']]) == [{'time_tag': '2026-11-08 00:00', 'Kp': '3.33'}]
+    sky = beyond.sky_week(print)
+    if sky is not None:      # needs astropy's built-in ephemeris (no download)
+        assert 0 <= sky['moon']['illumination'] <= 1 and len(sky['planets']) == 5
+        assert all(-3 <= s['days'] <= 30 for s in sky['showers'])
+    assert beyond._jpeg(b'\xff\xd8\xff' + b'0' * 30000) and not beyond._jpeg(b'<html>error</html>')
+
+
+@test
+def beyond_run_keeps_last_good_copy():
+    from spacelab import beyond, db
+    con = db.connect()
+    db.kv_set(con, 'beyond', {'comets': [{'name': 'C/2026 A1 (Test)'}]})
+    fail = lambda *a, **k: None
+    saved = {n: getattr(beyond, n) for n in ('space_weather', 'fireballs', 'comets', 'gravitational_waves', 'supernovae',
+                                            'launches', 'habitable_worlds', 'sky_week', 'earth_images', 'community', 'backup_db', 'clean_and_measure')}
+    try:
+        for n in saved:
+            setattr(beyond, n, fail)
+        beyond.fireballs = lambda log: [{'date': '2026-11-01', 'energy_kt': 0.1, 'lat': 12.3, 'lon': -45.6}]
+        ctx = type('C', (), {'con': con, 'log': print, 'cfg': {}})()
+        msg = beyond.run(ctx)
+        b = db.kv_get(con, 'beyond')
+        assert b['comets'][0]['name'] == 'C/2026 A1 (Test)', 'a failed source must keep its previous data'
+        assert b['fireballs'][0]['lat'] == 12.3 and 'fireballs' in msg, msg
+    finally:
+        for n, fn in saved.items():
+            setattr(beyond, n, fn)
+
+
+@test
+def ctoi_draft_rules():
+    from spacelab import server
+    c = {'kind': 'periodic', 'tic': 123, 'period': 3.5, 't0': 1500.25, 'depth': 0.002, 'duration': 0.1, 'flags': [], 'fpp': {'fpp': 0.01, 'nfpp': 0.001}}
+    d = server.ctoi_draft(c)
+    assert d and abs(d['epoch_bjd_tdb'] - 2458500.25) < 1e-6 and d['depth_ppm'] == 2000, d
+    assert server.ctoi_draft(dict(c, flags=['odd and even dips differ'])) is None
+    assert server.ctoi_draft(dict(c, fpp={'nfpp': 0.5})) is None
+    assert server.ctoi_draft(dict(c, kind='single')) is None
+
+
+@test
+def eb_export_and_contributions():
+    from spacelab import export, db
+    con = db.connect()
+    con.execute("INSERT INTO tess_cands (tic, kind, period, t0, depth, duration, flags, status, created) VALUES (?,?,?,?,?,?,?,?,?)",
+                (987654321, 'periodic', 2.5, 1600.0, 0.01, 0.08, '["odd and even dips differ"]', 'fake', time.time()))
+    txt, n = export.eb_csv(con)
+    assert n >= 1 and '987654321' in txt and 'odd/even' in txt, txt
+    c = db.contributions(con)
+    assert c['tess_reviewed'] >= 1 and set(c) >= {'stars_searched', 'exowatch_reduced'}, c
+    con.execute('DELETE FROM tess_cands WHERE tic=987654321')
+
+
+@test
+def tracked_paper_mentions():
+    from spacelab import arxiv_digest, db
+    con = db.connect()
+    con.execute("INSERT INTO tess_cands (tic, kind, period, t0, depth, duration, flags, status, created) VALUES (?,?,?,?,?,?,?,?,?)",
+                (55511122, 'periodic', 2.5, 1600.0, 0.01, 0.08, '[]', 'new', time.time()))
+    papers = [{'id': '2611.00001', 'title': 'A planet around TIC 55511122', 'abstract': 'We confirm it.', 'url': 'https://arxiv.org/abs/2611.00001'},
+              {'id': '2611.00002', 'title': 'Galaxies', 'abstract': 'Nothing tracked.', 'url': 'https://arxiv.org/abs/2611.00002'}]
+    hits = arxiv_digest.tracked_mentions(con, papers)
+    assert [h['id'] for h in hits] == ['2611.00001'], hits
+    assert arxiv_digest.tracked_mentions(con, papers) == [], 'the same paper must not be reported twice'
+    con.execute('DELETE FROM tess_cands WHERE tic=55511122')
+    con.execute("DELETE FROM tasks WHERE key LIKE 'arxiv:tracked:%'")
 
 
 import urllib.error  # noqa: E402
