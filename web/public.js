@@ -13,6 +13,29 @@ const ago = t => { if (!t) return 'never'; const s = Date.now() / 1000 - t; retu
 const jdUTC = jd => jd ? new Date((jd - 2440587.5) * 864e5).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
 let D = null;
 
+// ---- Extension point for web/extras.js (see EXTRAS.md). Extras can never break the main page.
+const HOOKS = [], EXTRA_TABS = {};
+window.SpaceLab = {
+  get data() { return D; },
+  esc, num,
+  onRender(fn) { HOOKS.push(fn); },                   // fn(tabName, viewElement, data) after every tab render
+  addTab(id, title, render) {                          // render(viewElement, data)
+    if (R[id] || EXTRA_TABS[id]) return;
+    EXTRA_TABS[id] = render;
+    const b = document.createElement('button');
+    b.setAttribute('role', 'tab'); b.dataset.tab = id; b.setAttribute('aria-selected', 'false'); b.textContent = title;
+    $('nav.tabs').insertBefore(b, $('nav.tabs button[data-tab=about]'));
+    const s = document.createElement('section'); s.className = 'view'; s.id = 'v-' + id;
+    $('main').appendChild(s);
+    if (D && location.hash === '#' + id) setTab(id);
+  },
+};
+function runExtras(tab) {
+  const el = $('#v-' + tab);
+  if (EXTRA_TABS[tab]) { try { EXTRA_TABS[tab](el, D); } catch (e) { console.error('extras tab', tab, e); el.innerHTML = '<div class="card empty">This extra is having a problem.</div>'; } }
+  for (const fn of HOOKS) { try { fn(tab, el, D); } catch (e) { console.error('extras hook', e); } }
+}
+
 function modal(html) { $('#modalBody').innerHTML = html; $('#modal').classList.add('on'); return $('#modalBody'); }
 
 // Fix #1 & #2: Shared error banner for viewer failures (LC + Orbit3D)
@@ -155,7 +178,8 @@ function setTab(tab) {
   $$('nav.tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === tab));
   $$('section.view').forEach(v => v.classList.toggle('on', v.id === 'v-' + tab));
   history.replaceState(null, '', '#' + tab);
-  R[tab]();
+  if (R[tab]) R[tab]();
+  runExtras(tab);
 }
 
 document.addEventListener('click', async e => {
@@ -216,6 +240,6 @@ fetch('data.json', { cache: 'no-store' })
     D = d;
     $('#updated').textContent = `updated ${new Date(d.updated * 1000).toLocaleString()}`;
     const start = (location.hash || '#today').slice(1);
-    setTab(R[start] ? start : 'today');
+    setTab(R[start] || EXTRA_TABS[start] ? start : 'today');
   })
   .catch(err => showNetworkError(err?.message || 'Network error'));

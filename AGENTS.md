@@ -15,6 +15,10 @@ and changed the public data format, which broke the website.
   or the schema check (`publish.validate`).
 - Never open the owner's live database (`data/spacelab.db`) for writing from outside the app.
 
+## Fun / learning features for the public page
+Build them in `web/extras.js` and `web/extras.css` only, following [EXTRAS.md](EXTRAS.md). Pick tasks from
+[ROADMAP.md](ROADMAP.md) in order, one task per branch.
+
 ## The public data format
 `web/public.js` reads `data.json`, built by `publish.build_data`. Its shape is fixed by `publish.SCHEMA`.
 If you need to change it: change `build_data`, `SCHEMA`, `SCHEMA_VERSION` and `public.js` in the same commit,

@@ -1,0 +1,18 @@
+name: Review a possible asteroid sighting
+description: Look at an old survey image and say whether the asteroid is really there
+title: "Asteroid sighting review"
+labels: ["asteroid-review"]
+body:
+  - type: input
+    id: candidate
+    attributes: {label: Sighting, placeholder: "e.g. 2026 VL3, 2019-04-12, Pan-STARRS (#123)"}
+    validations: {required: true}
+  - type: dropdown
+    id: verdict
+    attributes:
+      label: What do you see?
+      options: ["A moving dot where predicted (real)", "Nothing there", "Star, galaxy or image defect", "Not sure"]
+    validations: {required: true}
+  - type: textarea
+    id: notes
+    attributes: {label: Notes, placeholder: "e.g. faint dot moves between frames in the expected direction"}
