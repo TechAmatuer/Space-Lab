@@ -75,25 +75,30 @@ def kv(con, k, v=_READ, default=None):
 
 
 # ------------------------------------------------------------------ harvest (arXiv OAI-PMH)
-def _get(params, log):
+def _get(params, log, deadline=None):
+    """One OAI-PMH page. Gives up quickly when arXiv is slow, so the rest of the run (other sources,
+    and building the search index on this Mac) still gets its time."""
+    deadline = deadline or time.time() + 600
     last = None
     for base in OAI:
-        for attempt in range(6):
+        for attempt in range(3):
+            if time.time() > deadline - 30:
+                break
             url = base + '?' + urllib.parse.urlencode(params)
             req = urllib.request.Request(url, headers={'User-Agent': net.UA})
             try:
-                with urllib.request.urlopen(req, timeout=180, context=net.ssl_ctx()) as r:
+                with urllib.request.urlopen(req, timeout=min(120, max(30, deadline - time.time())), context=net.ssl_ctx()) as r:
                     return r.read()
             except urllib.error.HTTPError as e:
                 last = e
-                if e.code == 503:      # arXiv asks clients to wait
-                    wait = int(e.headers.get('Retry-After') or 20)
-                    time.sleep(min(max(wait, 5), 120))
+                if e.code in (429, 503):      # arXiv asks clients to wait
+                    wait = int(e.headers.get('Retry-After') or 20) if str(e.headers.get('Retry-After') or '').isdigit() else 20
+                    time.sleep(min(max(wait, 5), 60, max(0, deadline - time.time() - 30)))
                     continue
                 break
             except Exception as e:
                 last = e
-                time.sleep(10)
+                time.sleep(5)
         log(f'  OAI endpoint {base} failed: {last}')
     raise RuntimeError(f'arXiv OAI-PMH unavailable: {last}')
 
@@ -136,7 +141,7 @@ def harvest(con, log, deadline, min_year=2006):
         params = {'verb': 'ListRecords', 'resumptionToken': token} if token else \
                  {'verb': 'ListRecords', 'metadataPrefix': 'arXiv', 'set': 'physics:astro-ph', **({'from': since} if since else {})}
         try:
-            recs, token, total = parse_records(_get(params, log), min_year)
+            recs, token, total = parse_records(_get(params, log, deadline), min_year)
         except RuntimeError as e:
             if 'badResumptionToken' in str(e) and token:   # tokens expire; start the pass again (duplicates are skipped)
                 log('  arXiv resume point expired; restarting the pass')
@@ -392,19 +397,21 @@ def run(ctx):
     lc = ctx.cfg.get('library') or {}
     con = connect()
     llm = LLM(ctx.cfg, ctx.log)
-    end = time.time() + 60 * float(lc.get('time_budget_min', 45))
+    start = time.time()
+    total = 60 * float(lc.get('time_budget_min', 45))
+    end = start + total
     added = pages = 0
     y0 = int(lc.get('min_year', 1976))
     arxiv_y0 = max(y0, 1992)
     if kv(con, 'min_year') != arxiv_y0:            # range changed: restart the arXiv pass (existing papers are kept)
         kv(con, 'token', None); kv(con, 'from', None); kv(con, 'complete', False); kv(con, 'min_year', arxiv_y0)
     try:
-        added, pages = harvest(con, ctx.log, end - 900, arxiv_y0)
+        added, pages = harvest(con, ctx.log, start + 0.45 * total, arxiv_y0)      # downloads get up to ~45%,
     except Exception as e:
         ctx.log(f'arXiv harvest paused: {e}')
     if y0 < 1992:
         try:
-            a2, p2 = harvest_openalex(con, ctx.log, end - 600, y0, 1991)
+            a2, p2 = harvest_openalex(con, ctx.log, start + 0.6 * total, y0, 1991)  # the search index the rest
             added += a2; pages += p2
             if p2:
                 ctx.log(f'  OpenAlex {y0}-1991: {a2} papers added this run')
