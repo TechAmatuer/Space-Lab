@@ -53,7 +53,7 @@ def restart_if_requested():
     import subprocess
     root = str(config.ROOT)
     script = ('sleep 3; cd "$ROOT" || exit 1; '
-              'want="$(cat requirements*.txt | shasum | cut -c1-40)"; '
+              'want="$(cat requirements.txt requirements-exotic.txt requirements-fpp.txt | shasum | cut -c1-40)"; '
               'if [ "$want" != "$(cat .venv/.req-stamp 2>/dev/null)" ]; then bash setup.sh; fi; '
               'PYTHONPYCACHEPREFIX="$ROOT/data/cache/pycache" exec .venv/bin/python -m spacelab.server --no-browser')
     env = {k: v for k, v in os.environ.items() if k != 'SPACELAB_RUN_ID'}

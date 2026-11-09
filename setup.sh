@@ -47,6 +47,6 @@ fi
 echo "[4/4] Checking the code ..."
 if [ -d "$HERE/.git" ]; then git -C "$HERE" config core.hooksPath .githooks; fi
 "$HERE/.venv/bin/python" -c "import spacelab.server, spacelab.tess_hunter, spacelab.precovery, spacelab.exowatch, spacelab.arxiv_digest; print('      ok')"
-cat requirements*.txt | shasum | cut -c1-40 > "$HERE/.venv/.req-stamp"
+cat requirements.txt requirements-exotic.txt requirements-fpp.txt | shasum | cut -c1-40 > "$HERE/.venv/.req-stamp"
 "$UV" cache clean >/dev/null 2>&1 || true
 echo "Space Lab is ready."
