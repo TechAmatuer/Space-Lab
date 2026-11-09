@@ -471,6 +471,12 @@ def share_item(kind, oid, cfg=None):
 def run(ctx):
     con, cfg, log = ctx.con, ctx.cfg, ctx.log
     sh = cfg.get('share') or {}
+    try:                                   # make sure today's candidate of the day exists before the page is built
+        from . import daily
+        from .llm import LLM
+        daily.ensure(con, cfg, log, LLM(cfg, log))
+    except Exception as e:
+        log(f'  candidate of the day skipped: {e}')
     data = build_site(con, cfg)
     n = len(data['tess']['cands']) + len(data['asteroids']['cands']) + len(data['exowatch']['results'])
     log(f'public copy built: {n} results, scanned for private information: clean')
