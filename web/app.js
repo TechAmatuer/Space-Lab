@@ -106,7 +106,7 @@ function setTab(tab, focus) {
   S.tab = tab; S.focus = focus || null;
   $$('nav.tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === tab));
   $$('section.view').forEach(v => v.classList.toggle('on', v.id === 'v-' + tab));
-  if (location.hash.slice(1) !== tab) history.replaceState(null, '', '#' + tab + location.search);
+  if (location.hash.slice(1) !== tab) history.replaceState(null, '', location.pathname + location.search + '#' + tab);
   const tb = document.querySelector(`nav.tabs button[data-tab="${tab}"]`); if (tb && tb.scrollIntoView && innerWidth <= 1100) tb.scrollIntoView({ block: 'nearest', inline: 'center' });
   load(tab);
 }
@@ -632,7 +632,7 @@ document.addEventListener('change', e => {
 });
 
 // ------------------------------------------------------------------ start
-const start = (location.hash || '#today').slice(1);
+const start = (location.hash || '#today').slice(1).split('?')[0];   // older links put ?embed=1 after the tab name
 function start_() {
   Promise.all([refreshState(), loadPublicData()]).then(() => layoutNav() || setTab(['today', 'arxiv', 'exowatch', 'tess', 'asteroids', 'setup'].includes(start) || EXTRA_TABS[start] ? start : 'today'));
 }

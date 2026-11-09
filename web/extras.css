@@ -53,7 +53,7 @@ body.sl-embedded main{padding:6px}
 .bx-dot.fire{background:rgba(255,90,40,.8)} .bx-dot.quake{background:rgba(230,103,103,.7)}
 .bx-dot.iss{background:#ffd84a;animation:pulse 1.5s infinite}
 .bx-earths{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
-.bx-earth{margin:0} .bx-earth img{width:100%;border-radius:8px}
+.bx-earth{margin:0} .bx-earth img{width:100%;max-height:440px;object-fit:contain;background:#000;border-radius:8px}
 .bx-dl dt{font-weight:600;margin-top:8px} .bx-dl dd{margin:2px 0 0 0;color:var(--ink-2)}
 .bx-spec{position:relative;height:56px;border-radius:6px;margin:8px 0 2px}
 .bx-spec i{position:absolute;top:0;bottom:0;width:2px;background:rgba(0,0,0,.85);transform:translateX(-1px)}
