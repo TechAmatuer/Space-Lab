@@ -56,6 +56,7 @@ def build_data(con, cfg):
                      'plot': f(c['plot']), 'lc': f(c.get('lc')), 'created': c['created'],
                      'ai': {k: ai.get(k) for k in ('verdict', 'confidence', 'reasons')} if ai else None,
                      'model_score': classifier.score(model, c),
+                     'fpp': _j(c.get('fpp')),
                      'centroid': ({k: cen.get(k) for k in ('verdict', 'offset_arcsec', 'signif', 'snr')} | {'png': f(cen.get('png'))}) if cen else None})
     stats = {r['status']: r['n'] for r in db.rows(con, 'SELECT status, COUNT(*) AS n FROM tess_targets GROUP BY status')}
     w = db.kv_get(con, 'neo_watch') or {}
@@ -91,7 +92,7 @@ def build_data(con, cfg):
     papers = db.rows(con, 'SELECT id,title,authors,url,published,summary,why,project,rank FROM arxiv WHERE digest=? ORDER BY rank',
                      (dates[0],)) if dates else []
     eph = db.kv_get(con, 'ephem') or {}
-    data = {'name': public_name(cfg), 'updated': time.time(),
+    data = {'name': public_name(cfg), 'updated': time.time(), 'schema': SCHEMA_VERSION,
             'tess': {'stats': {k: stats.get(k, 0) for k in ('done', 'queued', 'nodata')}, 'cands': tess,
                      'model': {k: (model or {}).get(k) for k in ('ready', 'n_user', 'n_auto', 'acc')}},
             'asteroids': {'text': (db.kv_get(con, 'neo_watch_text') or {}).get('text'), 'cad': (w.get('cad') or [])[:15],
@@ -100,6 +101,38 @@ def build_data(con, cfg):
             'exowatch': {'results': exo, 'stale': (eph.get('stale') or [])[:30]},
             'brief': {'date': dates[0] if dates else None, 'papers': papers}}
     return data, files
+
+
+SCHEMA_VERSION = 2
+# The public page (web/public.js) reads exactly these keys. Change them only together with public.js and bump SCHEMA_VERSION.
+SCHEMA = {'name': str, 'updated': float, 'schema': int,
+          'tess': {'stats': dict, 'cands': list, 'model': dict},
+          'asteroids': {'cad': list, 'sentry': list, 'neocp': list, 'cands': list, 'targets': list},
+          'exowatch': {'results': list, 'stale': list},
+          'brief': {'papers': list}}
+CAND_KEYS = ('id', 'tic', 'period', 'depth', 'snr', 'flags', 'status')
+
+
+def validate(data, schema=SCHEMA, path='data'):
+    """Return a list of problems; an empty list means the public page can read this file."""
+    errs = []
+    for k, t in schema.items():
+        if k not in data:
+            errs.append(f'{path}.{k} is missing')
+        elif isinstance(t, dict):
+            if not isinstance(data[k], dict):
+                errs.append(f'{path}.{k} should be an object')
+            else:
+                errs += validate(data[k], t, f'{path}.{k}')
+        elif not isinstance(data[k], t) and not (t is float and isinstance(data[k], int)):
+            errs.append(f'{path}.{k} should be {t.__name__}')
+    if path == 'data' and not errs:
+        for i, c in enumerate(data['tess']['cands']):
+            miss = [k for k in CAND_KEYS if k not in c]
+            if miss:
+                errs.append(f"tess candidate {i} lacks {', '.join(miss)}")
+                break
+    return errs
 
 
 def forbidden(cfg):
@@ -134,6 +167,9 @@ def scan(folder, cfg):
 
 def build_site(con, cfg):
     data, files = build_data(con, cfg)
+    errs = validate(data)
+    if errs:
+        raise RuntimeError('stopped: the public data would break the page (' + '; '.join(errs[:5]) + '). Nothing was published.')
     if SITE.exists():
         shutil.rmtree(SITE)
     SITE.mkdir(parents=True)

@@ -35,8 +35,18 @@ else
   echo "      EXOTIC did not install. The other three projects still work. Paste the error above to Claude."
 fi
 
+echo "      TRICERATOPS environment (false-positive probabilities, optional) ..."
+make_env "$HERE/.venv-fpp"
+if "$UV" pip install --quiet --python "$HERE/.venv-fpp/bin/python" -r requirements-fpp.txt; then
+  echo "      ok"
+else
+  rm -rf "$HERE/.venv-fpp"
+  echo "      TRICERATOPS did not install. Signals are still checked without it."
+fi
+
 echo "[4/4] Checking the code ..."
+if [ -d "$HERE/.git" ]; then git -C "$HERE" config core.hooksPath .githooks; fi
 "$HERE/.venv/bin/python" -c "import spacelab.server, spacelab.tess_hunter, spacelab.precovery, spacelab.exowatch, spacelab.arxiv_digest; print('      ok')"
-cat requirements.txt requirements-exotic.txt | shasum | cut -c1-40 > "$HERE/.venv/.req-stamp"
+cat requirements*.txt | shasum | cut -c1-40 > "$HERE/.venv/.req-stamp"
 "$UV" cache clean >/dev/null 2>&1 || true
 echo "Space Lab is ready."

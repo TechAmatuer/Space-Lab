@@ -194,7 +194,12 @@ def api_arxiv(q):
     d = (q.get('date') or [dates[0] if dates else ''])[0]
     papers = db.rows(con, 'SELECT id,title,authors,abstract,cats,published,url,score,rank,summary,why,project,is_read '
                           'FROM arxiv WHERE digest=? ORDER BY rank', (d,))
-    return {'dates': dates, 'date': d, 'papers': papers}
+    try:
+        from . import library
+        lib = library.status()
+    except Exception as e:
+        lib = {'error': str(e)}
+    return {'dates': dates, 'date': d, 'papers': papers, 'news': db.kv_get(con, 'news'), 'library': lib}
 
 
 def api_tess():
@@ -209,6 +214,7 @@ def api_tess():
         c['metrics'] = j(c['metrics']) or {}
         c['ai'] = j(c.get('ai'))
         c['centroid'] = j(c.get('centroid'))
+        c['fpp'] = j(c.get('fpp'))
     return {'stats': stats, 'cands': cands, 'engine': db.kv_get(con, 'tess_engine'),
             'model': {k: (model or {}).get(k) for k in ('ready', 'n_user', 'n_auto', 'acc', 'top', 'need')},
             'shared': bool(((config.load().get('share') or {}).get('discord_webhook')))}
@@ -403,6 +409,21 @@ def post_action(path, body):
         url = body.get('url') or config.load().get('discord_webhook')
         ok, msg = notify.send('✅ Space Lab is connected. Alerts about new things to check will appear here.', url)
         return (200 if ok else 400), ({'ok': True} if ok else {'error': msg})
+    if kind == 'library':
+        from . import library
+        from .llm import LLM
+        llm = LLM(config.load(), log)
+        q = str(body.get('q') or '').strip()[:300]
+        if not q:
+            return 400, {'error': 'empty search'}
+        rows = library.search(q, llm, body.get('y0'), body.get('y1'), body.get('cat'), body.get('topic'), k=int(body.get('k') or 40))
+        if body.get('review'):
+            rv = library.review(q, rows[:int(body.get('n_review') or 15)], llm)
+            for r in rows:
+                if r['id'] in rv:
+                    r['ai'] = rv[r['id']]
+            rows.sort(key=lambda r: -((r.get('ai') or {}).get('score', -1) * 10 + r['score']))
+        return 200, {'results': rows}
     if kind == 'ask':
         from . import ask
         return 200, ask.answer(body.get('q'))

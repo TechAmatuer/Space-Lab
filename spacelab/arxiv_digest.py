@@ -104,6 +104,12 @@ def explain(p, llm):
 def run(ctx):
     cfg, con, log = ctx.cfg, ctx.con, ctx.log
     llm = LLM(cfg, log)
+    try:
+        from . import news
+        n, ok = news.refresh(con, log)
+        log(f'{n} news items from {len(ok)} other sources')
+    except Exception as e:
+        log(f'news feeds: {e}')
     papers = fetch_new(cfg, log)
     known = {r['id'] for r in db.rows(con, 'SELECT id FROM arxiv')}
     new = [p for p in papers if p['id'] not in known]

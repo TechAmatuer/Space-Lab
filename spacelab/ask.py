@@ -82,6 +82,7 @@ def briefing(con, cfg, question, llm):
                      + (f'; known as {c["known"]}' if c.get('known') else '')
                      + (f'; AI first look: {ai.get("verdict")} ({ai.get("confidence")})' if ai else '')
                      + (f'; centroid: {cen.get("verdict")} ({cen.get("offset_arcsec")}″)' if cen else '')
+                     + (f'; TRICERATOPS FPP {(_j(c.get("fpp")) or {}).get("fpp")}' if c.get('fpp') else '')
                      + (f'; your model: {sc:.0%} planet-like' if sc is not None else ''))
     out.append('TESS PLANET HUNTER\n' + '\n'.join(lines))
     w = db.kv_get(con, 'neo_watch') or {}

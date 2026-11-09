@@ -49,7 +49,7 @@ def connect():
     return con
 
 
-COLUMNS = {'tess_cands': {'ai': 'TEXT', 'centroid': 'TEXT', 'lc': 'TEXT', 'shared': 'REAL'},
+COLUMNS = {'tess_cands': {'ai': 'TEXT', 'centroid': 'TEXT', 'lc': 'TEXT', 'shared': 'REAL', 'fpp': 'TEXT'},
            'exo': {'source': 'TEXT', 'shared': 'REAL'},
            'pc_cands': {'shared': 'REAL'},
            'pc_targets': {'origin': 'TEXT'}}

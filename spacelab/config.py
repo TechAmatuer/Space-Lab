@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-DATA = ROOT / 'data'
+DATA = Path(os.environ['SPACELAB_DATA']) if os.environ.get('SPACELAB_DATA') else ROOT / 'data'   # tests use a temp folder
 LOGS = ROOT / 'logs'
 INBOX = ROOT / 'inbox'
 PLOTS = DATA / 'plots'
@@ -41,6 +41,7 @@ DEFAULTS = {
         'targets': '07:00',
         'publish': '07:15',
         'neocp': 'every 2h',
+        'library': 'every 3h',
     },
     'arxiv': {
         'categories': ['astro-ph.EP', 'astro-ph.SR', 'astro-ph.IM', 'astro-ph.GA', 'astro-ph.HE', 'astro-ph.CO'],
@@ -62,6 +63,7 @@ DEFAULTS = {
         'max_targets': 200,
         'workers': 0,             # stars at a time (0 = automatic, from the number of CPU cores)
         'centroid': True,         # pixel-level check on signals that pass the light-curve checks
+        'fpp': True,              # TRICERATOPS false-positive probability for signals that pass everything
         'teff_max': 4000,
         'tmag_max': 13.5,         # full-frame-image light curves reach fainter stars
         'dist_max_pc': 150,
@@ -84,6 +86,7 @@ DEFAULTS = {
         'new_days': 10,           # newly announced near-Earth asteroids from the last N days get a fast precovery check
         'max_searches': 3,
     },
+    'library': {'time_budget_min': 45, 'min_year': 2006},
     'targets': {'time_budget_min': 15, 'days_ahead': 7, 'mobs_vmax': 12.5, 'mobs_depth_ppt': 5.0},
     'telescope': {                # your own smart telescope (private: location is never shared)
         'model': '',              # 'Seestar S50', 'Dwarf 3' or ''

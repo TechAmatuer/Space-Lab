@@ -140,9 +140,26 @@ function renderArxiv(d) {
     <div class="small muted" style="margin-bottom:6px">${esc(p.authors)}</div>
     <div>${esc(p.summary)}</div>${p.why ? `<div style="margin-top:6px"><b>Why it matters:</b> ${esc(p.why)}</div>` : ''}
     <details style="margin-top:8px"><summary class="small">Original abstract</summary><p class="small muted">${esc(p.abstract)}</p></details></div>`).join('');
-  $('#v-arxiv').innerHTML = `<div class="row"><h2 style="margin:4px 0">Space brief</h2><span class="spacer"></span>${d.dates.length ? `<select id="arxivDate">${opts}</select>` : ''}</div>
-    <p class="muted small">New astronomy papers from arXiv, ranked against your interests by your local embedding model, explained by your local AI. Edit your interests in Setup.</p>
-    ${cards || '<div class="card empty">No digest yet. It runs every morning (arXiv posts new papers Sunday–Thursday evenings).</div>'}`;
+  const lib = d.library || {};
+  if (!$('#libBox')) {
+    const cats = [['', 'all of astro-ph'], ['astro-ph.EP', 'planets & solar system'], ['astro-ph.SR', 'stars & Sun'], ['astro-ph.GA', 'galaxies'],
+      ['astro-ph.CO', 'cosmology'], ['astro-ph.HE', 'high-energy'], ['astro-ph.IM', 'instruments & methods']];
+    $('#v-arxiv').innerHTML = `<div id="arxivTop"></div>
+      <div class="card" id="libBox"><div class="row"><h3>📚 Library: 20 years of astronomy papers</h3><span class="spacer"></span><span class="small muted" id="libStatus"></span></div>
+        <div class="row"><input type="text" id="libQ" placeholder="e.g. hot Jupiter orbital decay; precovery of near-Earth asteroids; TRAPPIST-1 atmospheres" style="flex:1;min-width:260px"><button class="b primary" id="libGo">Search</button></div>
+        <div class="row small" style="margin-top:6px"><label>from <input type="number" id="libY0" value="2006" style="width:72px"></label><label>to <input type="number" id="libY1" value="${new Date().getFullYear()}" style="width:72px"></label>
+          <label>area <select id="libCat">${cats.map(c => `<option value="${c[0]}">${c[1]}</option>`).join('')}</select></label>
+          <label>topic <select id="libTopic"><option value="">any</option>${(lib.topics || []).map(t => `<option>${esc(t)}</option>`).join('')}</select></label>
+          <label><input type="checkbox" id="libAI" checked> AI reads the top 15 abstracts and ranks them (about a minute)</label></div>
+        <div id="libOut"></div></div>
+      <div id="arxivBody"></div>`;
+  }
+  $('#libStatus').textContent = lib.papers ? `${lib.papers.toLocaleString()} papers (${lib.years[0]}–${lib.years[1]}), ${lib.embedded.toLocaleString()} searchable by meaning${lib.complete ? '' : ' · still downloading'} · ${lib.disk_gb} GB` : 'building: the first download starts with the next library run';
+  const news = (d.news && d.news.items) || [];
+  $('#arxivTop').innerHTML = `<div class="row"><h2 style="margin:4px 0">Space brief</h2><span class="spacer"></span>${d.dates.length ? `<select id="arxivDate">${opts}</select>` : ''}</div>
+    <p class="muted small">New astronomy papers from arXiv, ranked against your interests by your local embedding model, explained by your local AI. Edit your interests in Setup.</p>`;
+  $('#arxivBody').innerHTML = (cards || '<div class="card empty">No digest yet. It runs every morning (arXiv posts new papers Sunday–Thursday evenings).</div>') +
+    (news.length ? `<h2>Elsewhere this week</h2><div class="card"><ul class="list">${news.slice(0, 25).map(n => `<li><span><a href="${esc(n.url)}" target="_blank" rel="noopener">${esc(n.title)}</a><br><span class="small muted">${esc(n.source)}${n.date ? ' · ' + new Date(n.date * 1000).toLocaleDateString() : ''}</span></span></li>`).join('')}</ul></div>` : '');
   afterRender();
 }
 
@@ -193,8 +210,9 @@ function improve(r) {
 function renderExo(x) {
   S.exoShared = x.shared;
   const eph = x.ephem || {}, plan = x.plan || {};
-  const stale = (eph.stale || []).slice(0, 15).map(t => `<tr><td><b>${esc(t.name)}</b></td><td class="mono">${num(t.vmag, 1)}</td><td class="mono">${num(t.depth_ppt, 1)} ppt</td><td class="mono"><b>±${num(t.sigma_min, 0)} min</b></td><td>${jdLocal(t.next_jd)}</td></tr>`).join('');
-  const ev = (plan.events || []).slice(0, 20).map(e => `<tr><td>${isoLocal(e.start_utc)}</td><td>${isoLocal(e.mid_utc).split(', ').pop()}</td><td>${isoLocal(e.end_utc).split(', ').pop()}</td><td><b>${esc(e.name)}</b></td><td class="mono">${num(e.depth_ppt, 1)} ppt</td><td class="mono">${num(e.vmag, 1)}</td><td class="mono">±${num(e.sigma_min, 0)} min</td><td class="mono">${e.min_alt}°</td></tr>`).join('');
+  const pri = p => p ? `<span class="chip ${p === 'alert' || p === 'high' ? 'warn' : ''}">${esc(p)}</span>` : '';
+  const stale = (eph.stale || []).slice(0, 15).map(t => `<tr><td><b>${esc(t.name)}</b> ${pri(t.priority)}</td><td class="mono">${num(t.vmag, 1)}</td><td class="mono">${num(t.depth_ppt, 1)} ppt</td><td class="mono"><b>±${num(t.sigma_min, 0)} min</b></td><td>${jdLocal(t.next_jd)}</td></tr>`).join('');
+  const ev = (plan.events || []).slice(0, 20).map(e => `<tr><td>${isoLocal(e.start_utc)}</td><td>${isoLocal(e.mid_utc).split(', ').pop()}</td><td>${isoLocal(e.end_utc).split(', ').pop()}</td><td><b>${esc(e.name)}</b> ${pri(e.priority)}</td><td class="mono">${num(e.depth_ppt, 1)} ppt</td><td class="mono">${num(e.vmag, 1)}</td><td class="mono">±${num(e.sigma_min, 0)} min</td><td class="mono">${e.min_alt}°</td></tr>`).join('');
   const sc = x.telescope || {};
   const scope = `<h2>Your telescope</h2><div class="card">
       <p>Own a Seestar S50 or Dwarf 3? Record a transit from the list below, then drop the night's folder of frames (or a zip) into <span class="mono">${esc(x.telescope_inbox)}</span> <button class="b" data-copy="${esc(x.telescope_inbox)}">Copy path</button>. Space Lab converts colour frames to the green channel, runs EXOTIC with your location, and gives you the same AAVSO upload helper.</p>
@@ -210,7 +228,7 @@ function renderExo(x) {
       <div class="small ${x.aavso_code ? 'muted' : 'warn-t'}">AAVSO observer code: ${x.aavso_code ? esc(x.aavso_code) : 'not set yet (Setup tab) — results still work, but credit needs it'}</div></div>
     <h2>Your datasets</h2>${x.datasets.length ? x.datasets.map(exoCard).join('') : '<div class="card empty">No datasets yet.</div>'}
     <h2>Timing targets: planets whose transit times have drifted most</h2><div class="card">
-      <p class="small muted">Every planet's predicted transit time gets less certain each orbit. These are the planets MicroObservatory can measure (bright enough, deep enough) whose predictions are now the most uncertain, so one new measurement helps the most. Ask for these when you check out data. Based on the NASA Exoplanet Archive's adopted ephemerides; a few planets have newer timings elsewhere (e.g. ExoClock), so check before observing. ${eph.t ? 'Updated ' + ago(eph.t) + '.' : ''}</p>
+      <p class="small muted">Every planet's predicted transit time gets less certain each orbit. These are the planets MicroObservatory can measure (bright enough, deep enough) whose predictions are now the most uncertain, so one new measurement helps the most. Ask for these when you check out data. Timing and priorities from ExoClock (the ESA Ariel mission's monitoring project, kept up to date); the NASA Exoplanet Archive fills in planets ExoClock doesn't follow. ${eph.t ? 'Updated ' + ago(eph.t) + '.' : ''}</p>
       <table class="compact"><tr><th>planet</th><th>star V</th><th>depth</th><th>timing uncertainty now</th><th>next transit (your time)</th></tr>${stale || '<tr><td colspan=5 class="muted">Runs daily (Transit timing targets).</td></tr>'}</table></div>
     ${scope}`;
   afterRender();
@@ -240,6 +258,8 @@ function tessExtras(c) {
   const ai = c.ai;
   if (ai) out.push(`<div class="note ${/planet/.test(ai.verdict) ? 'ok' : /binary|noise/.test(ai.verdict) ? 'bad' : 'warn'}"><b>AI first look</b> <span class="small muted">(${esc(ai.model || 'local model')} looked at the plot)</span>: <b>${esc(ai.verdict)}</b>, confidence ${pct(ai.confidence)}${(ai.reasons || []).length ? ' — ' + ai.reasons.map(esc).join('; ') : ''}</div>`);
   if (c.model_score !== null && c.model_score !== undefined) out.push(`<div class="note"><b>Your model</b>: ${pct(c.model_score)} planet-like <span class="small muted">(learned from your past decisions)</span></div>`);
+  const fp = c.fpp;
+  if (fp) out.push(`<div class="note ${fp.nfpp > 0.1 ? 'bad' : fp.fpp < 0.5 && fp.nfpp < 0.001 ? 'ok' : 'warn'}"><b>False-positive probability</b> (TRICERATOPS): FPP ${num(fp.fpp, 3)}, nearby-star FPP ${num(fp.nfpp, 4)} — ${esc(fp.verdict)}</div>`);
   const cen = c.centroid;
   if (cen) out.push(`<div class="note ${cen.verdict === 'off target' ? 'bad' : cen.verdict === 'on target' ? 'ok' : 'warn'}"><b>Centroid test</b>: ${esc(cen.verdict)} — the dip's light comes from ${num(cen.offset_arcsec, 0)}″ from the star (${num(cen.signif, 1)}σ; signal strength ${num(cen.snr, 0)})${cen.png ? `<br><img class="thumb plot" src="${fileUrl(cen.png)}" alt="centroid test" loading="lazy">` : ''}</div>`);
   return out.join('');
@@ -476,6 +496,7 @@ document.addEventListener('click', async e => {
       return;
     }
     if (t.id === 'askBtn') return ask();
+    if (t.id === 'libGo') return libSearch();
     if (t.id === 'saveScope') {
       await api('api/settings', { telescope: { model: $('#scModel').value, lat: $('#scLat').value.trim(), lon: $('#scLon').value.trim(), elev: +$('#scElev').value || 0 } });
       $('#saved5').textContent = 'Saved. Run "Transit timing targets" on Today to plan transits.'; return;
@@ -492,6 +513,20 @@ document.addEventListener('click', async e => {
     if (t.id === 'stopJob') { if (confirm('Stop the job that is running now?')) await api('api/stop/x', {}); return refreshState(); }
   } catch (err) { alert(err.message); }
 });
+async function libSearch() {
+  const q = $('#libQ').value.trim(); if (!q) return;
+  const ai = $('#libAI').checked, out = $('#libOut');
+  out.innerHTML = `<p class="muted">${ai ? 'Searching, then your local AI reads the top abstracts…' : 'Searching…'}</p>`; $('#libGo').disabled = true;
+  try {
+    const r = await api('api/library', { q, y0: +$('#libY0').value || null, y1: +$('#libY1').value || null, cat: $('#libCat').value, topic: $('#libTopic').value, review: ai });
+    out.innerHTML = r.results.length ? r.results.map(p => `<div style="border-top:1px solid var(--line);padding:8px 0">
+      <div class="row"><b><a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title)}</a></b><span class="spacer"></span>${p.ai ? `<span class="chip ${p.ai.score >= 7 ? 'ok' : p.ai.score >= 4 ? 'warn' : ''}">AI ${num(p.ai.score, 0)}/10</span>` : ''}<span class="small muted">${p.year}</span></div>
+      <div class="small muted">${esc(p.authors)} ${(p.tags || []).map(t => `<span class="chip">${esc(t)}</span>`).join('')}</div>
+      ${p.ai && p.ai.summary ? `<div style="margin-top:4px">${esc(p.ai.summary)}</div>` : ''}
+      <details><summary class="small">Abstract</summary><p class="small muted">${esc(p.abstract)}</p></details></div>`).join('') : '<p class="muted">Nothing found yet (the library may still be downloading).</p>';
+  } catch (err) { out.innerHTML = `<p class="bad-t">${esc(err.message)}</p>`; }
+  $('#libGo').disabled = false;
+}
 async function ask() {
   const q = $('#askQ').value.trim(); if (!q) return;
   const out = $('#askOut'); out.innerHTML = '<p class="muted">Thinking (your local AI reads your results; 10–60 s)…</p>'; $('#askBtn').disabled = true;
@@ -499,7 +534,7 @@ async function ask() {
   catch (err) { out.innerHTML = `<p class="bad-t">${esc(err.message)}</p>`; }
   $('#askBtn').disabled = false;
 }
-document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'askQ') ask(); if (e.key === 'Escape') closeModal(); });
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'askQ') ask(); if (e.key === 'Enter' && e.target.id === 'libQ') libSearch(); if (e.key === 'Escape') closeModal(); });
 document.addEventListener('change', e => {
   if (e.target.id === 'arxivDate') { S.arxivDate = e.target.value; load('arxiv'); }
   if (e.target.id === 'logJob') { S.logJob = e.target.value; loadLog(); }

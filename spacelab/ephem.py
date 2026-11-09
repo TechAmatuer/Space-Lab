@@ -15,11 +15,14 @@ import numpy as np
 from . import db, net
 
 NEA_TAP = 'https://exoplanetarchive.ipac.caltech.edu/TAP/sync'
+EXOCLOCK = 'https://www.exoclock.space/database/planets_json'   # ESA Ariel's ExoClock: maintained, up-to-date ephemerides
+PRIORITY = {'alert': 0, 'high': 1, 'medium': 2, 'low': 3}
 SCOPES = {   # what a small smart telescope can realistically time (one-shot colour, green channel)
-    'Seestar S50': {'vmax': 11.5, 'depth_ppt': 8.0},
-    'Dwarf 3': {'vmax': 11.0, 'depth_ppt': 10.0},
-    '': {'vmax': 11.5, 'depth_ppt': 8.0},
+    'Seestar S50': {'vmax': 11.5, 'depth_ppt': 8.0, 'inches': 2.0},
+    'Dwarf 3': {'vmax': 11.0, 'depth_ppt': 10.0, 'inches': 1.4},
+    '': {'vmax': 11.5, 'depth_ppt': 8.0, 'inches': 2.0},
 }
+MOBS_INCHES = 6.0   # MicroObservatory telescopes
 
 
 def _f(x):
@@ -41,6 +44,45 @@ def load_planets(con, log):
     log(f'{len(rows)} transiting planets brighter than V=13.5 from the NASA Exoplanet Archive')
     db.kv_set(con, 'ephem_nea', rows)
     return rows
+
+
+def _deg(v, hours=False):
+    if v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    s = str(v).strip()
+    if ':' in s:
+        sign = -1 if s.startswith('-') else 1
+        parts = [abs(float(x)) for x in s.replace('+', '').replace('-', '').split(':')]
+        d = parts[0] + parts[1] / 60 + (parts[2] if len(parts) > 2 else 0) / 3600
+        return sign * d * (15 if hours else 1)
+    return _f(s)
+
+
+def norm(name):
+    return ''.join(ch for ch in str(name or '').lower() if ch.isalnum())
+
+
+def load_exoclock(con, log):
+    cached, t = db.kv_get(con, 'exoclock'), db.kv_time(con, 'exoclock')
+    if cached and t and time.time() - t < 86400:
+        return cached
+    js = net.fetch_json(EXOCLOCK, timeout=120)
+    out = []
+    for p in (js.values() if isinstance(js, dict) else js):
+        mmag = _f(p.get('depth_r_mmag'))
+        out.append({'pl_name': p.get('name'), 'hostname': p.get('star'), 'ra': _deg(p.get('ra_j2000'), hours=True),
+                    'dec': _deg(p.get('dec_j2000')), 'sy_vmag': _f(p.get('v_mag')),
+                    'pl_orbper': _f(p.get('ephem_period')), 'pl_orbpererr1': _f(p.get('ephem_period_e1')),
+                    'pl_orbpererr2': _f(p.get('ephem_period_e2')), 'pl_tranmid': _f(p.get('ephem_mid_time')),
+                    'pl_tranmiderr1': _f(p.get('ephem_mid_time_e1')), 'pl_tranmiderr2': _f(p.get('ephem_mid_time_e2')),
+                    'pl_trandep': (mmag / 1.0857 / 10) if mmag else None, 'pl_trandur': _f(p.get('duration_hours')),
+                    'priority': p.get('priority'), 'min_inches': _f(p.get('min_telescope_inches')),
+                    'oc_min': _f(p.get('current_oc_min')), 'source': 'ExoClock'})
+    log(f'{len(out)} planets with up-to-date timing from ExoClock')
+    db.kv_set(con, 'exoclock', out)
+    return out
 
 
 def drift(p, jd):
@@ -75,12 +117,15 @@ def stale_targets(planets, jd, vmax, dmin):
         if not d:
             continue
         tnext, sig, n = d
+        if p.get('min_inches') and p['min_inches'] > MOBS_INCHES:
+            continue
         out.append({'name': p['pl_name'], 'host': p.get('hostname'), 'vmag': round(v, 1), 'depth_ppt': round(dep, 1),
                     'period': round(_f(p['pl_orbper']), 5), 'sigma_min': round(sig, 1), 'epochs_since': n,
-                    'next_jd': round(tnext, 5), 'ra': _f(p.get('ra')), 'dec': dec, 'dur_h': _f(p.get('pl_trandur'))})
+                    'next_jd': round(tnext, 5), 'ra': _f(p.get('ra')), 'dec': dec, 'dur_h': _f(p.get('pl_trandur')),
+                    'priority': p.get('priority'), 'source': p.get('source') or 'NASA Exoplanet Archive'})
     # beyond ~6 hours the transit can't be caught in one night: those need a dedicated search, not a quick timing
     out = [r for r in out if r['sigma_min'] <= 360]
-    out.sort(key=lambda r: -r['sigma_min'])
+    out.sort(key=lambda r: (PRIORITY.get(r.get('priority'), 4), -r['sigma_min']))
     return out
 
 
@@ -97,6 +142,8 @@ def plan(planets, jd, lat, lon, elev, model, days, log):
     for p in planets:
         v, dep, dec = _f(p.get('sy_vmag')), depth_ppt(p), _f(p.get('dec'))
         if v is None or dep is None or dec is None or v > lim['vmax'] or dep < lim['depth_ppt'] or dec < lat - 65:
+            continue
+        if p.get('min_inches') and p['min_inches'] > lim['inches']:
             continue
         d = drift(p, jd)
         if not d:
@@ -129,7 +176,7 @@ def plan(planets, jd, lat, lon, elev, model, days, log):
     for i, (p, tm, dur, sig, dep, v) in enumerate(events):
         m = owner == i
         if np.all(sun_alt[m] < -12) and np.all(star_alt[m] > 25):
-            ok.append({'name': p['pl_name'], 'mid_utc': Time(tm, format='jd').isot[:16] + 'Z', 'mid_jd': round(tm, 5),
+            ok.append({'priority': p.get('priority'), 'name': p['pl_name'], 'mid_utc': Time(tm, format='jd').isot[:16] + 'Z', 'mid_jd': round(tm, 5),
                        'start_utc': Time(tm - dur / 2 - 1 / 24, format='jd').isot[:16] + 'Z',
                        'end_utc': Time(tm + dur / 2 + 1 / 24, format='jd').isot[:16] + 'Z',
                        'dur_h': round(dur * 24, 1), 'depth_ppt': round(dep, 1), 'vmag': round(v, 1), 'sigma_min': round(sig, 1),
@@ -143,6 +190,12 @@ def run(ctx):
     con, cfg, log = ctx.con, ctx.cfg, ctx.log
     tg = cfg['targets']
     planets = load_planets(con, log)
+    try:   # ExoClock's maintained ephemerides first; the archive fills in planets ExoClock doesn't follow
+        ec = load_exoclock(con, log)
+        have = {norm(p['pl_name']) for p in ec}
+        planets = ec + [p for p in planets if norm(p.get('pl_name')) not in have]
+    except Exception as e:
+        log(f'ExoClock unavailable, using the NASA Exoplanet Archive only: {e}')
     jd = time.time() / 86400 + 2440587.5
     stale = stale_targets(planets, jd, tg['mobs_vmax'], tg['mobs_depth_ppt'])
     db.kv_set(con, 'ephem', {'t': time.time(), 'stale': stale[:60], 'n': len(stale)})

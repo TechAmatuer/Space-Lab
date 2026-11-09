@@ -16,7 +16,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import centroid, classifier, config, db, net
+from . import catalogs, centroid, classifier, config, db, fpp, net
 from .llm import LLM
 
 TOI_URL = 'https://exofop.ipac.caltech.edu/tess/download_toi.php?sort=toi&output=csv'
@@ -469,6 +469,19 @@ def process_star(job):
         cands_meta = []
         if s and s['sde'] >= tc['sde_min'] and s['snr'] >= tc['snr_min']:
             v = vet(s, star, ts, known_entries)
+            if int(tic) in (job.get('ebs') or ()):
+                v['flags'].append('listed in the TESS eclipsing-binary catalog (Prša+ 2022)')
+                v['severe'] = True
+            if not v['severe'] and not v['known'] and star.get('ra') is not None:
+                try:
+                    g = catalogs.gaia_binarity(star['ra'], star['dec'])
+                    if g:
+                        v['metrics']['gaia_ruwe'] = g['ruwe']
+                        if (g['ruwe'] or 0) > 1.4 or g['nss']:
+                            v['flags'].append(f'Gaia sees signs of a companion star (RUWE {g["ruwe"]})' if (g['ruwe'] or 0) > 1.4
+                                              else 'Gaia lists this star as a binary (non-single-star flag)')
+                except Exception as ex:
+                    msgs.append(f'Gaia check failed: {ex}')
             png = plots / f'TIC{tic}_P{s["period"]:.4f}.png'
             plot_periodic(png, tic, ts, ys, s, v, kind)
             cen = None
@@ -486,7 +499,17 @@ def process_star(job):
                             v['flags'].append(f'{cen["neighbors_within_2px"]} similar-brightness star(s) within 2 TESS pixels')
                 except Exception as ex:
                     msgs.append(f'centroid test failed: {type(ex).__name__}: {ex}')
+            fp = None
+            if not v['severe'] and not v['known'] and tc.get('fpp', True) and fpp.available() and not (cen and cen.get('verdict') == 'off target'):
+                try:
+                    fp = fpp.run(tic, sectors, ts, ys, s['period'], s['t0'], s['duration'], s['depth'], work)
+                    msgs.append(f'TRICERATOPS: FPP {fp["fpp"]}, NFPP {fp["nfpp"]} ({fp["verdict"]})')
+                    if fp['nfpp'] > 0.1:
+                        v['flags'].append(f'TRICERATOPS: likely comes from a nearby star (NFPP {fp["nfpp"]})')
+                except Exception as ex:
+                    msgs.append(f'TRICERATOPS failed: {type(ex).__name__}: {ex}'[:200])
             out['periodic'] = {k: s[k] for k in ('period', 't0', 'duration', 'depth', 'depth_err', 'snr', 'sde')}
+            out['periodic']['fpp'] = fp
             out['periodic'].update(v=v, png=str(png), centroid=cen)
             cands_meta.append({'kind': 'periodic', 'period': s['period'], 't0': s['t0'], 'duration': s['duration'], 'depth': s['depth']})
             note += f'; signal at {s["period"]:.3f} d'
@@ -557,8 +580,14 @@ def run(ctx):
     log(f'{len(targets)} targets queued for tonight; {workers} stars at a time')
     db.kv_set(con, 'tess_engine', {'engine': engine, 'workers': workers, **speed})
     checked = nodata = ncand = npass = 0
+    try:
+        ebs = catalogs.tess_ebs()
+        log(f'TESS eclipsing-binary catalog: {len(ebs)} known binaries')
+    except Exception as e:
+        ebs = set()
+        log(f'TESS EB catalog unavailable: {e}')
     jobs = [{'star': st, 'tc': tc, 'known': known.get(str(st['tic'])), 'engine': engine, 'plots': str(plots),
-             'lcdir': str(lcdir), 'work': str(work)} for st in targets]
+             'lcdir': str(lcdir), 'work': str(work), 'ebs': ebs} for st in targets]
     import multiprocessing as mp
     from concurrent.futures import ProcessPoolExecutor, as_completed, CancelledError
     with ProcessPoolExecutor(max_workers=workers, mp_context=mp.get_context('spawn')) as ex:
@@ -620,11 +649,12 @@ def record(con, llm, star, r):
                               f'{p["duration"] * 24:.1f} h, SNR {p["snr"]:.1f}, ~{v["rp"]:.1f} Earth radii, '
                               f'odd/even difference {v["metrics"]["odd_even_sigma"]} sigma, half-orbit dip {v["metrics"]["secondary_sigma"]} sigma.')
         
-        cid = con.execute('INSERT INTO tess_cands(tic,kind,period,t0,duration,depth,snr,sde,ntr,rp,metrics,flags,known,plot,explain,status,created,ai,centroid,lc) '
-                          'VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        cid = con.execute('INSERT INTO tess_cands(tic,kind,period,t0,duration,depth,snr,sde,ntr,rp,metrics,flags,known,plot,explain,status,created,ai,centroid,lc,fpp) '
+                          'VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                           (tic, 'periodic', p['period'], p['t0'], p['duration'], p['depth'], p['snr'], p['sde'], v['ntr'], v['rp'],
                            _j(v['metrics']), _j(v['flags']), v['known'], str(Path(p['png']).relative_to(config.DATA)), expl, status,
-                           time.time(), _j(ai) if ai else None, _j(p['centroid']) if p.get('centroid') else None, r.get('lc'))).lastrowid
+                           time.time(), _j(ai) if ai else None, _j(p['centroid']) if p.get('centroid') else None, r.get('lc'),
+                           _j(p['fpp']) if p.get('fpp') else None)).lastrowid
         ncand += 1
         if status == 'new':
             npass += 1

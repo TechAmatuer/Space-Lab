@@ -31,6 +31,7 @@ function tess() {
       <p>${esc(c.explain || '')}</p>
       ${ai ? `<div class="note"><b>AI first look</b> (a local vision model read the plot): <b>${esc(ai.verdict)}</b>, ${pct(ai.confidence)}${(ai.reasons || []).length ? ' — ' + ai.reasons.map(esc).join('; ') : ''}</div>` : '<div class="note"><b>Awaiting AI analysis</b> — a local vision model will review the diagnostic plots and add its verdict here.</div>'}
       ${c.model_score !== null && c.model_score !== undefined ? `<div class="note"><b>Volunteer\'s own model</b>: ${pct(c.model_score)} planet-like</div>` : ''}
+      ${c.fpp ? `<div class="note"><b>False-positive probability</b> (TRICERATOPS): FPP ${num(c.fpp.fpp, 3)}, nearby-star FPP ${num(c.fpp.nfpp, 4)} — ${esc(c.fpp.verdict)}</div>` : ''}
       ${cen ? `<div class="note"><b>Centroid test</b>: ${esc(cen.verdict)} (offset ${num(cen.offset_arcsec, 0)}″, ${num(cen.signif, 1)}σ)${cen.png ? `<br><img class="thumb plot" src="${esc(cen.png)}" alt="centroid" loading="lazy">` : ''}</div>` : '<div class="note"><b>Awaiting centroid test</b> — checking whether the dip signal comes from the target star or a nearby impostor.</div>'}
       <div class="row">${c.lc ? `<button class="b primary" data-lc="${esc(c.lc)}" data-p="${c.period || ''}" data-t0="${c.t0}" data-dur="${c.duration}" data-dep="${c.depth}">Interactive light curve</button>` : ''}
       <a class="b" href="https://exofop.ipac.caltech.edu/tess/target.php?id=${c.tic}" target="_blank" rel="noopener">ExoFOP ↗</a></div></div>`;
@@ -71,7 +72,7 @@ function exowatch() {
     ${d.plot ? `<img class="plot" src="${esc(d.plot)}" alt="light curve" loading="lazy">` : ''}
     <div class="kv"><b>Mid-transit time</b><span class="mono">${num(d.tmid, 5)} ± ${num((d.tmid_err || 0) * 1440, 1)} min</span><b>vs prediction</b><span class="mono">${d.oc ? num(d.oc.oc_min, 1) + ' min' : '—'}</span><b>Depth</b><span class="mono">${num(d.depth_pct, 2)} %</span></div>
     <p>${esc(d.explain || '')}</p></div>`).join('');
-  const st = (e.stale || []).slice(0, 15).map(t => `<tr><td><b>${esc(t.name)}</b></td><td class="mono">${num(t.vmag, 1)}</td><td class="mono">${num(t.depth_ppt, 1)} ppt</td><td class="mono">±${num(t.sigma_min, 0)} min</td></tr>`).join('');
+  const st = (e.stale || []).slice(0, 15).map(t => `<tr><td><b>${esc(t.name)}</b>${t.priority ? ` <span class="chip">${esc(t.priority)}</span>` : ''}</td><td class="mono">${num(t.vmag, 1)}</td><td class="mono">${num(t.depth_ppt, 1)} ppt</td><td class="mono">±${num(t.sigma_min, 0)} min</td></tr>`).join('');
 
   $('#v-exowatch').innerHTML = `<div class="card"><h3>Timing exoplanet transits for NASA Exoplanet Watch</h3><p>Measured transit times keep planets' schedules accurate so big telescopes like JWST don't miss them. Results go to the AAVSO Exoplanet Database and into Exoplanet Watch.</p></div>
     <div class="card"><details><summary>How this tab works</summary><p style="margin:0">When an exoplanet transits its star, it blocks a tiny fraction of light. By measuring the exact moment of each transit, citizen scientists help keep the planet's ephemeris accurate — so that JWST and other large telescopes point at the right time. This tab shows measurements from MicroObservatory observations, reduced with EXOTIC software.</p></details></div>

@@ -37,3 +37,7 @@ Open an issue saying you can observe. Space Lab can list transits that are visib
 ## Ground rules
 
 Be kind, assume good faith, and remember everything here is preliminary. Credit goes to everyone whose review shaped a result.
+
+## Code changes
+Open a pull request against `main`. Run `python tests/test_offline.py` first; GitHub runs the same tests and a
+secret scan on every pull request. If you use an AI coding agent, point it at [AGENTS.md](AGENTS.md).

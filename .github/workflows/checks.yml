@@ -1,0 +1,33 @@
+name: checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  privacy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: No private files
+        run: |
+          if git ls-files | grep -E '^(data|logs|inbox)/|(^|/)settings\.json$|\.db$'; then echo "private files are tracked"; exit 1; fi
+      - name: No secrets, personal emails or Mac paths
+        run: |
+          if git grep -nE 'discord(app)?\.com/api/webhooks/[0-9]+/|(ghp_|gho_|github_pat_)[A-Za-z0-9_]{20,}|/Users/[A-Za-z0-9._-]+/|[A-Za-z0-9._%+-]+@(gmail|icloud|yahoo|outlook|hotmail|proton)\.[a-z]+' -- . ':!.githooks' ':!.github' ':!AGENTS.md'; then exit 1; fi
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - run: python tests/test_offline.py
+      - run: node --check web/app.js && node --check web/public.js

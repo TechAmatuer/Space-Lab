@@ -1,0 +1,15 @@
+#!/bin/bash
+# Space Lab guard: stops private files and secrets from being committed. Installed by setup.sh (git config core.hooksPath .githooks).
+fail=0
+bad_paths="$(git diff --cached --name-only --diff-filter=ACMR | grep -E '^(data|logs|inbox|\.tools|\.venv[^/]*)/|(^|/)settings\.json$|\.db(-wal|-shm)?$|\.sqlite$|\.env$' || true)"
+if [ -n "$bad_paths" ]; then
+  echo "BLOCKED: these files are private and must never be committed:"; echo "$bad_paths" | sed 's/^/  /'; fail=1
+fi
+added="$(git diff --cached -U0 --diff-filter=ACMR -- . ':(exclude).githooks' ':(exclude)AGENTS.md' | grep -E '^\+' | grep -vE '^\+\+\+' || true)"
+check() { if printf '%s\n' "$added" | grep -qE "$1"; then echo "BLOCKED: $2"; printf '%s\n' "$added" | grep -nE "$1" | head -3 | cut -c1-160 | sed 's/^/  /'; fail=1; fi; }
+check 'discord(app)?\.com/api/webhooks/[0-9]+/' 'a Discord webhook URL'
+check '(ghp_|gho_|ghs_|github_pat_)[A-Za-z0-9_]{20,}' 'a GitHub token'
+check '(sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|xox[bp]-[A-Za-z0-9-]{20,})' 'an API key'
+check '/Users/[A-Za-z0-9._-]+/' 'a path that contains your Mac user name'
+check '[A-Za-z0-9._%+-]+@(gmail|icloud|me|yahoo|outlook|hotmail|proton(mail)?)\.[a-z]{2,}' 'a personal email address'
+if [ $fail -ne 0 ]; then echo; echo "Nothing was committed. Remove those lines/files (see AGENTS.md)."; exit 1; fi

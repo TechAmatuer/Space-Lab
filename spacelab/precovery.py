@@ -287,7 +287,7 @@ def detect_sources(data, header, thresh=2.5):
     return out
 
 
-def moving_candidates(dets, static, pred, trail_arcsec=0.0, snr_min=5.0, static_r=1.5):
+def moving_candidates(dets, static, pred, trail_arcsec=0.0, snr_min=5.0, static_r=1.5, pix=PS1_PIX):
     """Detections inside the 3-sigma ellipse that are not static sources and look like real point/trail sources."""
     if static:
         sx, sy = offsets([s['ra'] for s in static], [s['dec'] for s in static], pred['ra'], pred['dec'])
@@ -301,7 +301,7 @@ def moving_candidates(dets, static, pred, trail_arcsec=0.0, snr_min=5.0, static_
         if d['b'] < 0.55:   # sharper than any star: cosmic ray / hot pixel
             continue
         elong = d['a'] / max(d['b'], 0.1)
-        max_elong = 2.2 + trail_arcsec / (PS1_PIX * 3.0)
+        max_elong = 2.2 + trail_arcsec / (pix * 3.0)
         if elong > max_elong:
             continue
         dx, dy = offsets(d['ra'], d['dec'], pred['ra'], pred['dec'])
@@ -392,21 +392,30 @@ def obs_time_utc(header, mjd_fallback, exptime):
     return Time(mid, format='mjd', scale=scale).utc.isot + 'Z'
 
 
-def ades_psv(des, rows, cfg):
+SURVEYS = {
+    'F51': {'observers': 'Pan-STARRS1 Science Consortium', 'design': 'Reflector', 'aperture': '1.8', 'cat': 'Gaia1',
+            'note': 'Pan-STARRS1 DR2 single-epoch (warp) images from MAST'},
+    'I41': {'observers': 'Zwicky Transient Facility', 'design': 'Schmidt', 'aperture': '1.2', 'cat': 'Gaia2',
+            'note': 'ZTF science images from IRSA'},
+}
+
+
+def ades_psv(des, rows, cfg, stn='F51'):
     """Draft ADES PSV. The MPC's archival committee (SARC) must verify you before you submit archival data."""
+    sv = SURVEYS[stn]
     perm = des if des.strip().isdigit() else ''
     prov = '' if perm else des
     name = cfg.get('observer_name') or 'YOUR NAME'
-    head = ['# version=2017', '# observatory', '! mpcCode F51', '# submitter', f'! name {name}',
-            '# observers', '! name Pan-STARRS1 Science Consortium', '# measurers', f'! name {name}',
-            '# telescope', '! design Reflector', '! aperture 1.8', '! detector CCD',
-            '# comment', '! line Precovery positions measured on Pan-STARRS1 DR2 single-epoch (warp) images from MAST.',
+    head = ['# version=2017', '# observatory', f'! mpcCode {stn}', '# submitter', f'! name {name}',
+            '# observers', f'! name {sv["observers"]}', '# measurers', f'! name {name}',
+            '# telescope', f'! design {sv["design"]}', f'! aperture {sv["aperture"]}', '! detector CCD',
+            '# comment', f'! line Precovery positions measured on {sv["note"]}.',
             '! line DRAFT produced by Space Lab - check every value and the header with the MPC SARC before submitting.']
     cols = ['permID', 'provID', 'mode', 'stn', 'obsTime', 'ra', 'dec', 'rmsRA', 'rmsDec', 'astCat']
     lines = [' |'.join(cols)]
     for r in rows:
-        lines.append(' |'.join([perm, prov, 'CCD', 'F51', r['obsTime'], f"{r['ra']:.6f}", f"{r['dec']:+.6f}",
-                                '0.200', '0.200', 'Gaia1']))
+        lines.append(' |'.join([perm, prov, 'CCD', stn, r['obsTime'], f"{r['ra']:.6f}", f"{r['dec']:+.6f}",
+                                '0.200' if stn == 'F51' else '0.400', '0.200' if stn == 'F51' else '0.400', sv['cat']]))
     return '\n'.join(head + lines) + '\n'
 
 
@@ -578,6 +587,10 @@ def run(ctx):
             break
         try:
             n, c = search_target(ctx, t)
+            if c == 0 and ctx.cfg['precovery'].get('ztf', True) and ctx.time_left() > 600:
+                from . import ztf
+                n2, c = ztf.search(ctx, t)
+                n += n2
             tot_img += n
             tot_c += c
         except Exception as e:

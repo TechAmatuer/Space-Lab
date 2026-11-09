@@ -109,7 +109,11 @@ def run(ctx):
         if ctx.time_left() < 240:
             break
         try:
-            nimg, ncand = precovery.search_target(ctx, t)
+            from . import ztf
+            nimg, ncand = ztf.search(ctx, t)          # recent ZTF images first: best chance for a new object
+            if ncand == 0:
+                n2, ncand = precovery.search_target(ctx, t)
+                nimg += n2
             searched += 1
             found += ncand
         except Exception as e:
