@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Space Lab · citizen science from a home computer</title>
+<meta name="description" content="Planet candidates from NASA TESS, asteroid precovery and exoplanet transit timing, found on a home Mac with open data and a local AI.">
+<link rel="stylesheet" href="style.css">
+<meta name="description" content="Today&#x27;s planet candidate: TIC 397153231, a star that dims every 14.49 days. Is it a planet? Vote, check tonight&#x27;s sky and follow a home computer searching open NASA data for new worlds and asteroids.">
+<meta name="theme-color" content="#0c1218">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="alternate" type="application/atom+xml" title="Space Lab updates" href="https://techamatuer.github.io/Space-Lab/feed.xml">
+<link rel="alternate" type="text/calendar" title="Space Lab sky events" href="https://techamatuer.github.io/Space-Lab/events.ics">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Space Lab: hunting planets and asteroids with open NASA data">
+<meta property="og:description" content="Today&#x27;s planet candidate: TIC 397153231, a star that dims every 14.49 days. Is it a planet? Vote, check tonight&#x27;s sky and follow a home computer searching open NASA data for new worlds and asteroids.">
+<meta property="og:site_name" content="Space Lab">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="canonical" href="https://techamatuer.github.io/Space-Lab/">
+<meta property="og:url" content="https://techamatuer.github.io/Space-Lab/">
+<meta property="og:image" content="https://techamatuer.github.io/Space-Lab/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:image" content="https://techamatuer.github.io/Space-Lab/og.png">
+<script data-goatcounter="https://spacelab.goatcounter.com/count" data-goatcounter-settings='{"no_onload": true}' async src="https://gc.zgo.at/count.js"></script>
+</head>
+<body>
+<header>
+  <h1>🔭 Space Lab</h1>
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-tab="today" aria-selected="true">Home</button>
+    <button role="tab" data-tab="brief" aria-selected="false">Space brief</button>
+    <button role="tab" data-tab="exowatch" aria-selected="false">Exoplanet Watch</button>
+    <button role="tab" data-tab="tess" aria-selected="false">TESS hunter</button>
+    <button role="tab" data-tab="asteroids" aria-selected="false">Asteroids</button>
+    <button role="tab" data-tab="about" aria-selected="false">About</button>
+  </nav>
+  <div class="status"><span id="updated">loading…</span></div>
+</header>
+<main>
+  <section class="view on" id="v-today"></section>
+  <section class="view" id="v-tess"></section>
+  <section class="view" id="v-asteroids"></section>
+  <section class="view" id="v-exowatch"></section>
+  <section class="view" id="v-brief"></section>
+  <section class="view" id="v-about"></section>
+</main>
+<div id="zoom"><img alt=""></div>
+<div id="modal"><div class="box"><button class="b x" id="modalClose">✕</button><div id="modalBody"></div></div></div>
+<script src="lcviewer.js"></script>
+<script src="orbit3d.js"></script>
+<script src="public.js"></script>
+<link rel="stylesheet" href="extras.css">
+<script src="beyond.js"></script>
+<script src="extras.js"></script>
+<script src="home.js"></script>
+<script src="stargazing.js"></script>
+<script src="useful.js"></script>
+<script src="asteroids.js"></script>
+<script src="atlas.js"></script>
+<script src="universe.js"></script>
+<script src="earthview.js"></script>
+<script src="solar.js"></script>
+</body>
+</html>

@@ -1,0 +1,483 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Space Lab//Sky events//EN
+CALSCALE:GREGORIAN
+METHOD:PUBLISH
+X-WR-CALNAME:Space Lab sky events
+X-WR-CALDESC:Meteor showers\, eclipses\, Moon phases\, launches and comet
+ s
+REFRESH-INTERVAL;VALUE=DURATION:PT12H
+X-PUBLISHED-TTL:PT12H
+BEGIN:VEVENT
+UID:launch-2026-11-11T11-41-00Z-Launch-Long-March-2D-CAS-Pathfinder-1@spa
+ celab
+DTSTAMP:20261111T134759Z
+DTSTART:20261111T114100Z
+DTEND:20261111T124100Z
+SUMMARY:Launch: Long March 2D | CAS Pathfinder-1
+DESCRIPTION:China Aerospace Science and Technology Corporation\, to Sun-S
+ ynchronous Orbit. Launch times often slip. https://techamatuer.github.io/
+ Space-Lab/
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Launch: Long March 2D | CAS Pathfinder-1
+TRIGGER:-PT2H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:mission-2026-11-12-Euclid-First-big-data-release-DR1-Foundation-@spac
+ elab
+DTSTAMP:20261111T134759Z
+DTSTART;VALUE=DATE:20261112
+DTEND;VALUE=DATE:20261113
+SUMMARY:Euclid: First big data release (DR1-Foundation)
+DESCRIPTION:Maps the shapes and distances of more than a billion galaxies
+  to trace dark matter and dark energy. The first big release opens about 
+ 1\,900 square degrees\, one seventh of the planned survey\; the complete 
+ first release follows in mid-2027. https://techamatuer.github.io/Space-La
+ b/
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Euclid: First big data release (DR1-Foundation)
+TRIGGER:-PT6H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:launch-2026-11-12T02-35-00Z-Launch-Falcon-9-Block-5-USSF-627@spacelab
+DTSTAMP:20261111T134759Z
+DTSTART:20261112T023500Z
+DTEND:20261112T033500Z
+SUMMARY:Launch: Falcon 9 Block 5 | USSF-627
+DESCRIPTION:SpaceX\, to Low Earth Orbit. Launch times often slip. https:/
+ /techamatuer.github.io/Space-Lab/
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Launch: Falcon 9 Block 5 | USSF-627
+TRIGGER:-PT2H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:launch-2026-11-12T19-50-00Z-Launch-Kuaizhou-11-Unknown-Payload@spacel
+ ab
+DTSTAMP:20261111T134759Z
+DTSTART:20261112T195000Z
+DTEND:20261112T205000Z
+SUMMARY:Launch: Kuaizhou 11 | Unknown Payload
+DESCRIPTION:ExPace\, to Unknown. Launch times often slip. https://techama
+ tuer.github.io/Space-Lab/
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Launch: Kuaizhou 11 | Unknown Payload
+TRIGGER:-PT2H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:launch-2026-11-13T05-00-00Z-Launch-Mir-Demo-Flight@spacelab
+DTSTAMP:20261111T134759Z
+DTSTART:20261113T050000Z
+DTEND:20261113T060000Z
+SUMMARY:Launch: Mir | Demo Flight
+DESCRIPTION:Agency for Defense Development\, to Low Earth Orbit. Launch t
+ imes often slip. https://techamatuer.github.io/Space-Lab/
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Launch: Mir | Demo Flight
+TRIGGER:-PT2H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:launch-2026-11-13T17-54-00Z-Launch-Vulcan-VC6L-Amazon-Leo-LV-01-@spac
+ elab
+DTSTAMP:20261111T134759Z
+DTSTART:20261113T175400Z
+DTEND:20261113T185400Z
+SUMMARY:Launch: Vulcan VC6L | Amazon Leo (LV-01)
+DESCRIPTION:United Launch Alliance\, to Low Earth Orbit. Launch times oft
+ en slip. https://techamatuer.github.io/Space-Lab/
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Launch: Vulcan VC6L | Amazon Leo (LV-01)
+TRIGGER:-PT2H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:launch-2026-11-13T22-45-00Z-Launch-Starship-Starlink-Group-31-2-Stars
+ hip-Flight-15-@spacelab
+DTSTAMP:20261111T134759Z
+DTSTART:20261113T224500Z
+DTEND:20261113T234500Z
+SUMMARY:Launch: Starship | Starlink Group 31-2 (Starship Flight 15)
+DESCRIPTION:SpaceX\, to Low Earth Orbit. Launch times often slip. https:/
+ /techamatuer.github.io/Space-Lab/
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Launch: Starship | Starlink Group 31-2 (Starship Flight 15)
+TRIGGER:-PT2H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:launch-2026-11-14T05-30-00Z-Launch-Electron-The-Mountain-God-Rises-iQ
+ PS-Launch-10-@spacelab
+DTSTAMP:20261111T134759Z
+DTSTART:20261114T053000Z
+DTEND:20261114T063000Z
+SUMMARY:Launch: Electron | The Mountain God Rises (iQPS Launch 10)
+DESCRIPTION:Rocket Lab\, to Low Earth Orbit. Launch times often slip. htt
+ ps://techamatuer.github.io/Space-Lab/
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Launch: Electron | The Mountain God Rises (iQPS Launch 10)
+TRIGGER:-PT2H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:launch-2026-11-15T03-55-00Z-Launch-Falcon-9-Block-5-USSF-317@spacelab
+DTSTAMP:20261111T134759Z
+DTSTART:20261115T035500Z
+DTEND:20261115T045500Z
+SUMMARY:Launch: Falcon 9 Block 5 | USSF-317
+DESCRIPTION:SpaceX\, to Low Earth Orbit. Launch times often slip. https:/
+ /techamatuer.github.io/Space-Lab/
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Launch: Falcon 9 Block 5 | USSF-317
+TRIGGER:-PT2H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:meteor-2026-11-17-Leonids-meteor-shower-peak@spacelab
+DTSTAMP:20261111T134759Z
+DTSTART;VALUE=DATE:20261117
+DTEND;VALUE=DATE:20261118
+SUMMARY:Leonids meteor shower peak
+DESCRIPTION:Up to about 15 meteors an hour under dark skies\, best after 
+ midnight. Debris from comet Tempel-Tuttle. Watch the nights around the pe
+ ak too. https://techamatuer.github.io/Space-Lab/
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Leonids meteor shower peak
+TRIGGER:-PT6H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:moon-2026-11-24T14-53Z-Full-Moon@spacelab
+DTSTAMP:20261111T134759Z
+DTSTART:20261124T145300Z
+DTEND:20261124T155300Z
+SUMMARY:Full Moon
+DESCRIPTION:The Moon is up all night: great for looking at the Moon\, poo
+ r for faint objects. https://techamatuer.github.io/Space-Lab/
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Full Moon
+TRIGGER:-PT2H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:mission-2026-12-02-Gaia-Data-release-4@spacelab
+DTSTAMP:20261111T134759Z
+DTSTART;VALUE=DATE:20261202
+DTEND;VALUE=DATE:20261203
+SUMMARY:Gaia: Data release 4
+DESCRIPTION:Measured the positions and motions of nearly two billion star
+ s. Release 4 covers five and a half years of measurements and should reve
+ al stars that wobble because unseen planets tug on them. https://techamat
+ uer.github.io/Space-Lab/
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Gaia: Data release 4
+TRIGGER:-PT6H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:moon-2026-12-09T00-51Z-New-Moon@spacelab
+DTSTAMP:20261111T134759Z
+DTSTART:20261209T005100Z
+DTEND:20261209T015100Z
+SUMMARY:New Moon
+DESCRIPTION:Darkest skies of the month: best for faint stars\, galaxies a
+ nd meteors. https://techamatuer.github.io/Space-Lab/
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:New Moon
+TRIGGER:-PT2H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:meteor-2026-12-14-Geminids-meteor-shower-peak@spacelab
+DTSTAMP:20261111T134759Z
+DTSTART;VALUE=DATE:20261214
+DTEND;VALUE=DATE:20261215
+SUMMARY:Geminids meteor shower peak
+DESCRIPTION:Up to about 150 meteors an hour under dark skies\, best after
+  midnight. Debris from asteroid 3200 Phaethon. Watch the nights around th
+ e peak too. https://techamatuer.github.io/Space-Lab/
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Geminids meteor shower peak
+TRIGGER:-PT6H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:meteor-2026-12-22-Ursids-meteor-shower-peak@spacelab
+DTSTAMP:20261111T134759Z
+DTSTART;VALUE=DATE:20261222
+DTEND;VALUE=DATE:20261223
+SUMMARY:Ursids meteor shower peak
+DESCRIPTION:Up to about 10 meteors an hour under dark skies\, best after 
+ midnight. Debris from comet Tuttle. Watch the nights around the peak too.
+  https://techamatuer.github.io/Space-Lab/
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Ursids meteor shower peak
+TRIGGER:-PT6H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:comet-2026-12-22-Comet-C-2026-A2-Bok-closest-to-the-Sun@spacelab
+DTSTAMP:20261111T134759Z
+DTSTART;VALUE=DATE:20261222
+DTEND;VALUE=DATE:20261223
+SUMMARY:Comet C/2026 A2 (Bok) closest to the Sun
+DESCRIPTION:Comets are often brightest around this time. It passes 1.938 
+ AU from the Sun. https://techamatuer.github.io/Space-Lab/
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Comet C/2026 A2 (Bok) closest to the Sun
+TRIGGER:-PT6H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:moon-2026-12-24T01-28Z-Full-Moon@spacelab
+DTSTAMP:20261111T134759Z
+DTSTART:20261224T012800Z
+DTEND:20261224T022800Z
+SUMMARY:Full Moon
+DESCRIPTION:The Moon is up all night: great for looking at the Moon\, poo
+ r for faint objects. https://techamatuer.github.io/Space-Lab/
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Full Moon
+TRIGGER:-PT2H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:meteor-2027-01-03-Quadrantids-meteor-shower-peak@spacelab
+DTSTAMP:20261111T134759Z
+DTSTART;VALUE=DATE:20270103
+DTEND;VALUE=DATE:20270104
+SUMMARY:Quadrantids meteor shower peak
+DESCRIPTION:Up to about 110 meteors an hour under dark skies\, best after
+  midnight. Debris from asteroid 2003 EH1. Watch the nights around the pea
+ k too. https://techamatuer.github.io/Space-Lab/
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Quadrantids meteor shower peak
+TRIGGER:-PT6H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:moon-2027-01-07T20-24Z-New-Moon@spacelab
+DTSTAMP:20261111T134759Z
+DTSTART:20270107T202400Z
+DTEND:20270107T212400Z
+SUMMARY:New Moon
+DESCRIPTION:Darkest skies of the month: best for faint stars\, galaxies a
+ nd meteors. https://techamatuer.github.io/Space-Lab/
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:New Moon
+TRIGGER:-PT2H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:eclipse-2027-02-06-Annular-solar-eclipse-ring-of-fire-@spacelab
+DTSTAMP:20261111T134759Z
+DTSTART;VALUE=DATE:20270206
+DTEND;VALUE=DATE:20270207
+SUMMARY:Annular solar eclipse ("ring of fire")
+DESCRIPTION:Visible from: Chile\, Argentina and western Africa\; partial 
+ over most of South America. https://techamatuer.github.io/Space-Lab/
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Annular solar eclipse ("ring of fire")
+TRIGGER:-PT6H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:meteor-2027-04-22-Lyrids-meteor-shower-peak@spacelab
+DTSTAMP:20261111T134759Z
+DTSTART;VALUE=DATE:20270422
+DTEND;VALUE=DATE:20270423
+SUMMARY:Lyrids meteor shower peak
+DESCRIPTION:Up to about 18 meteors an hour under dark skies\, best after 
+ midnight. Debris from comet Thatcher. Watch the nights around the peak to
+ o. https://techamatuer.github.io/Space-Lab/
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Lyrids meteor shower peak
+TRIGGER:-PT6H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:meteor-2027-05-06-Eta-Aquariids-meteor-shower-peak@spacelab
+DTSTAMP:20261111T134759Z
+DTSTART;VALUE=DATE:20270506
+DTEND;VALUE=DATE:20270507
+SUMMARY:Eta Aquariids meteor shower peak
+DESCRIPTION:Up to about 50 meteors an hour under dark skies\, best after 
+ midnight. Debris from Halley's comet. Watch the nights around the peak to
+ o. https://techamatuer.github.io/Space-Lab/
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Eta Aquariids meteor shower peak
+TRIGGER:-PT6H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:meteor-2027-07-30-Southern-Delta-Aquariids-meteor-shower-peak@spacela
+ b
+DTSTAMP:20261111T134759Z
+DTSTART;VALUE=DATE:20270730
+DTEND;VALUE=DATE:20270731
+SUMMARY:Southern Delta Aquariids meteor shower peak
+DESCRIPTION:Up to about 25 meteors an hour under dark skies\, best after 
+ midnight. Debris from comet 96P/Machholz (likely). Watch the nights aroun
+ d the peak too. https://techamatuer.github.io/Space-Lab/
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Southern Delta Aquariids meteor shower peak
+TRIGGER:-PT6H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:eclipse-2027-08-02-Total-solar-eclipse-over-6-minutes-the-longest-unt
+ il-2114-@spacelab
+DTSTAMP:20261111T134759Z
+DTSTART;VALUE=DATE:20270802
+DTEND;VALUE=DATE:20270803
+SUMMARY:Total solar eclipse (over 6 minutes\, the longest until 2114)
+DESCRIPTION:Visible from: Spain\, Morocco\, Algeria\, Tunisia\, Libya\, E
+ gypt\, Saudi Arabia\, Yemen. https://techamatuer.github.io/Space-Lab/
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Total solar eclipse (over 6 minutes\, the longest until 2114)
+TRIGGER:-PT6H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:meteor-2027-08-12-Perseids-meteor-shower-peak@spacelab
+DTSTAMP:20261111T134759Z
+DTSTART;VALUE=DATE:20270812
+DTEND;VALUE=DATE:20270813
+SUMMARY:Perseids meteor shower peak
+DESCRIPTION:Up to about 100 meteors an hour under dark skies\, best after
+  midnight. Debris from comet Swift-Tuttle. Watch the nights around the pe
+ ak too. https://techamatuer.github.io/Space-Lab/
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Perseids meteor shower peak
+TRIGGER:-PT6H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:meteor-2027-10-08-Draconids-meteor-shower-peak@spacelab
+DTSTAMP:20261111T134759Z
+DTSTART;VALUE=DATE:20271008
+DTEND;VALUE=DATE:20271009
+SUMMARY:Draconids meteor shower peak
+DESCRIPTION:Up to about 10 meteors an hour under dark skies\, best after 
+ midnight. Debris from comet Giacobini-Zinner. Watch the nights around the
+  peak too. https://techamatuer.github.io/Space-Lab/
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Draconids meteor shower peak
+TRIGGER:-PT6H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:meteor-2027-10-21-Orionids-meteor-shower-peak@spacelab
+DTSTAMP:20261111T134759Z
+DTSTART;VALUE=DATE:20271021
+DTEND;VALUE=DATE:20271022
+SUMMARY:Orionids meteor shower peak
+DESCRIPTION:Up to about 20 meteors an hour under dark skies\, best after 
+ midnight. Debris from Halley's comet. Watch the nights around the peak to
+ o. https://techamatuer.github.io/Space-Lab/
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Orionids meteor shower peak
+TRIGGER:-PT6H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:eclipse-2028-01-26-Annular-solar-eclipse-ring-of-fire-@spacelab
+DTSTAMP:20261111T134759Z
+DTSTART;VALUE=DATE:20280126
+DTEND;VALUE=DATE:20280127
+SUMMARY:Annular solar eclipse ("ring of fire")
+DESCRIPTION:Visible from: Ecuador\, Peru and Brazil\, ending at sunset in
+  Portugal and Spain. https://techamatuer.github.io/Space-Lab/
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Annular solar eclipse ("ring of fire")
+TRIGGER:-PT6H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:eclipse-2028-07-22-Total-solar-eclipse@spacelab
+DTSTAMP:20261111T134759Z
+DTSTART;VALUE=DATE:20280722
+DTEND;VALUE=DATE:20280723
+SUMMARY:Total solar eclipse
+DESCRIPTION:Visible from: Australia (including Sydney) and New Zealand. h
+ ttps://techamatuer.github.io/Space-Lab/
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Total solar eclipse
+TRIGGER:-PT6H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:eclipse-2028-12-31-Total-lunar-eclipse-the-Moon-turns-red-@spacelab
+DTSTAMP:20261111T134759Z
+DTSTART;VALUE=DATE:20281231
+DTEND;VALUE=DATE:20290101
+SUMMARY:Total lunar eclipse (the Moon turns red)
+DESCRIPTION:Visible from: Europe\, Africa\, Asia and Australia. https://t
+ echamatuer.github.io/Space-Lab/
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Total lunar eclipse (the Moon turns red)
+TRIGGER:-PT6H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:eclipse-2044-08-23-Total-solar-eclipse-in-the-USA@spacelab
+DTSTAMP:20261111T134759Z
+DTSTART;VALUE=DATE:20440823
+DTEND;VALUE=DATE:20440824
+SUMMARY:Total solar eclipse in the USA
+DESCRIPTION:Visible from: Montana and North Dakota (and Canada). https://
+ techamatuer.github.io/Space-Lab/
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Total solar eclipse in the USA
+TRIGGER:-PT6H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:eclipse-2045-08-12-Total-solar-eclipse-across-the-USA@spacelab
+DTSTAMP:20261111T134759Z
+DTSTART;VALUE=DATE:20450812
+DTEND;VALUE=DATE:20450813
+SUMMARY:Total solar eclipse across the USA
+DESCRIPTION:Visible from: coast to coast\, from California to Florida. ht
+ tps://techamatuer.github.io/Space-Lab/
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Total solar eclipse across the USA
+TRIGGER:-PT6H
+END:VALARM
+END:VEVENT
+END:VCALENDAR

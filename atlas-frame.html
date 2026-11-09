@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Space Lab sky atlas (map frame)</title>
+<style>
+  html, body, #al { margin: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
+  #msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center;
+         padding: 16px; color: #cbd5e1; font: 14px system-ui, sans-serif; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="al"></div><div id="msg">Loading the sky…</div>
+<!--
+  The sky map of the Space Lab atlas (web/atlas.js). It runs the open-source Aladin Lite viewer (CDS, Strasbourg; LGPL-3.0).
+  Safety: atlas.js shows this page in a sandboxed <iframe> (sandbox="allow-scripts"), so nothing loaded here can read the
+  visitor's saved place, the page around it or anything else: it only receives "go to this spot / show this layer" messages
+  and answers with "this pin was clicked". Opened on its own, it does nothing.
+-->
+<script>
+(function () {            // the sandbox has no localStorage; the viewer expects one, so give it a memory-only stand-in
+  'use strict';
+  const m = {};
+  const store = { getItem: k => (k in m ? m[k] : null), setItem: (k, v) => { m[k] = String(v); }, removeItem: k => { delete m[k]; },
+                  clear: () => { for (const k in m) delete m[k]; }, key: i => Object.keys(m)[i] || null, get length() { return Object.keys(m).length; } };
+  window.SANDBOXED = window.origin === 'null' && window.parent !== window;
+  if (window.SANDBOXED) for (const n of ['localStorage', 'sessionStorage']) { try { Object.defineProperty(window, n, { value: store, configurable: true }); } catch (_) { /* keep going */ } }
+})();
+</script>
+<script type="module">
+const VIEWER = 'https://cdn.jsdelivr.net/npm/aladin-lite@3.8.2/dist/aladin.js';      // fixed version, never "latest"
+const MOC = 'https://alasky.cds.unistra.fr/MocServer/query';                          // turns a survey ID into its address
+const msg = document.getElementById('msg');
+const say = m => parent.postMessage(m, '*');
+const note = t => { msg.textContent = t || ''; msg.style.display = t ? 'flex' : 'none'; };
+const timed = (url, ms = 9000) => { const c = new AbortController(); const t = setTimeout(() => c.abort(), ms); return fetch(url, { signal: c.signal }).finally(() => clearTimeout(t)); };
+let A = null, al = null, cats = {}, lastPos = 0;
+
+// a survey given as an address is checked first, so a server that cannot be reached gives a clear message instead of a black map
+async function resolve(layer) {
+  let url = layer.url;
+  if (!url && layer.id) {
+    const r = await timed(`${MOC}?ID=${encodeURIComponent(layer.id)}&get=record&fmt=json&fields=ID,hips_service_url`);
+    const js = await r.json();
+    url = js && js[0] && js[0].hips_service_url;
+    if (!url) throw new Error('survey not found');
+  }
+  const p = await timed(url.replace(/\/?$/, '/') + 'properties');
+  if (!p.ok) throw new Error('HTTP ' + p.status);
+  return url;
+}
+const fovNow = () => { try { const f = al.getFov(); return Array.isArray(f) ? f[0] : f; } catch (_) { return null; } };
+function pos(force) {
+  const now = Date.now();
+  if (!force && now - lastPos < 250) return;
+  lastPos = now;
+  try { const rd = al.getRaDec(); say({ t: 'pos', ra: rd[0], dec: rd[1], fov: fovNow() }); } catch (_) { /* not ready */ }
+}
+const CMD = {
+  goto(m) { if (typeof m.fov === 'number') al.setFoV(m.fov); al.gotoRaDec(m.ra, m.dec); pos(true); },
+  async layer(m) {
+    try {
+      const url = await resolve(m);
+      al.setBaseImageLayer(A.HiPS(url, { name: m.name || 'sky' }));
+      say({ t: 'layer', k: m.k, ok: true });
+    } catch (e) { say({ t: 'layer', k: m.k, ok: false, why: String(e && e.message || e) }); }
+  },
+  async overlay(m) {            // a second picture on top of the sky (photo collections that cover only some spots)
+    try { al.removeImageLayer('photos'); } catch (_) { /* none yet */ }
+    if (!m.url && !m.id) return say({ t: 'overlay', k: null, ok: true });
+    try {
+      const url = await resolve(m);
+      al.setOverlayImageLayer(A.HiPS(url, { name: m.name || 'photos' }), 'photos');
+      say({ t: 'overlay', k: m.k, ok: true });
+    } catch (e) { say({ t: 'overlay', k: m.k, ok: false, why: String(e && e.message || e) }); }
+  },
+  pins(m) {                     // {key, color, shape, size, labels, items:[{id, ra, dec, label}]}; an empty list removes the set
+    const old = cats[m.key];
+    if (old) { try { al.removeLayer(old); } catch (_) { try { old.hide(); } catch (__) { /* gone */ } } delete cats[m.key]; }
+    if (!m.items || !m.items.length) return;
+    const opt = { name: m.key, color: m.color || '#ffd166', shape: m.shape || 'circle', sourceSize: m.size || 14 };
+    if (m.labels) Object.assign(opt, { displayLabel: true, labelColumn: 'label', labelColor: m.color || '#ffd166', labelFont: '12px sans-serif' });
+    const cat = A.catalog(opt);
+    al.addCatalog(cat);
+    cat.addSources(m.items.filter(i => isFinite(i.ra) && isFinite(i.dec)).map(i => A.source(+i.ra, +i.dec, { id: String(i.id), set: m.key, label: String(i.label || '') })));
+    cats[m.key] = cat;
+  },
+};
+async function start(m) {
+  try {
+    A = (await import(VIEWER)).default;
+    await A.init;
+    al = A.aladin('#al', { survey: m.url, target: `${m.ra} ${m.dec}`, fov: m.fov || 60, cooFrame: 'ICRSd', projection: 'SIN',
+      showReticle: true, showZoomControl: true, showLayersControl: false, showGotoControl: false, showProjectionControl: false,
+      showFullscreenControl: false, showFrame: false, showCooGridControl: true, showSimbadPointerControl: false, showShareControl: false,
+      showContextMenu: false, showSettingsControl: false, showStatusBar: false, showCooLocation: false, showFov: false });
+    al.on('objectClicked', o => { if (o && o.data && o.data.id) say({ t: 'pin', id: o.data.id, set: o.data.set }); });
+    al.on('positionChanged', () => pos(false));
+    al.on('zoomChanged', () => pos(false));
+    note('');
+    say({ t: 'ready' });
+    pos(true);
+  } catch (e) {
+    note('The sky map could not start here. Your browser may be blocking it, or the map service cannot be reached.');
+    say({ t: 'error', why: String(e && e.message || e) });
+  }
+}
+if (!window.SANDBOXED) note('This page is only the map window of the Space Lab atlas. Open the atlas tab of Space Lab instead.');
+else {
+  window.addEventListener('message', e => {
+    if (e.source !== parent || !e.data || typeof e.data.t !== 'string') return;
+    const m = e.data;
+    if (m.t === 'init') { if (!al && !A) start(m); return; }
+    if (!al || !CMD[m.t]) return;
+    try { Promise.resolve(CMD[m.t](m)).catch(err => say({ t: 'error', why: String(err && err.message || err) })); }
+    catch (err) { say({ t: 'error', why: String(err && err.message || err) }); }
+  });
+  say({ t: 'hello' });
+}
+</script>
+</body>
+</html>

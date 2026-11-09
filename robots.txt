@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://techamatuer.github.io/Space-Lab/sitemap.xml
