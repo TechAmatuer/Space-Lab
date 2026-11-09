@@ -44,7 +44,7 @@ def run(tic, sectors, t, y, period, t0, duration, depth, workdir, n_samples=200_
     np.savez(inp, t=np.asarray(t, float), y=np.asarray(y, float), sectors=np.asarray(sorted(set(int(s) for s in sectors))),
              p=np.array([int(tic), period, t0, duration, depth, n_samples], float))
     out.unlink(missing_ok=True)
-    r = subprocess.run([str(FPP_PY), '-I', __file__, str(inp), str(out)], capture_output=True, text=True, timeout=timeout)
+    r = subprocess.run([str(FPP_PY), '-I', __file__, str(inp), str(out)], capture_output=True, text=True, timeout=timeout, cwd=str(workdir))
     if r.returncode or not out.exists():
         raise RuntimeError('TRICERATOPS failed: ' + (r.stderr or r.stdout)[-300:].replace('\n', ' '))
     return json.loads(out.read_text())
