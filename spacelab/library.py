@@ -130,11 +130,11 @@ def parse_records(xml_bytes, min_year):
 
 def harvest(con, log, deadline, min_year=2006):
     token = kv(con, 'token')
-    since = kv(con, 'from') or f'{min_year}-01-01'
+    since = kv(con, 'from')       # None = the whole archive (arXiv rejects dates before its 2007 datestamps)
     added = pages = 0
     while time.time() < deadline:
         params = {'verb': 'ListRecords', 'resumptionToken': token} if token else \
-                 {'verb': 'ListRecords', 'metadataPrefix': 'arXiv', 'set': 'physics:astro-ph', 'from': since}
+                 {'verb': 'ListRecords', 'metadataPrefix': 'arXiv', 'set': 'physics:astro-ph', **({'from': since} if since else {})}
         try:
             recs, token, total = parse_records(_get(params, log), min_year)
         except RuntimeError as e:
@@ -205,8 +205,13 @@ def harvest_openalex(con, log, deadline, y0=1976, y1=1991):
         try:
             js = net.fetch_json(OPENALEX, params=params, timeout=120, min_gap=1.0)
         except urllib.error.HTTPError as e:
-            if e.code == 429:
-                log('  OpenAlex daily free budget used up; continuing tomorrow')
+            try:
+                body = e.read()[:300].decode('utf-8', 'replace')
+            except Exception:
+                body = ''
+            log(f'  OpenAlex answered HTTP {e.code}: {body}')
+            if e.code in (401, 403, 429):
+                log('  OpenAlex paused (free daily budget or access limit); continuing next run')
                 break
             raise
         recs, cursor, total = oa_records(js)

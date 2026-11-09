@@ -87,6 +87,7 @@ def refill_targets(ctx, known):
     if n >= need:
         return
     from astroquery.mast import Catalogs
+    Catalogs.TIMEOUT = 240
     crit = f'{cfg["teff_max"]}|{cfg["tmag_max"]}|{cfg["dist_max_pc"]}'
     if db.kv_get(con, 'tess_tic_query') != crit:
         db.kv_set(con, 'tess_tic_query', crit)
@@ -567,7 +568,10 @@ def run(ctx):
     tc = cfg['tess']
     llm = LLM(cfg, log)
     known = load_known(con, log)
-    refill_targets(ctx, known)
+    try:
+        refill_targets(ctx, known)
+    except Exception as e:      # MAST's catalog service is sometimes slow; carry on with the stars already queued
+        log(f'could not fetch more target stars from MAST right now ({type(e).__name__}: {str(e)[:120]}); using the queue')
     plots = config.PLOTS / 'tess'
     plots.mkdir(parents=True, exist_ok=True)
     lcdir = config.DATA / 'lc'
