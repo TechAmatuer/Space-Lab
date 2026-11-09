@@ -26,7 +26,7 @@ Space Lab runs on a home Mac. It works through public data from NASA and other o
 ## Run your own copy (macOS or Linux)
 
 ```
-git clone https://github.com/techAmatuer/Space-Lab.git
+git clone https://github.com/TechAmatuer/Space-Lab.git
 cd Space-Lab
 bash setup.sh
 .venv/bin/python -m spacelab.server
