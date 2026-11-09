@@ -69,3 +69,32 @@ body.sl-embedded main{padding:6px}
 .bx-meter i{display:block;height:100%;background:var(--ok)}
 .bx-jump{gap:6px;flex-wrap:wrap}
 h4{margin:12px 0 4px;font-size:13px;color:var(--ink-2)}
+
+/* ---- navigation groups, Home, candidate of the day, radar, results (home.js) */
+nav.tabs .navgroup{align-self:center;font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin:0 2px 0 10px;white-space:nowrap}
+nav.tabs .navgroup:first-child{margin-left:0}
+.hero{background:linear-gradient(135deg,var(--accent-soft),var(--panel) 60%)}
+.hero .hero-t{margin:0 0 6px;font-size:20px;text-transform:none;letter-spacing:0;color:var(--ink)}
+.hero p{max-width:760px}
+.hm-daily{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:16px;align-items:start}
+.hm-daily img.plot{width:100%;border-radius:8px;cursor:zoom-in}
+.hm-answers{gap:6px;flex-wrap:wrap;margin:6px 0}
+.hm-prev{border-top:1px dashed var(--line);margin-top:12px;padding-top:8px}
+.hm-bars{display:grid;gap:4px;margin:6px 0;max-width:520px}
+.hm-bar{display:grid;grid-template-columns:200px 1fr 34px;align-items:center;gap:8px;font-size:12px}
+.hm-bar i{display:block;height:10px;border-radius:5px;background:var(--accent);min-width:4px}
+.hm-bar b{text-align:right}
+.hm-list{margin:6px 0 10px;padding-left:18px} .hm-list li{margin:3px 0}
+.hm-counts{display:flex;flex-wrap:wrap;gap:10px;margin:6px 0}
+.hm-counts div{background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:6px 12px;display:flex;flex-direction:column}
+.hm-counts b{font-size:20px} .hm-counts span{font-size:12px;color:var(--muted)}
+.hm-radar{list-style:none;padding:0;margin:8px 0}
+.hm-radar-item{display:grid;grid-template-columns:58px 1fr;gap:8px;padding:8px 0;border-top:1px solid var(--line)}
+.hm-score{color:var(--warn);font-size:10px;letter-spacing:1px;padding-top:3px;white-space:nowrap} .hm-score i{color:var(--line-2);font-style:normal}
+.hm-topics{gap:6px;flex-wrap:wrap}
+.card.flash{outline:2px solid var(--accent);transition:outline-color 2s}
+@media (max-width: 760px){
+  .hm-daily{grid-template-columns:1fr}
+  .hm-bar{grid-template-columns:130px 1fr 30px}
+  nav.tabs .navgroup{display:none}
+}

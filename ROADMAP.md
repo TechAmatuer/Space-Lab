@@ -23,6 +23,8 @@ Each `FAIL` line says exactly what to fix. GitHub runs the `G` (general safety) 
 | 14 | Share text and the `?card=<TIC>` embed |
 | 15 | Create tab, My lab notes, change alerts, sky pointer |
 | 16 | Asteroid "story behind this picture" and the asteroid race timer |
+| 17 | Home page, candidate of the day (vote, streak, yesterday's result) and grouped navigation |
+| 18 | Results tab, the radar in the Space brief, `#tic-<TIC>` links and share pages |
 
 ## Built (November 2026)
 
@@ -54,9 +56,17 @@ other worlds).
 AAVSO VSX · papers that mention your own targets · nightly database backup · cache clean-up and disk use ·
 alerts only after a job fails twice.
 
+**Website (November 2026, part 2):** Home page for visitors · candidate of the day with no-login votes, streaks and
+yesterday's result · space-science radar (the local AI reads ~35 sources every 6 hours and ranks the news) · Results log
+(what was sent where, and what happened) · link previews with a daily preview picture · a share page per candidate ·
+Atom feed, sitemap, app icon (add to home screen) · optional GoatCounter visitor counter (no cookies) · grouped tabs
+(Explore / Research / Join in) · own web address support.
+
 ## Ideas not built yet (good next tasks)
 - TESS mission tracker (which sector TESS is observing now): needs a dependable machine-readable pointing table.
 - "Click the dot": tap the moving asteroid in the frames instead of choosing an answer.
+- Automatic posts to the public Discord channel (candidate of the day, aurora alerts).
+- A small server (e.g. Cloudflare Workers) for votes and comments without GitHub, once there are regular visitors.
 - Live retraining of the planet model from public reviews (needs a review step by the owner first).
 - Full augmented-reality star finder (the sky pointer + compass is the light version).
 - Hardware projects from the fun list (water-quality sensors, a radio-telescope dongle), a bioblitz and a

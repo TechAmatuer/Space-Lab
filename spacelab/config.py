@@ -40,10 +40,11 @@ DEFAULTS = {
         'arxiv': '06:00',
         'brief': '06:40',
         'targets': '07:00',
-        'publish': '07:15',
+        'publish': 'every 3h',  # the public website (only what changed is uploaded)
         'neocp': 'every 2h',
         'library': 'every 3h',
         'beyond': 'every 3h',
+        'radar': 'every 6h',    # the local AI reads and ranks everything new in space science
     },
     'arxiv': {
         'categories': ['astro-ph.EP', 'astro-ph.SR', 'astro-ph.IM', 'astro-ph.GA', 'astro-ph.HE', 'astro-ph.CO'],
@@ -98,6 +99,9 @@ DEFAULTS = {
         'public_name': '',        # name shown on the shared page and Discord posts (blank = "a Space Lab volunteer")
         'github_repo': '',        # e.g. yourname/spacelab  (free GitHub Pages site)
         'github_token': '',       # fine-grained token with Contents + Pages write on that one repo
+        'site_url': '',           # your own web address once you have one (e.g. https://www.example.com/); blank = GitHub Pages
+        'goatcounter': '',        # visitor counter code (the "xyz" in xyz.goatcounter.com): no cookies, no personal data
+        'goatcounter_token': '',  # GoatCounter API key, so this Mac can read visitor numbers and daily votes (never published)
         'discord_webhook': '',    # webhook of the PUBLIC science channel (different from your private alerts)
         'post_summary': True,     # short nightly summary in the science channel
         'publish': True,          # update the web page every morning

@@ -12,6 +12,7 @@
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (_) { /* storage blocked: features still work for this visit */ } },
   };
   const D = () => S.data || {};
+  const site = () => ((D().site || {}).url) || PUBLIC_URL;
   const cands = () => ((D().tess || {}).cands) || [];
   const periodic = () => cands().filter(c => c.kind === 'periodic' && c.period);
   const candBy = tic => cands().find(c => String(c.tic) === String(tic));
@@ -55,11 +56,12 @@
     ['sharp_eyes', '👁 Sharp eyes (blink)', s => s.blinkWins >= 3], ['dip_spotter', '📉 Dip spotter', s => s.dipBest >= 4],
     ['detective', '🕵️ Case closed', s => s.mystery >= 1], ['collector', '⭐ Collector (3 favorites)', s => s.favs >= 3],
     ['observer', '🔭 Observer (log entry)', s => s.log >= 1], ['streak3', '🔥 3-day streak', s => s.streak >= 3],
-    ['artist', '🎨 Artist', s => s.art >= 1]];
+    ['artist', '🎨 Artist', s => s.art >= 1], ['daily3', '📅 3 daily votes in a row', s => s.daily >= 3]];
   function stats() {
     return { reviews: LS.get('sl_reviews', []).length, ast: LS.get('sl_ast_reviews', []).length, periodWins: LS.get('sl_period_wins', 0),
              blinkWins: LS.get('sl_blink_wins', 0), dipBest: LS.get('sl_dip_best', 0), mystery: LS.get('sl_mystery', 0),
-             favs: LS.get('sl_favs', []).length, log: LS.get('sl_log', []).length, streak: streak(), art: LS.get('sl_art', 0) };
+             favs: LS.get('sl_favs', []).length, log: LS.get('sl_log', []).length, streak: streak(), art: LS.get('sl_art', 0),
+             daily: window.SpaceLabHome ? window.SpaceLabHome.streak() : 0 };
   }
   function badges() {
     const b = LS.get('sl_badges', {}), s = stats();
@@ -114,7 +116,7 @@
   }
   function shareText(c) {
     return `🔭 Planet candidate TIC ${c.tic}: ${c.period ? 'a dip every ' + num(c.period, 2) + ' days, ' : ''}about ${num(c.rp, 1)}× Earth's size if it's real. ` +
-           `Still a candidate: it needs checking. Help review it: ${PUBLIC_URL}#tess`;
+           `Still a candidate: it needs checking. Help review it: ${site()}c/${c.tic}.html`;
   }
   function consensusHTML(tic) {
     const v = ((D().community || {}).tess || {})[String(tic)];
@@ -156,7 +158,7 @@
       sh.addEventListener('click', () => {
         let out = card.querySelector('.sl-sharebox');
         if (out) { out.remove(); return; }
-        out = mk('div', 'sl-sharebox', `<textarea readonly rows="3">${esc(shareText(c))}</textarea><div class="small muted">Copy and paste into Discord, Reddit or anywhere. Embed this card on a website:</div><textarea readonly rows="2">${esc(`<iframe src="${PUBLIC_URL}?card=${c.tic}" width="380" height="560" style="border:0" title="Space Lab candidate TIC ${c.tic}"></iframe>`)}</textarea>`);
+        out = mk('div', 'sl-sharebox', `<textarea readonly rows="3">${esc(shareText(c))}</textarea><div class="small muted">Copy and paste into Discord, Reddit or anywhere. Embed this card on a website:</div><textarea readonly rows="2">${esc(`<iframe src="${site()}?card=${c.tic}" width="380" height="560" style="border:0" title="Space Lab candidate TIC ${c.tic}"></iframe>`)}</textarea>`);
         box.appendChild(out); out.querySelector('textarea').select();
         try { navigator.clipboard && navigator.clipboard.writeText(shareText(c)); } catch (_) {}
       });
@@ -526,8 +528,8 @@
       if (!main || main.dataset.embedded) return;
       main.dataset.embedded = 1;
       main.innerHTML = c ? `<div class="card" data-tic="${esc(c.tic)}"><h3>Planet candidate TIC ${esc(c.tic)}</h3><div class="small">${c.period ? 'dips every ' + num(c.period, 3) + ' days · ' : ''}${Math.round(c.depth * 1e6)} ppm · ~${num(c.rp, 1)}× Earth if real · ${esc(c.status)}</div>
-        ${c.plot ? `<img class="plot" src="${esc(c.plot)}" alt="light-curve plots">` : ''}<p class="small"><a href="${PUBLIC_URL}#tess" target="_blank" rel="noopener">Help review it at Space Lab ↗</a></p></div>`
-        : `<div class="card">TIC ${esc(tic)} is not on the current list. <a href="${PUBLIC_URL}" target="_blank" rel="noopener">Open Space Lab ↗</a></div>`;
+        ${c.plot ? `<img class="plot" src="${esc(c.plot)}" alt="light-curve plots">` : ''}<p class="small"><a href="${site()}#tic-${esc(c.tic)}" target="_blank" rel="noopener">Help review it at Space Lab ↗</a></p></div>`
+        : `<div class="card">TIC ${esc(tic)} is not on the current list. <a href="${site()}" target="_blank" rel="noopener">Open Space Lab ↗</a></div>`;
       decorateTess(main);
     });
     return true;

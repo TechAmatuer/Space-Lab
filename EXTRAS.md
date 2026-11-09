@@ -1,8 +1,8 @@
 # Building extras for the public page (for people and AI coding agents)
 
-Fun and learning features for https://techamatuer.github.io/Space-Lab/ live in **three files only**:
-`web/extras.js` (games, creative tools, My lab), `web/beyond.js` (Sky watch and Beyond astronomy tabs) and
-`web/extras.css`. Everything else is the core and is off-limits for extras work.
+Fun and learning features for https://techamatuer.github.io/Space-Lab/ live in **four files only**:
+`web/extras.js` (games, creative tools, My lab), `web/beyond.js` (Sky watch and Beyond astronomy tabs),
+`web/home.js` (Home page, candidate of the day, radar, Results) and `web/extras.css`. Everything else is the core and is off-limits for extras work.
 
 The same files run **inside Meridian** too: `web/app.js` provides the same `SpaceLab` API there (with the same public
 data from `api/public-data`), so whatever you build appears on both the public page and the owner's dashboard.
@@ -20,6 +20,8 @@ SpaceLab.num(x, digits)             // format a number
 SpaceLab.onRender((tab, el, data) => { ... })   // after any tab draws; tab = 'today','brief','exowatch','tess','asteroids','about' or your own
 SpaceLab.addTab('id', 'Title', (el, data) => { el.innerHTML = '...'; })   // a new tab before "About" (Meridian: before "Setup")
 SpaceLab.local                      // true inside Meridian, undefined on the public page
+SpaceLab.track(path, isEvent)       // count a view or event with the optional visitor counter (no-op in Meridian / when off)
+SpaceLab.results                    // Meridian only: {list(), save(id, entry), remove(id)} for the owner's results log
 SpaceLab.cloudCheck(dataUrl)        // Meridian only: the local vision AI names clouds in a sky photo (check it exists first)
 ```
 In Meridian, `onRender` reports the Space brief tab as `'brief'` (its Meridian name is `arxiv`), so one hook works on both.
@@ -27,11 +29,12 @@ Useful data (each TESS card has `data-tic="NNN"`; each old asteroid sighting car
 ai.verdict, fpp.verdict), `data.asteroids.cands[]` (des, night, archive, gif, png, status), `data.asteroids.cad[]`,
 `data.exowatch.stale[]` (with ra, dec), `data.brief.papers[]`, `data.tess.cands[].star` (teff, radius_sun, dist_pc, tmag),
 `data.community` (GitHub review leaderboard and per-candidate votes), `data.contributions`, and `data.beyond`
-(space_weather, fireballs, comets, gw, supernovae, launches, habitable, sky, earth, quakes, iss). Image/JSON paths like
+(space_weather, fireballs, comets, gw, supernovae, launches, habitable, sky, earth, quakes, iss), `data.daily` (candidate of
+the day: date, cand, blurb, votes, prev), `data.radar` (items ranked by the local AI, digest), `data.results` and `data.site.url`. Image/JSON paths like
 `files/...` load from the same site.
 
 ## Rules
-1. Edit only `web/extras.js`, `web/beyond.js` and `web/extras.css`. Wrap each feature in its own function.
+1. Edit only `web/extras.js`, `web/beyond.js`, `web/home.js` and `web/extras.css`. Wrap each feature in its own function.
 2. Escape every piece of data with `SpaceLab.esc()` before inserting it as HTML.
 3. No network requests to other sites. No trackers, analytics, fonts or CDNs. Data already on the page is enough.
    Links that open in a new tab are fine (the checker allows the project, its page and ESASky in code; links that come
@@ -44,7 +47,7 @@ ai.verdict, fpp.verdict), `data.asteroids.cands[]` (des, night, archive, gif, pn
 7. Plain JavaScript, no libraries, no build step. Keep each feature under ~150 lines.
 8. Works on a phone (narrow screen) and with dark colors from `style.css` variables.
 9. Every element you add to an existing card gets a class starting with `sl-` (the checker strips them to verify the
-   original text is untouched). Inside your own tabs use `sl-` (extras.js) or `bx-` (beyond.js).
+   original text is untouched). Inside your own tabs use `sl-` (extras.js), `bx-` (beyond.js) or `hm-` (home.js).
 10. Never add anything to `nav.tabs` except through `SpaceLab.addTab` (every button there is treated as a tab).
 11. In loops, use `const`/`let` or `forEach` so each button remembers ITS OWN card (a `var` in a loop makes every button use the last card).
 

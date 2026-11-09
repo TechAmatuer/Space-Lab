@@ -15,9 +15,17 @@ let D = null;
 
 // ---- Extension point for web/extras.js (see EXTRAS.md). Extras can never break the main page.
 const HOOKS = [], EXTRA_TABS = {};
+// Optional visitor counter (GoatCounter, no cookies; only present when the owner turned it on). Counts tab views and votes.
+function track(path, event, tries = 0) {
+  try {
+    const g = window.goatcounter;
+    if (g && g.count) g.count({ path, title: path, event: !!event });
+    else if (document.querySelector('script[data-goatcounter]') && tries < 20) setTimeout(() => track(path, event, tries + 1), 500);
+  } catch (_) { /* counting must never break the page */ }
+}
 window.SpaceLab = {
   get data() { return D; },
-  esc, num,
+  esc, num, track,
   onRender(fn) { HOOKS.push(fn); },                   // fn(tabName, viewElement, data) after every tab render
   addTab(id, title, render) {                          // render(viewElement, data)
     if (R[id] || EXTRA_TABS[id]) return;
@@ -27,6 +35,7 @@ window.SpaceLab = {
     $('nav.tabs').insertBefore(b, $('nav.tabs button[data-tab=about]'));
     const s = document.createElement('section'); s.className = 'view'; s.id = 'v-' + id;
     $('main').appendChild(s);
+    if (navReady) layoutNav();
     if (D && location.hash === '#' + id) setTab(id);
   },
 };
@@ -34,6 +43,23 @@ function runExtras(tab) {
   const el = $('#v-' + tab);
   if (EXTRA_TABS[tab]) { try { EXTRA_TABS[tab](el, D); } catch (e) { console.error('extras tab', tab, e); el.innerHTML = '<div class="card empty">This extra is having a problem.</div>'; } }
   for (const fn of HOOKS) { try { fn(tab, el, D); } catch (e) { console.error('extras hook', e); } }
+}
+
+// Tabs in groups, so 12 tabs still read clearly. Extras' tabs are slotted in by id; unknown tabs go before About.
+const NAV = [['Explore', ['today', 'sky', 'brief', 'beyond']], ['Research', ['tess', 'asteroids', 'exowatch', 'results']],
+             ['Join in', ['play', 'create', 'mylist']], ['', ['about']]];
+let navReady = false;
+function layoutNav() {
+  navReady = true;
+  const nav = $('nav.tabs'), all = $$('nav.tabs button'), byId = Object.fromEntries(all.map(b => [b.dataset.tab, b]));
+  const known = new Set(NAV.flatMap(g => g[1])), extra = all.filter(b => !known.has(b.dataset.tab));
+  $$('nav.tabs .navgroup').forEach(g => g.remove());
+  for (const [label, ids] of NAV) {
+    const bs = (label ? [] : extra).concat(ids.map(id => byId[id]).filter(Boolean));
+    if (!bs.length) continue;
+    if (label) { const g = document.createElement('span'); g.className = 'navgroup'; g.textContent = label; nav.appendChild(g); }
+    bs.forEach(b => nav.appendChild(b));
+  }
 }
 
 function modal(html) { $('#modalBody').innerHTML = html; $('#modal').classList.add('on'); return $('#modalBody'); }
@@ -49,9 +75,13 @@ function today() {
     return `<div class="card"><div class="row"><h3>${esc(j.label)}</h3><span class="spacer"></span>${chip}</div>
       <div class="small muted">${sched} · last run ${ago(j.started)}</div><div style="margin-top:6px">${esc(j.summary || '')}</div></div>`;
   }).join('');
-  $('#v-today').innerHTML = `<div class="card"><div class="row"><h3>☕ Morning brief</h3><span class="spacer"></span><span class="small muted">${ago(b.t)}${b.model ? ' · written by a local AI (' + esc(b.model) + ')' : ''}</span></div>
+  $('#v-today').innerHTML = `<div class="card hero"><h2 class="hero-t">A home computer hunting for new worlds</h2>
+      <p>Space Lab searches open NASA data every day for planets around other stars, old pictures of risky asteroids, and the exact timing of known planets. You can check its finds, play with real data, and see what's in the sky tonight.</p>
+      <div class="row"><button class="b primary" data-go="today-daily">🪐 Today's candidate</button><button class="b" data-go="sky">🌙 Tonight's sky</button><button class="b" data-go="play">🎮 Play & review</button><button class="b" data-go="about">How it works</button></div></div>
+    <div id="home-slots"></div>
+    <div class="card"><div class="row"><h3>☕ Morning brief</h3><span class="spacer"></span><span class="small muted">${ago(b.t)}${b.model ? ' · written by a local AI (' + esc(b.model) + ')' : ''}</span></div>
       <div class="brief" style="white-space:pre-wrap">${esc(b.text || 'The first brief is written after the overnight runs.')}</div></div>
-    <h2>What the lab is doing</h2>
+    <h2>What the computer is doing</h2>
     <p class="small muted">${t.always_on ? 'This Mac runs full-time: when nothing is scheduled it keeps hunting through TESS stars and building the paper library.' : 'Jobs run on a schedule.'} Each card is the latest run of one pipeline.</p>
     <div class="grid g2">${jobs || '<div class="card empty">No runs yet.</div>'}</div>`;
 }
@@ -178,6 +208,7 @@ function setTab(tab) {
   $$('nav.tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === tab));
   $$('section.view').forEach(v => v.classList.toggle('on', v.id === 'v-' + tab));
   history.replaceState(null, '', '#' + tab);
+  track('/' + tab);
   const tb = document.querySelector(`nav.tabs button[data-tab="${tab}"]`); if (tb && tb.scrollIntoView && innerWidth <= 1100) tb.scrollIntoView({ block: 'nearest', inline: 'center' });
   if (R[tab]) R[tab]();
   runExtras(tab);
@@ -187,6 +218,7 @@ document.addEventListener('click', async e => {
   const t = e.target.closest('button, img.plot, #zoom');
   if (!t) return;
   if (t.matches('nav.tabs button')) return setTab(t.dataset.tab);
+  if (t.dataset.go) { const el = document.getElementById(t.dataset.go); if (el && el.scrollIntoView) return el.scrollIntoView({ behavior: 'smooth', block: 'start' }); return setTab(t.dataset.go); }
   if (t.id === 'pubGo') return adsSearch();
   if (t.id === 'zoom') { t.style.display = 'none'; return; }
   if (t.id === 'modalClose') { $('#modal').classList.remove('on'); return; }
@@ -235,12 +267,16 @@ function showNetworkError(msg) {
   });
 }
 
-fetch('data.json', { cache: 'no-store' })
-  .then(r => r.json())
+// start once every extras script has run (they add tabs), so the tab layout and the first tab see all of them
+const ready = new Promise(res => document.readyState === 'loading' ? document.addEventListener('DOMContentLoaded', res) : res());
+Promise.all([fetch('data.json', { cache: 'no-store' }).then(r => r.json()), ready]).then(([d]) => d)
   .then(d => {
     D = d;
     $('#updated').textContent = `updated ${new Date(d.updated * 1000).toLocaleString()}`;
+    layoutNav();
     const start = (location.hash || '#today').slice(1);
-    setTab(R[start] || EXTRA_TABS[start] ? start : 'today');
+    const deep = /^tic-\d+$/.test(start) ? start : null;
+    setTab(deep ? 'tess' : R[start] || EXTRA_TABS[start] ? start : 'today');
+    if (deep) setTimeout(() => { const el = document.getElementById(deep); if (el) { el.scrollIntoView({ block: 'start' }); el.classList.add('flash'); } }, 300);
   })
   .catch(err => showNetworkError(err?.message || 'Network error'));

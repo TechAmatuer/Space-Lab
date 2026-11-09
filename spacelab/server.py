@@ -5,6 +5,7 @@ import json
 import mimetypes
 import os
 import queue
+import re
 import shutil
 import signal
 import subprocess
@@ -235,7 +236,8 @@ def state():
             'running': STATE['running'], 'queue': sorted(QUEUED), 'schedule': cfg['schedule'], 'always_on': bool(cfg.get('always_on')),
             'jobs': {k: v[1] for k, v in JOBS.items()}, 'inbox': str(config.EXO_INBOX),
             'profile': {k: cfg.get(k) for k in ('observer_name', 'aavso_code', 'contact_email', 'sarc_verified')},
-            'selftest': db.kv_get(con, 'selftest'), 'disk': db.kv_get(con, 'disk'), 'contributions': db.contributions(con)}
+            'selftest': db.kv_get(con, 'selftest'), 'disk': db.kv_get(con, 'disk'), 'contributions': db.contributions(con),
+            'visitors': db.kv_get(con, 'visitors')}
 
 
 def api_arxiv(q):
@@ -368,8 +370,9 @@ MASK = '••••••••'
 def masked_settings():
     cfg = config.load()
     sh = cfg.get('share') or {}
-    if sh.get('github_token'):
-        sh['github_token'] = MASK + sh['github_token'][-4:]
+    for k in ('github_token', 'goatcounter_token'):
+        if sh.get(k):
+            sh[k] = MASK + sh[k][-4:]
     return cfg
 
 
@@ -401,6 +404,16 @@ def post_action(path, body):
     kind = parts[1] if len(parts) > 1 else ''
     oid = parts[2] if len(parts) > 2 else ''
     now = time.time()
+    if kind == 'results':
+        if body.get('action') == 'delete' and oid.isdigit():
+            con.execute('DELETE FROM results WHERE id=?', (int(oid),))
+            return 200, {'ok': True}
+        if body.get('action') == 'save':
+            r = dict(body)
+            if oid.isdigit() and int(oid):
+                r['id'] = int(oid)
+            return 200, {'ok': True, 'id': db.save_result(con, r)}
+        return 400, {'error': 'bad action'}
     if kind == 'cloud-check':
         return cloud_check(body.get('image') or '')
     if kind == 'task':
@@ -530,8 +543,19 @@ def post_action(path, body):
         return (200 if ok else 400), ({'ok': True} if ok else {'error': msg})
     if kind == 'settings':
         changes = {k: v for k, v in body.items() if k in SETTABLE}
-        if isinstance(changes.get('share'), dict) and str(changes['share'].get('github_token', '')).startswith(MASK):
-            changes['share'].pop('github_token')
+        if isinstance(changes.get('share'), dict):
+            for k in ('github_token', 'goatcounter_token'):
+                if str(changes['share'].get(k, '')).startswith(MASK):
+                    changes['share'].pop(k)
+            gc = str(changes['share'].get('goatcounter') or '').strip().lower()
+            gc = re.sub(r'^https?://', '', gc).split('.goatcounter.com')[0].strip('/')
+            if gc and not re.match(r'^[a-z0-9][a-z0-9-]{1,49}$', gc):
+                return 400, {'error': 'The visitor counter code is the first part of your GoatCounter address, e.g. "spacelab" for spacelab.goatcounter.com'}
+            if 'goatcounter' in changes['share']:
+                changes['share']['goatcounter'] = gc
+            su = str(changes['share'].get('site_url') or '').strip()
+            if su and not re.match(r'^https://[A-Za-z0-9.-]+(/[A-Za-z0-9._~/-]*)?$', su):
+                return 400, {'error': 'The website address should look like https://www.example.com/'}
         sh = changes.get('share') or {}
         if sh.get('discord_webhook') and not notify.valid(sh['discord_webhook']):
             return 400, {'error': 'The science channel webhook should start with https://discord.com/api/webhooks/'}
@@ -610,6 +634,11 @@ class H(BaseHTTPRequestHandler):
                 from . import publish
                 data, _ = publish.build_data(db.connect(), config.load())
                 return self.send(200, data)
+            if p == '/api/results':
+                con = db.connect()
+                db.sync_results(con)
+                return self.send(200, {'items': db.rows(con, 'SELECT * FROM results ORDER BY created DESC'),
+                                       'kinds': db.RESULT_KINDS, 'status': db.RESULT_STATUS})
             if p == '/api/export/eclipsing-binaries.csv':     # rejected signals that look like two stars, for AAVSO VSX
                 from . import export
                 txt, _n = export.eb_csv(db.connect())

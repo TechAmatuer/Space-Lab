@@ -18,6 +18,7 @@ JOBS = {
     'publish': ('spacelab.publish', 'Shared page update'),
     'library': ('spacelab.library', 'Paper library (50 years)'),
     'beyond': ('spacelab.beyond', 'Sky watch & Beyond astronomy'),
+    'radar': ('spacelab.radar', 'Space science radar (local AI)'),
     'selftest': ('spacelab.selftest', 'Self-test'),
     'report': ('spacelab.reanalyze', 'Maintenance & coverage report'),
     'export': ('spacelab.export', 'Data export (JSON/CSV)'),

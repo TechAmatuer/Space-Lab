@@ -32,8 +32,19 @@ def _when(s):
         return None
 
 
+def _fix_entities(xml_text):
+    """Some feeds use HTML entities (&nbsp; &mdash;) that XML does not know: turn them into numeric references."""
+    from html.entities import name2codepoint
+    known = {'amp', 'lt', 'gt', 'quot', 'apos'}
+    return re.sub(r'&([A-Za-z][A-Za-z0-9]*);', lambda m: m.group(0) if m.group(1) in known or m.group(1) not in name2codepoint
+                  else f'&#{name2codepoint[m.group(1)]};', xml_text)
+
+
 def parse(xml_text, source):
-    root = ET.fromstring(xml_text)
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        root = ET.fromstring(_fix_entities(xml_text))
     items = []
     for it in root.iter():
         tag = it.tag.split('}')[-1]

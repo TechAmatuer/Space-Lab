@@ -21,7 +21,8 @@ from . import classifier, config, db, net
 API = 'https://api.github.com'
 SITE = config.DATA / 'public'
 WEB = config.ROOT / 'web'
-SITE_FILES = ('public.html', 'public.js', 'style.css', 'lcviewer.js', 'orbit3d.js', 'extras.js', 'extras.css', 'beyond.js')
+SITE_FILES = ('public.html', 'public.js', 'style.css', 'lcviewer.js', 'orbit3d.js', 'extras.js', 'extras.css', 'beyond.js', 'home.js')
+TITLE = 'Space Lab: hunting planets and asteroids with open NASA data'
 
 
 def _j(x):
@@ -42,6 +43,27 @@ def _contrib(con):
         return db.contributions(con)
     except Exception:
         return {}
+
+
+def site_url(cfg):
+    """Address of the public site: your own domain if set in Setup, otherwise the free GitHub Pages address."""
+    sh = cfg.get('share') or {}
+    if sh.get('site_url'):
+        return sh['site_url'].rstrip('/') + '/'
+    repo = (sh.get('github_repo') or '').strip()
+    if '/' in repo:
+        owner, name = repo.split('/', 1)
+        return f'https://{owner.lower()}.github.io/{name}/'
+    return ''
+
+
+def _radar_public(r):
+    items = [{k: x.get(k) for k in ('id', 'title', 'url', 'sources', 'date', 'score', 'topic', 'why')} |
+             {'summary': clean(x.get('summary')), 'lab': bool(x.get('lab'))}
+             for x in (r.get('items') or []) if (x.get('score') or 0) >= 4][:80]
+    dg = r.get('digest') or {}
+    return {'t': r.get('t'), 'items': items, 'digest': {'t': dg.get('t'), 'text': clean(dg.get('text'))} if dg.get('text') else None,
+            'n_sources': len(r.get('sources_ok') or []), 'failed': [str(x).split(':')[0] for x in (r.get('sources_failed') or [])]}
 
 
 def clean(s):
@@ -130,12 +152,22 @@ def build_data(con, cfg):
     papers = db.rows(con, 'SELECT id,title,authors,url,published,summary,why,project,rank FROM arxiv WHERE digest=? ORDER BY rank',
                      (dates[0],)) if dates else []
     eph = db.kv_get(con, 'ephem') or {}
+    from . import daily as daily_mod
+    dly = daily_mod.public(con)
+    for part in (dly, dly.get('prev') or {}):
+        if part.get('cand'):
+            part['cand']['plot'] = f(part['cand'].get('plot'))
+    db.sync_results(con)
+    results = db.rows(con, 'SELECT id, kind, target, title, dest, link, status, note, created, updated FROM results WHERE public=1 ORDER BY created DESC LIMIT 200')
+    for r in results:
+        r['note'] = clean(r.get('note'))
     beyond = _beyond_public(db.kv_get(con, 'beyond') or {})
     if beyond.get('earth'):
         beyond['earth'] = [{k: e.get(k) for k in ('key', 'caption', 'source', 'date')} | {'img': f(e.get('path'))}
                            for e in beyond['earth'] if f(e.get('path'))]
     data = {'name': public_name(cfg), 'updated': time.time(), 'schema': SCHEMA_VERSION,
-            'beyond': beyond,
+            'beyond': beyond, 'daily': dly, 'radar': _radar_public(db.kv_get(con, 'radar') or {}), 'results': results,
+            'site': {'url': site_url(cfg), 'name': 'Space Lab'},
             'community': db.kv_get(con, 'community') or {},
             'contributions': _contrib(con),
             'today': {'brief': {'t': brief_kv.get('t'), 'text': clean(brief_kv.get('text') or ''), 'model': brief_kv.get('model')},
@@ -157,10 +189,11 @@ def build_data(con, cfg):
     return data, files
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 # The public page (web/public.js) reads exactly these keys. Change them only together with public.js and bump SCHEMA_VERSION.
 SCHEMA = {'name': str, 'updated': float, 'schema': int,
           'today': {'jobs': list, 'brief': dict}, 'beyond': dict, 'community': dict, 'contributions': dict,
+          'daily': dict, 'radar': dict, 'results': list, 'site': dict,
           'tess': {'stats': dict, 'cands': list, 'model': dict},
           'asteroids': {'cad': list, 'sentry': list, 'neocp': list, 'cands': list, 'targets': list},
           'exowatch': {'results': list, 'stale': list},
@@ -195,6 +228,7 @@ def forbidden(cfg):
     sh, sc = cfg.get('share') or {}, cfg.get('telescope') or {}
     bad = {'your email': cfg.get('contact_email'), 'your private Discord webhook': cfg.get('discord_webhook'),
            'the public Discord webhook': sh.get('discord_webhook'), 'your GitHub token': sh.get('github_token'),
+           'your visitor-counter key': sh.get('goatcounter_token'),
            'your Space Lab folder path': str(config.ROOT), 'your Mac home folder': str(Path.home())}
     name = (cfg.get('observer_name') or '').strip()
     if len(name) >= 3 and name.lower() != (sh.get('public_name') or '').strip().lower():
@@ -212,7 +246,7 @@ def scan(folder, cfg):
     for p in Path(folder).rglob('*'):
         if '.git' in p.parts:
             continue
-        if p.is_file() and p.suffix in ('.json', '.html', '.js', '.css', '.txt', '.md'):
+        if p.is_file() and p.suffix in ('.json', '.html', '.js', '.css', '.txt', '.md', '.xml', '.webmanifest'):
             text = p.read_text(errors='ignore')
             for label, s in bad.items():
                 if str(s) in text:
@@ -225,9 +259,10 @@ def build_site(con, cfg):
     errs = validate(data)
     if errs:
         raise RuntimeError('stopped: the public data would break the page (' + '; '.join(errs[:5]) + '). Nothing was published.')
-    if SITE.exists():
-        shutil.rmtree(SITE)
-    SITE.mkdir(parents=True)
+    SITE.mkdir(parents=True, exist_ok=True)
+    for old in SITE.iterdir():                 # start clean, but keep .git so each upload only sends what changed
+        if old.name != '.git':
+            shutil.rmtree(old) if old.is_dir() else old.unlink()
     for name in SITE_FILES:
         src = WEB / name
         if src.is_file():
@@ -238,6 +273,8 @@ def build_site(con, cfg):
         shutil.copy(config.DATA / rel, dst)
     (SITE / 'data.json').write_text(json.dumps(data, default=str, separators=(',', ':')))
     (SITE / '.nojekyll').write_text('')
+    from . import site
+    site.build(SITE, data, cfg, SITE, TITLE)
     hits = scan(SITE, cfg)
     if hits:
         shutil.rmtree(SITE, ignore_errors=True)
@@ -283,7 +320,9 @@ def git_push(folder, repo, log):
     run('config', 'user.name', 'Space Lab')
     run('config', 'user.email', 'spacelab@users.noreply.github.com')
     run('add', '-A')
-    run('commit', '-q', '-m', f'Space Lab results {time.strftime("%Y-%m-%d %H:%M")}')
+    # one commit, replaced each time (amend), so the website branch never grows; keeping .git makes uploads incremental
+    amend = ['--amend'] if run('rev-parse', '-q', '--verify', 'HEAD').returncode == 0 else []
+    run('commit', '-q', *amend, '-m', f'Space Lab results {time.strftime("%Y-%m-%d %H:%M")}')
     url = repo if repo.startswith(('/', 'file:')) else f'https://github.com/{repo}.git'
     p = run('push', '-q', '--force', url, f'HEAD:{PAGES_BRANCH}')
     if p.returncode != 0:
@@ -456,7 +495,8 @@ def run(ctx):
                f'{len(data["asteroids"]["cands"])} possible precovery sightings.\n'
                f'Exoplanet Watch: {len(data["exowatch"]["results"])} transits measured.' + (f'\n{url}' if url else ''))
         counts = {'done': st.get('done', 0), 'c': len(data['tess']['cands']), 'p': len(data['asteroids']['cands']), 'e': len(data['exowatch']['results'])}
-        if counts != last:
+        counts['day'] = time.strftime('%Y-%m-%d')
+        if counts['day'] != last.get('day') and time.localtime().tm_hour >= 7:     # at most one summary a day, in the morning
             try:
                 discord_post(sh['discord_webhook'], msg)
                 db.kv_set(con, 'publish_summary_counts', counts)

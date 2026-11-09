@@ -39,10 +39,33 @@ window.SpaceLab = {
     $('nav.tabs').insertBefore(b, $('nav.tabs button[data-tab=setup]'));
     const s = document.createElement('section'); s.className = 'view'; s.id = 'v-' + id;
     $('main').appendChild(s);
+    if (navReady) layoutNav();
   },
   // Meridian only: the local vision AI names the clouds in a sky photo (the public page has no AI)
   cloudCheck: dataUrl => api('api/cloud-check', { image: String(dataUrl).split(',').pop() }),
+  // Meridian only: your results log (the public page shows the entries marked public)
+  results: {
+    list: () => api('api/results'),
+    save: (id, r) => api('api/results/' + (id || 0), Object.assign({}, r, { action: 'save' })).then(x => { loadPublicData(); return x; }),
+    remove: id => api('api/results/' + id, { action: 'delete' }).then(x => { loadPublicData(); return x; }),
+  },
+  track() {},          // visitor counting happens only on the public page
 };
+const NAV = [['Explore', ['today', 'sky', 'arxiv', 'beyond']], ['Research', ['tess', 'asteroids', 'exowatch', 'results']],
+             ['Join in', ['play', 'create', 'mylist']], ['', ['setup']]];
+let navReady = false;
+function layoutNav() {   // same groups as the public page
+  navReady = true;
+  const nav = $('nav.tabs'), all = $$('nav.tabs button'), byId = Object.fromEntries(all.map(b => [b.dataset.tab, b]));
+  const known = new Set(NAV.flatMap(g => g[1])), extra = all.filter(b => !known.has(b.dataset.tab));
+  $$('nav.tabs .navgroup').forEach(g => g.remove());
+  for (const [label, ids] of NAV) {
+    const bs = (label ? [] : extra).concat(ids.map(id => byId[id]).filter(Boolean));
+    if (!bs.length) continue;
+    if (label) { const g = document.createElement('span'); g.className = 'navgroup'; g.textContent = label; nav.appendChild(g); }
+    bs.forEach(b => nav.appendChild(b));
+  }
+}
 function ago(t) {
   if (!t) return 'never';
   const s = Date.now() / 1000 - t;
@@ -164,6 +187,7 @@ function renderToday(st) {
   }
   const dk = st.disk, co = st.contributions || {};
   const house = `<div class="grid g2"><div class="card"><h3>📊 Your contributions</h3><div class="kv"><b>Stars searched</b><span>${co.stars_searched ?? '—'}</span><b>Candidates you reviewed</b><span>${co.tess_reviewed ?? '—'} (${co.tess_planet_like ?? 0} planet-like)</span><b>Asteroid sightings checked</b><span>${co.asteroid_sightings_checked ?? '—'}</span><b>Exoplanet Watch light curves</b><span>${co.exowatch_reduced ?? '—'}</span><b>Results submitted</b><span>${co.uploads_done ?? '—'}</span></div></div>
+    ${st.visitors ? `<div class="card"><h3>👀 Website visitors</h3><p><b>${st.visitors.visitors ?? '—'}</b> visitors in the last ${st.visitors.days} days${st.visitors.events ? `, ${st.visitors.events} votes and clicks` : ''}.</p><a class="b" href="${esc(st.visitors.url)}" target="_blank" rel="noopener">Open your visitor stats ↗</a></div>` : ''}
     <div class="card"><h3>💾 Storage</h3>${dk ? `<div class="kv"><b>Space Lab data</b><span>${dk.total_gb} GB</span><b>Free on this Mac</b><span>${dk.free_gb} GB</span><b>Largest parts</b><span>${(dk.largest || []).map(x => esc(x[0]) + ' ' + x[1] + ' GB').join(', ')}</span></div><p class="small muted">Temporary downloads older than 60 days are cleaned up and the database is backed up every night (7 copies kept in data/backups).</p>` : '<p class="small muted">Measured after the next Sky watch run.</p>'}</div></div>`;
   $('#todayBody').innerHTML = `${brief}<h2>Your tasks (${st.tasks.length})</h2>${tasks}<h2>What your computer does</h2><div class="grid g3">${runs}</div>${house}`;
 }
@@ -306,7 +330,8 @@ function tessExtras(c) {
   if (ct) out.push(`<details class="note ok"><summary><b>Ready to report as a Community TOI?</b> You marked it planet-like and no check argues against it.</summary>
     <p class="small">Check ExoFOP first (is it already a TOI or a known binary?), then fill in the ExoFOP CTOI form with these values:</p>
     <div class="kv mono small"><b>TIC</b><span>${ct.tic}</span><b>Period (days)</b><span>${ct.period_days}</span><b>Epoch (BJD_TDB)</b><span>${ct.epoch_bjd_tdb}</span><b>Depth (ppm)</b><span>${ct.depth_ppm}</span><b>Duration (hours)</b><span>${ct.duration_hours}</span></div>
-    <p class="small">Notes: ${esc(ct.notes || '')}</p><a class="b primary" href="${esc(ct.url)}" target="_blank" rel="noopener">Open the ExoFOP CTOI form ↗</a> <span class="small muted">(needs a free ExoFOP login; you submit it yourself)</span></details>`);
+    <p class="small">Notes: ${esc(ct.notes || '')}</p><a class="b primary" href="${esc(ct.url)}" target="_blank" rel="noopener">Open the ExoFOP CTOI form ↗</a> <span class="small muted">(needs a free ExoFOP login; you submit it yourself)</span>
+    <button class="b" data-logresult="ctoi:${ct.tic}" data-kind="ctoi" data-target="TIC ${ct.tic}" data-title="Planet candidate TIC ${ct.tic} reported as a Community TOI">I submitted it: add to Results</button></details>`);
   const cen = c.centroid;
   if (cen) out.push(`<div class="note ${cen.verdict === 'off target' ? 'bad' : cen.verdict === 'on target' ? 'ok' : 'warn'}"><b>Centroid test</b>: ${esc(cen.verdict)} — the dip's light comes from ${num(cen.offset_arcsec, 0)}″ from the star (${num(cen.signif, 1)}σ; signal strength ${num(cen.snr, 0)})${cen.png ? `<br><img class="thumb plot" src="${fileUrl(cen.png)}" alt="centroid test" loading="lazy">` : ''}</div>`);
   return out.join('');
@@ -349,7 +374,7 @@ function renderNeo(x) {
       <div class="row" style="align-items:flex-start"><img class="blink" src="${fileUrl(c.gif)}" alt="blink"><div style="flex:1;min-width:280px"><img class="plot" src="${fileUrl(c.png)}" alt="cutouts"></div></div>
       <table style="margin-top:8px"><tr><th>time (UTC)</th><th>RA°</th><th>Dec°</th><th>filter</th><th>SNR</th></tr>${obs}</table>
       <div class="row" style="margin-top:10px"><button class="b good" data-pv="${c.id}" data-v="real">Yes, same moving dot</button><button class="b bad" data-pv="${c.id}" data-v="fake">No / artifact</button><button class="b" data-pv="${c.id}" data-v="unsure">Unsure</button><span class="spacer"></span>
-      ${real ? `<button class="b" data-check="${c.id}">Check the report</button><a class="b primary" href="api/pc/${c.id}/ades">Download draft MPC report</a>` : ''}
+      ${real ? `<button class="b" data-check="${c.id}">Check the report</button><a class="b primary" href="api/pc/${c.id}/ades">Download draft MPC report</a><button class="b" data-logresult="mpc:${c.id}" data-kind="mpc" data-target="${esc(c.des)}" data-title="Precovery positions of ${esc(c.des)} from ${esc(c.night)} (${esc(c.archive)})">I submitted it: add to Results</button>` : ''}
       <button class="b" data-orbit="${esc(c.des)}">3D orbit</button>${x.shared ? `<button class="b" data-share="pc" data-id="${c.id}">${c.shared ? 'Shared ✓' : 'Share to Discord'}</button>` : ''}</div>
       ${real ? `<p class="small ${x.sarc_verified ? 'muted' : 'warn-t'}">${x.sarc_verified ? 'You are SARC-verified: check the draft, then submit it on the MPC ADES PSV submission page.' : 'Before sending: the MPC requires a one-time verification by its archival committee (SARC). See the task on your Today tab.'}</p>` : ''}</div>`;
   }).join('');
@@ -418,7 +443,16 @@ function renderSetup(cfg) {
       <li>Paste both below, Save, then Publish now. <b>No token needed</b> if this Mac can already push to GitHub with git (Space Lab uses your Mac's GitHub login first).</li></ol>
       <div class="row"><label class="f"><span>Repository (yourname/spacelab)</span><input type="text" id="shRepo" value="${esc((cfg.share || {}).github_repo || '')}" style="width:220px"></label>
       <label class="f"><span>Token</span><input type="password" id="shToken" value="${esc((cfg.share || {}).github_token || '')}" style="width:260px"></label></div>
-      <label class="small"><input type="checkbox" id="shPublish" ${(cfg.share || {}).publish !== false ? 'checked' : ''}> update the page every morning (07:15)</label>
+      <label class="small"><input type="checkbox" id="shPublish" ${(cfg.share || {}).publish !== false ? 'checked' : ''}> keep the page updated (several times a day; only changes are uploaded)</label>
+      <h3 style="margin-top:14px">Your own web address (optional)</h3>
+      <p class="small muted">Buy a domain (about $12 a year), point it at GitHub Pages (GitHub → your repository → Settings → Pages → Custom domain), then enter it here so link previews and the feed use it. Blank = the free github.io address.</p>
+      <label class="f"><span>Website address</span><input type="text" id="shSite" value="${esc((cfg.share || {}).site_url || '')}" placeholder="https://www.example.com/" style="width:320px"></label>
+      <h3 style="margin-top:14px">Visitor counter (optional, no cookies)</h3>
+      <ol class="small muted steps"><li>Sign up free at goatcounter.com and pick a code, e.g. <span class="mono">spacelab</span> (your stats live at spacelab.goatcounter.com).</li>
+      <li>Enter the code below. The public page then counts visits, tabs opened and the candidate-of-the-day votes, with no cookies and no personal data.</li>
+      <li>Optional: in GoatCounter → your name → API, create a key with "Read statistics" and paste it here. This Mac then reads the vote totals for the candidate of the day and your weekly visitors. The key is never published.</li></ol>
+      <div class="row"><label class="f"><span>GoatCounter code</span><input type="text" id="shGc" value="${esc((cfg.share || {}).goatcounter || '')}" placeholder="spacelab" style="width:180px"></label>
+      <label class="f"><span>GoatCounter API key</span><input type="password" id="shGcKey" value="${esc((cfg.share || {}).goatcounter_token || '')}" style="width:260px"></label></div>
       <div class="row" style="margin-top:8px"><button class="b primary" id="saveShare">Save</button><button class="b" data-run="publish">Publish now</button><span id="saved6" class="small"></span></div>
       <div id="pubStatus" class="small muted" style="margin-top:6px"></div></div>
     <h2>Schedule</h2><div class="card">${sched}<div class="row"><label class="f"><span>TESS stars per night</span><input type="number" id="sTessN" min="5" max="1000" value="${esc(cfg.tess.max_targets)}"></label>
@@ -466,6 +500,10 @@ document.addEventListener('click', async e => {
     }
     const d = t.dataset;
     if (d.open !== undefined) return setTab(d.open, d.id ? `item-${d.open}-${d.id}` : null);
+    if (d.logresult) {
+      await api('api/results/0', { action: 'save', key: d.logresult, kind: d.kind, target: d.target, title: d.title, status: 'submitted' });
+      t.textContent = 'In Results ✓'; t.disabled = true; loadPublicData(); return;
+    }
     if (d.task) { await api('api/task/' + d.task, { action: d.act }); return refreshState(); }
     if (d.run) { await api('api/run/' + d.run, {}); t.disabled = true; return refreshState(); }
     if (d.log) { S.logJob = d.log; return setTab('setup'); }
@@ -552,7 +590,8 @@ document.addEventListener('click', async e => {
     if (t.id === 'saveShare') {
       try {
         await api('api/settings', { share: { public_name: $('#shName').value.trim(), discord_webhook: $('#shHook').value.trim(), post_summary: $('#shSummary').checked,
-          github_repo: $('#shRepo').value.trim(), github_token: $('#shToken').value.trim(), publish: $('#shPublish').checked } });
+          github_repo: $('#shRepo').value.trim(), github_token: $('#shToken').value.trim(), publish: $('#shPublish').checked,
+          site_url: $('#shSite').value.trim(), goatcounter: $('#shGc').value.trim(), goatcounter_token: $('#shGcKey').value.trim() } });
         $('#saved6').className = 'small ok-t'; $('#saved6').textContent = 'Saved';
       } catch (err) { $('#saved6').className = 'small bad-t'; $('#saved6').textContent = err.message; }
       return;
@@ -594,7 +633,11 @@ document.addEventListener('change', e => {
 
 // ------------------------------------------------------------------ start
 const start = (location.hash || '#today').slice(1);
-Promise.all([refreshState(), loadPublicData()]).then(() => setTab(['today', 'arxiv', 'exowatch', 'tess', 'asteroids', 'setup'].includes(start) || EXTRA_TABS[start] ? start : 'today'));
+function start_() {
+  Promise.all([refreshState(), loadPublicData()]).then(() => layoutNav() || setTab(['today', 'arxiv', 'exowatch', 'tess', 'asteroids', 'setup'].includes(start) || EXTRA_TABS[start] ? start : 'today'));
+}
+// wait until every extras script has loaded (they add tabs), then lay out the tabs and open the first one
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start_); else start_();
 setInterval(() => { if (document.visibilityState === 'visible') loadPublicData(); }, 300000);
 setInterval(refreshState, 20000);
 setInterval(() => { if (document.visibilityState === 'visible' && ['tess', 'asteroids', 'exowatch'].includes(S.tab) && !Object.values(S.starClicks).some(a => a.length)) load(S.tab); }, 90000);

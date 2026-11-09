@@ -19,6 +19,7 @@ const ONLY = process.argv[2] ? String(process.argv[2]) : null;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const norm = s => String(s || '').replace(/\s+/g, ' ').trim();
 const TABS = ['today', 'brief', 'exowatch', 'tess', 'asteroids', 'about'];
+const ANSWER_SLUGS = { 'Planet-like': 'planet-like', 'Eclipsing binary (two stars)': 'eclipsing-binary', 'Comes from a nearby star': 'nearby-star', 'Noise / instrument glitch': 'noise', 'Not sure': 'not-sure' };
 
 async function boot({ extras = true, storage = {}, data = FIXTURE, hash = '', search = '', geo = null } = {}) {
   const html = read('web/public.html').replace(/<script src=[^>]+><\/script>/g, '').replace(/<link rel="stylesheet"[^>]*>/g, '');
@@ -72,7 +73,7 @@ async function boot({ extras = true, storage = {}, data = FIXTURE, hash = '', se
   w.fetch = async () => ({ ok: true, json: async () => json });
   w.eval(read('web/public.js'));
   if (extras) {
-    for (const f of ['web/beyond.js', 'web/extras.js']) {
+    for (const f of ['web/beyond.js', 'web/extras.js', 'web/home.js']) {
       try { w.eval(read(f)); } catch (e) { rec.errors.push(f + ' crashed while loading: ' + e.message); }
     }
   }
@@ -122,7 +123,7 @@ const CHECKS = {
     // click every extras control in every tab: the page must survive
     for (const t of env.$$('nav.tabs button').map(b => b.dataset.tab).filter(Boolean)) {
       const view = await env.tab(t);
-      for (const el of [...view.querySelectorAll('button[class*="sl-"], a[class*="sl-"], [class*="sl-"] button, [class*="sl-"][role=button], .sl-fav, button[class*="bx-"], [class*="bx-"] button')]) {
+      for (const el of [...view.querySelectorAll('button[class*="sl-"], a[class*="sl-"], [class*="sl-"] button, [class*="sl-"][role=button], .sl-fav, button[class*="bx-"], [class*="bx-"] button, button[class*="hm-"], [class*="hm-"] button')]) {
         if (!el.isConnected) continue;
         el.click(); await sleep(5);
         if (env.visible().length !== 1 || /undefined/.test(env.w.location.hash)) { fails.push(`clicking "${norm(el.textContent).slice(0, 30)}" in tab ${t} broke the page`); break; }
@@ -130,7 +131,7 @@ const CHECKS = {
     }
     // Links out are fine (they open in a new tab when clicked); loading anything from another site is not.
     const LINKS_OK = ['https://github.com/TechAmatuer/Space-Lab', 'https://techamatuer.github.io/Space-Lab/', 'https://sky.esa.int/esasky/', 'http://www.w3.org/2000/svg'];
-    for (const f of ['web/extras.js', 'web/beyond.js']) {
+    for (const f of ['web/extras.js', 'web/beyond.js', 'web/home.js']) {
       const src = read(f);
       const urls = (src.match(/https?:\/\/[^\s'"`)]+/g) || []).filter(u => !LINKS_OK.some(ok => u.startsWith(ok)));
       if (urls.length) fails.push(f + ' may only link to the project, its page and ESASky; found: ' + urls.join(', '));
@@ -445,10 +446,69 @@ const CHECKS = {
     if (!/LD/.test(p.querySelector('.sl-race').textContent) || p.querySelectorAll('.sl-race tr').length < 3) fails.push('asteroid race timer must list the close approaches');
     report(16, 'Asteroid stories and race timer', fails);
   },
+  async 17() {
+    const fails = [], env = await boot();
+    env.w.goatcounter = { count: o => env.rec.opened.push('count:' + o.path + (o.event ? ':event' : '')) };
+    const v = await env.tab('today');
+    const daily = v.querySelector('#today-daily');
+    if (!daily || !/TIC 222222/.test(daily.textContent)) { fails.push('Home must show the candidate of the day (TIC 222222 in the fixture) in #today-daily'); return report(17, 'Home and candidate of the day', fails); }
+    const votes = [...daily.querySelectorAll('button.hm-vote')];
+    if (votes.map(b => norm(b.textContent)).join('|') !== Object.keys(ANSWER_SLUGS).join('|')) fails.push('vote buttons must match the GitHub review form answers');
+    if (/Votes so far/.test(daily.textContent)) fails.push('do not show today\'s votes before the visitor has voted');
+    if (!/Yesterday: TIC 111111/.test(daily.textContent) || !daily.querySelector('.hm-bar')) fails.push('show yesterday\'s candidate with a vote chart');
+    if (!/not a planet/.test(daily.textContent)) fails.push('show the volunteer\'s verdict on yesterday\'s candidate');
+    votes[0] && votes[0].click(); await sleep(5);
+    const d2 = v.querySelector('#today-daily');
+    if (!/Your vote: Planet-like/.test(d2.textContent)) fails.push('after voting, confirm the vote');
+    if (!env.rec.opened.includes('count:vote-2026-11-09-planet-like:event')) fails.push('a vote must be counted as event vote-<date>-<answer> (got ' + env.rec.opened.filter(x => x.startsWith('count:')).join(', ') + ')');
+    if (!/planet-like/.test(d2.textContent) || !/Votes so far/.test(d2.textContent)) fails.push('after voting, show the AI verdict and the votes so far');
+    const saved = JSON.parse(env.w.localStorage.getItem('sl_daily') || '{}');
+    if (saved['2026-11-09'] !== 'Planet-like') fails.push('save the daily vote in sl_daily');
+    if (!/Daily streak: 1/.test(d2.textContent)) fails.push('show the daily streak');
+    if (!v.querySelector('.hm-radar') || !/Webb spots water/.test(v.textContent)) fails.push('Home must show the top radar items');
+    if (!/Moon:/.test(v.textContent)) fails.push('Home must show tonight\'s sky summary');
+    if (!/1<\/b><span>⏱ Transit timings/.test(v.innerHTML)) fails.push('Home must count results by type');
+    const env2 = await boot({ storage: { sl_daily: JSON.stringify({ '2026-11-08': 'Not sure', '2026-11-07': 'Not sure' }) } });
+    const v2 = await env2.tab('today');
+    if (!/Your vote/.test(v2.querySelector('#today-daily').textContent)) {
+      v2.querySelector('#today-daily button.hm-vote').click(); await sleep(5);
+      if (!/Daily streak: 3/.test(v2.querySelector('#today-daily').textContent)) fails.push('voting on 3 days in a row must show a streak of 3');
+    }
+    const groups = env.$$('nav.tabs .navgroup').map(g => g.textContent).join('|');
+    if (groups !== 'Explore|Research|Join in') fails.push('tabs must be grouped Explore | Research | Join in (got ' + groups + ')');
+    const order = env.$$('nav.tabs button').map(b => b.dataset.tab).join(' ');
+    if (order !== 'today sky brief beyond tess asteroids exowatch results play create mylist about') fails.push('tab order: ' + order);
+    report(17, 'Home, candidate of the day and navigation', fails);
+  },
+
+  async 18() {
+    const fails = [], env = await boot();
+    const r = await env.tab('results');
+    if (!r || !/Transit of WASP-12 b/.test(r.textContent) || !/accepted/.test(r.textContent)) fails.push('Results tab must list the results with their status');
+    if (r && r.querySelector('.hm-owner')) fails.push('the public page must not show the owner\'s editing form');
+    const b = await env.tab('brief');
+    const card = b.querySelector('.hm-radar-card');
+    if (!card) fails.push('Space brief must start with the radar card'); else {
+      if (card.querySelectorAll('.hm-radar-item').length !== 3) fails.push('show all radar items in the Space brief');
+      const sun = [...card.querySelectorAll('.hm-topic')].find(x => x.dataset.topic === 'Sun & space weather');
+      if (sun) { sun.click(); await sleep(2); const shown = [...card.querySelectorAll('.hm-radar-item')].filter(li => li.style.display !== 'none');
+        if (shown.length !== 1) fails.push('topic buttons must filter the radar'); } else fails.push('radar topic filter missing');
+      if (/Feeds that failed/.test(card.textContent)) fails.push('failed feeds are for the owner (Meridian) only');
+      if (!/about this lab/.test(card.textContent)) fails.push('mark radar items about this lab\'s own targets');
+    }
+    const env2 = await boot({ hash: '#tic-222222' });
+    await sleep(400);
+    if (!env2.$('#v-tess.on')) fails.push('a #tic-<TIC> link must open the TESS tab');
+    if (!env2.$('#tic-222222.flash')) fails.push('a #tic-<TIC> link must highlight that candidate');
+    const tess = await env.tab('tess');
+    const sh = tess.querySelector('#tic-111111 .sl-share'); sh.click(); await sleep(2);
+    if (!/https:\/\/example\.github\.io\/Space-Lab\/c\/111111\.html/.test(tess.querySelector('#tic-111111 .sl-sharebox textarea').value)) fails.push('share text must link to the candidate\'s own page c/<TIC>.html on the site address from data.site');
+    report(18, 'Results, radar, deep links and share pages', fails);
+  },
 };
 
 (async () => {
-  const order = ['G', '2', '3', '5', '6', '7', '8', '9', '11', '12', '13', '14', '15', '16'];
+  const order = ['G', '2', '3', '5', '6', '7', '8', '9', '11', '12', '13', '14', '15', '16', '17', '18'];
   for (const k of order) {
     if (ONLY && k !== ONLY && k !== 'G') continue;
     try { await CHECKS[k](); } catch (e) { report(k, 'check crashed', ['the check itself crashed (usually because an expected element is missing): ' + e.message]); }

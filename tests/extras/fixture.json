@@ -1,7 +1,7 @@
 {
  "name": "a Space Lab volunteer",
  "updated": 1794200000,
- "schema": 4,
+ "schema": 5,
  "today": {
   "brief": {
    "t": 1794190000,
@@ -4294,5 +4294,146 @@
    "epoch": "2026-11-08T12:00",
    "made": 1794251980.8098123
   }
+ },
+ "daily": {
+  "date": "2026-11-09",
+  "cand": {
+   "tic": 222222,
+   "id": 12,
+   "kind": "periodic",
+   "period": 5.5,
+   "t0": 3002.1,
+   "depth": 0.012,
+   "duration": 0.12,
+   "rp": 9.1,
+   "snr": 25.0,
+   "plot": "files/plots/tess/222222.png",
+   "status": "under review",
+   "flags": [
+    "odd and even dips differ"
+   ],
+   "ai": "planet-like",
+   "fpp": "likely planet",
+   "star": {
+    "teff": 5800,
+    "radius_sun": 1.0,
+    "dist_pc": 120.0,
+    "tmag": 8.2
+   }
+  },
+  "blurb": "This star dims a little every 3 days. Look at the bottom-left plot.",
+  "votes": {
+   "Planet-like": 4,
+   "Not sure": 1
+  },
+  "prev": {
+   "date": "2026-11-08",
+   "cand": {
+    "tic": 111111,
+    "id": 11,
+    "kind": "periodic",
+    "period": 5.5,
+    "t0": 3002.1,
+    "depth": 0.012,
+    "duration": 0.12,
+    "rp": 9.1,
+    "snr": 25.0,
+    "plot": "files/plots/tess/111111.png",
+    "status": "fake",
+    "flags": [
+     "odd and even dips differ"
+    ],
+    "ai": "eclipsing binary",
+    "fpp": "likely planet",
+    "star": {
+     "teff": 5800,
+     "radius_sun": 1.0,
+     "dist_pc": 120.0,
+     "tmag": 8.2
+    }
+   },
+   "votes": {
+    "Planet-like": 3,
+    "Eclipsing binary (two stars)": 9
+   },
+   "github": {
+    "Eclipsing binary (two stars)": 2
+   },
+   "volunteer": "not a planet"
+  }
+ },
+ "radar": {
+  "t": 1794200000,
+  "digest": {
+   "t": 1794200000,
+   "text": "A big week for exoplanets."
+  },
+  "n_sources": 24,
+  "failed": [
+   "ESA"
+  ],
+  "items": [
+   {
+    "id": "a1",
+    "title": "Webb spots water on a warm world",
+    "url": "https://example.com/a1",
+    "sources": [
+     "NASA",
+     "Space.com"
+    ],
+    "date": 1794190000,
+    "score": 9,
+    "topic": "Exoplanets",
+    "summary": "Water vapor found.",
+    "why": "First for this size.",
+    "lab": false
+   },
+   {
+    "id": "a2",
+    "title": "Solar storm watch issued",
+    "url": "https://example.com/a2",
+    "sources": [
+     "NOAA"
+    ],
+    "date": 1794180000,
+    "score": 6,
+    "topic": "Sun & space weather",
+    "summary": "Auroras possible.",
+    "why": "",
+    "lab": false
+   },
+   {
+    "id": "a3",
+    "title": "New paper on TIC 111111",
+    "url": "https://example.com/a3",
+    "sources": [
+     "arXiv (new research)"
+    ],
+    "date": 1794170000,
+    "score": 5,
+    "topic": "Exoplanets",
+    "summary": "A follow-up.",
+    "why": "",
+    "lab": true
+   }
+  ]
+ },
+ "results": [
+  {
+   "id": 1,
+   "kind": "aavso",
+   "target": "WASP-12 b",
+   "title": "Transit of WASP-12 b observed 2026-10-30",
+   "dest": "AAVSO Exoplanet Database",
+   "link": "https://example.com/r1",
+   "status": "accepted",
+   "note": "",
+   "created": 1793500000,
+   "updated": 1793600000
+  }
+ ],
+ "site": {
+  "url": "https://example.github.io/Space-Lab/",
+  "name": "Space Lab"
  }
 }

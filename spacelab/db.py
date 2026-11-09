@@ -32,6 +32,9 @@ CREATE TABLE IF NOT EXISTS pc_targets (
 CREATE TABLE IF NOT EXISTS neocp (
   name TEXT PRIMARY KEY, first REAL, last REAL, gone REAL, data TEXT, alerted INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS arxiv_emb (id TEXT PRIMARY KEY, v BLOB);
+CREATE TABLE IF NOT EXISTS results (
+  id INTEGER PRIMARY KEY, key TEXT UNIQUE, kind TEXT, target TEXT, title TEXT, dest TEXT, link TEXT,
+  status TEXT, note TEXT, public INTEGER DEFAULT 1, created REAL, updated REAL);
 CREATE TABLE IF NOT EXISTS pc_cands (
   id INTEGER PRIMARY KEY, des TEXT, night TEXT, archive TEXT, obs TEXT, offset REAL, mdist REAL,
   score REAL, gif TEXT, png TEXT, ades TEXT, status TEXT DEFAULT 'new', created REAL);
@@ -125,6 +128,45 @@ def contributions(con):
     return {'tess_reviewed': one("SELECT COUNT(*) FROM tess_cands WHERE status IN ('real','fake','unsure')"),
             'tess_planet_like': one("SELECT COUNT(*) FROM tess_cands WHERE status='real'"),
             'asteroid_sightings_checked': one("SELECT COUNT(*) FROM pc_cands WHERE status IN ('real','fake','unsure')"),
-            'exowatch_reduced': one("SELECT COUNT(*) FROM exo WHERE status='done'"),
+            'exowatch_reduced': one("SELECT COUNT(*) FROM exo WHERE status IN ('done','uploaded')"),
             'uploads_done': one("SELECT COUNT(*) FROM tasks WHERE status='done' AND (key LIKE 'exo:upload:%' OR key LIKE 'pc:%' OR key LIKE '%submit%')"),
             'stars_searched': one("SELECT COUNT(*) FROM tess_targets WHERE status='done'")}
+
+
+# ------------------------------------------------------------------ results log (what was submitted where, and what came of it)
+RESULT_KINDS = {'aavso': 'Transit timing → AAVSO Exoplanet Database', 'ctoi': 'Planet candidate → ExoFOP (Community TOI)',
+                'mpc': 'Asteroid positions → Minor Planet Center', 'vsx': 'Variable star → AAVSO VSX', 'other': 'Other'}
+RESULT_STATUS = ('submitted', 'accepted', 'published', 'confirmed', 'not accepted', 'withdrawn')
+
+
+def save_result(con, r):
+    """Insert or update one results entry. r: kind, target, title, dest, link, status, note, public, and id or key."""
+    now = time.time()
+    kind = r.get('kind') if r.get('kind') in RESULT_KINDS else 'other'
+    status = r.get('status') if r.get('status') in RESULT_STATUS else 'submitted'
+    link = str(r.get('link') or '').strip()[:300]
+    if link and not link.startswith(('https://', 'http://')):
+        link = ''
+    vals = (kind, str(r.get('target') or '')[:80], str(r.get('title') or '')[:160], str(r.get('dest') or RESULT_KINDS[kind])[:120],
+            link, status, str(r.get('note') or '')[:600], 1 if r.get('public', True) else 0, now)
+    if r.get('id'):
+        con.execute('UPDATE results SET kind=?, target=?, title=?, dest=?, link=?, status=?, note=?, public=?, updated=? WHERE id=?', vals + (int(r['id']),))
+        return int(r['id'])
+    key = r.get('key') or f'manual:{now}'
+    old = con.execute('SELECT id FROM results WHERE key=?', (key,)).fetchone()
+    if old:
+        return old['id']
+    cur = con.execute('INSERT INTO results(key,kind,target,title,dest,link,status,note,public,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+                      (key,) + vals[:-1] + (now, now))
+    return cur.lastrowid
+
+
+def sync_results(con):
+    """Add entries for things Space Lab already knows were sent (Exoplanet Watch uploads)."""
+    for e in rows(con, "SELECT id, planet, obs_date, updated FROM exo WHERE status='uploaded'"):
+        try:
+            planet = (json.loads(e['planet']) or {}).get('pl_name') if e['planet'] and e['planet'].startswith('{') else e['planet']
+        except Exception:
+            planet = None
+        save_result(con, {'key': f'exo:{e["id"]}', 'kind': 'aavso', 'target': planet or 'exoplanet', 'status': 'submitted',
+                          'title': f'Transit of {planet or "an exoplanet"} observed {e["obs_date"] or ""}'.strip()})

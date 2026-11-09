@@ -528,7 +528,8 @@ def beyond_run_keeps_last_good_copy():
     db.kv_set(con, 'beyond', {'comets': [{'name': 'C/2026 A1 (Test)'}]})
     fail = lambda *a, **k: None
     saved = {n: getattr(beyond, n) for n in ('space_weather', 'fireballs', 'comets', 'gravitational_waves', 'supernovae',
-                                            'launches', 'habitable_worlds', 'sky_week', 'earth_images', 'community', 'backup_db', 'clean_and_measure')}
+                                            'launches', 'habitable_worlds', 'sky_week', 'earth_images', 'iss_track', 'earthquakes',
+                                            'community', 'backup_db', 'clean_and_measure')}
     try:
         for n in saved:
             setattr(beyond, n, fail)
@@ -580,6 +581,141 @@ def tracked_paper_mentions():
     assert arxiv_digest.tracked_mentions(con, papers) == [], 'the same paper must not be reported twice'
     con.execute('DELETE FROM tess_cands WHERE tic=55511122')
     con.execute("DELETE FROM tasks WHERE key LIKE 'arxiv:tracked:%'")
+
+
+# ---------------------------------------------------------------- radar, candidate of the day, results, website extras
+@test
+def radar_merge_and_fallback_scoring():
+    from spacelab import radar
+    items = [{'source': 'NASA', 'title': 'Webb finds water vapour on warm exoplanet K2-18 b', 'url': 'https://example.com/1', 'date': 2e9, 'summary': 'x'},
+             {'source': 'Space.com', 'title': 'Water vapour found on warm exoplanet K2-18 b by Webb', 'url': 'https://example.com/2', 'date': 2e9 - 10, 'summary': 'y'},
+             {'source': 'ESA', 'title': 'Solar flare sparks aurora alert', 'url': 'https://example.com/3', 'date': 2e9 - 20, 'summary': 'z'}]
+    m = radar.merge_duplicates(items)
+    assert len(m) == 2 and m[0]['sources'] == ['NASA', 'Space.com'], m
+    k = radar.keyword_score(m[0])
+    assert k['topic'] == 'Exoplanets' and k['score'] >= 5, k
+    assert radar.keyword_score(m[1])['topic'] == 'Sun & space weather'
+
+
+@test
+def radar_run_offline():
+    from spacelab import radar, net, db, llm
+    con = db.connect()
+    con.execute("INSERT INTO tess_cands (tic, kind, period, t0, depth, duration, flags, status, plot, snr, created) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (44455566, 'periodic', 2.5, 1600.0, 0.002, 0.08, '[]', 'new', 'plots/tess/44455566.png', 12.0, time.time()))
+    rss = ('<?xml version="1.0"?><rss><channel><item><title>Astronomers revisit TIC 44455566</title><link>https://example.com/tic</link>'
+           '<pubDate>{d}</pubDate><description>A new look &nbsp; at a star.</description></item>'
+           '<item><title>Rocket launch delayed</title><link>https://example.com/launch</link><pubDate>{d}</pubDate></item></channel></rss>')
+    from email.utils import formatdate
+    old_fetch, old_sources, old_models = net.fetch_text, radar.SOURCES, llm.LLM.models
+    try:
+        net.fetch_text = lambda url, **k: rss.format(d=formatdate())
+        radar.SOURCES = [('Example feed', 'https://example.com/feed')]
+        llm.LLM.models = lambda self: []                  # no Ollama in tests: keyword scoring
+        ctx = type('C', (), {'con': con, 'log': print, 'cfg': __import__('spacelab.config', fromlist=['x']).load(), 'time_left': lambda self: 1e9})()
+        msg = radar.run(ctx)
+        r = db.kv_get(con, 'radar')
+        assert len(r['items']) >= 2 and 'read 2 new items' in msg, (msg, r)
+        tic = next(x for x in r['items'] if 'TIC' in x['title'])
+        assert tic['lab'], 'an item about one of your own targets must be flagged'
+        assert radar.run(ctx).startswith('read 0 new'), 'items already read must not be read again'
+        d = db.kv_get(con, 'daily')
+        assert d and d.get('tic') == 44455566 and d.get('blurb'), d
+    finally:
+        net.fetch_text, radar.SOURCES, llm.LLM.models = old_fetch, old_sources, old_models
+        con.execute('DELETE FROM tess_cands WHERE tic=44455566')
+        con.execute("DELETE FROM tasks WHERE key LIKE 'radar:%'")
+
+
+@test
+def news_parse_tolerates_html_entities():
+    from spacelab import news
+    xml = '<?xml version="1.0"?><rss><channel><item><title>Moon &amp; Mars&nbsp;news &mdash; today</title><link>https://example.com/x</link></item></channel></rss>'
+    it = news.parse(xml, 'Example')
+    assert it[0]['title'] == 'Moon & Mars news — today', it
+
+
+@test
+def daily_pick_rollover_and_votes():
+    from spacelab import daily, db, net
+    con = db.connect()
+    for tic, snr in ((71000001, 20.0), (71000002, 18.0)):
+        con.execute("INSERT INTO tess_cands (tic, kind, period, t0, depth, duration, flags, status, plot, snr, created) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (tic, 'periodic', 3.0, 1600.0, 0.003, 0.1, '[]', 'new', f'plots/tess/{tic}.png', snr, time.time()))
+    db.kv_set(con, 'daily', {'date': '2000-01-01', 'tic': 71000001})
+    db.kv_set(con, 'community', {'tess': {'71000001': {'Planet-like': 2}}})
+    cfg = {'share': {'goatcounter': 'example-lab', 'goatcounter_token': 'secret-key-example'}}
+    old = net.fetch_json
+    try:
+        def fake(url, params=None, headers=None, **k):
+            assert headers['Authorization'] == 'Bearer secret-key-example'
+            if url.endswith('/stats/total'):
+                return {'total': 42, 'total_events': 7}
+            day = params['start']
+            return {'hits': [{'path': f'vote-{day}-planet-like', 'count': 5, 'event': True}, {'path': f'vote-{day}-noise', 'count': 1, 'event': True},
+                             {'path': '/tess', 'count': 30}]}
+        net.fetch_json = fake
+        d = daily.ensure(con, cfg, print, None)
+        assert d['date'] == daily.today() and d['prev']['tic'] == 71000001 and d['tic'] == 71000002, d
+        assert daily.ensure(con, cfg, print, None)['tic'] == d['tic'], 'the pick must stay the same all day'
+        pub = daily.public(con)
+        assert pub['votes'] == {'Planet-like': 5, 'Noise / instrument glitch': 1}, pub['votes']
+        assert pub['prev']['github'] == {'Planet-like': 2} and pub['prev']['volunteer'] == 'not reviewed yet', pub['prev']
+        assert db.kv_get(con, 'visitors')['visitors'] == 42
+    finally:
+        net.fetch_json = old
+        con.execute('DELETE FROM tess_cands WHERE tic IN (71000001, 71000002)')
+        for k in ('daily', 'daily_history', 'daily_votes', 'visitors', 'community'):
+            con.execute('DELETE FROM kv WHERE k=?', (k,))
+
+
+@test
+def results_log():
+    from spacelab import db
+    con = db.connect()
+    rid = db.save_result(con, {'key': 'ctoi:123', 'kind': 'ctoi', 'target': 'TIC 123', 'title': 'TIC 123 reported', 'link': 'javascript:alert(1)'})
+    assert db.save_result(con, {'key': 'ctoi:123', 'kind': 'ctoi', 'title': 'again'}) == rid, 'same key must not make a second entry'
+    r = db.one(con, 'SELECT * FROM results WHERE id=?', (rid,))
+    assert r['status'] == 'submitted' and r['link'] == '' and r['public'] == 1, r
+    db.save_result(con, {'id': rid, 'kind': 'ctoi', 'title': 'TIC 123 reported', 'status': 'confirmed', 'public': False})
+    assert db.one(con, 'SELECT status, public FROM results WHERE id=?', (rid,)) == {'status': 'confirmed', 'public': 0}
+    con.execute("INSERT INTO exo (name, planet, obs_date, status, created, updated) VALUES ('ds-test', 'WASP-12 b', '2026-10-30', 'uploaded', 1, 1)")
+    db.sync_results(con)
+    assert db.one(con, "SELECT kind FROM results WHERE key LIKE 'exo:%'")['kind'] == 'aavso'
+    con.execute("DELETE FROM results"); con.execute("DELETE FROM exo WHERE name='ds-test'")
+
+
+@test
+def website_extras_and_privacy():
+    from spacelab import site, publish
+    data = {'site': {'url': 'https://example.github.io/Space-Lab/'}, 'tess': {'cands': [{'tic': 123, 'period': 2.5, 'depth': 0.002, 'rp': 1.4,
+            'plot': 'files/plots/tess/123.png', 'created': 1.7e9, 'explain': 'x'}]},
+            'daily': {'date': '2026-11-09', 'cand': {'tic': 123, 'period': 2.5, 'rp': 1.4, 'plot': None}, 'blurb': 'b'},
+            'results': [], 'radar': {'items': [{'score': 8, 'title': 'Big <news>', 'url': 'https://example.com/n', 'date': 1.7e9, 'topic': 'Stars', 'summary': 's'}]}}
+    cfg = {'share': {'goatcounter': 'example-lab', 'goatcounter_token': 'secret-key-example'}}
+    tags = site.head_tags(data, cfg, publish.TITLE)
+    assert 'og:image' in tags and 'https://example.github.io/Space-Lab/og.png' in tags and 'example-lab.goatcounter.com/count' in tags
+    assert 'secret-key-example' not in tags
+    assert 'goatcounter' not in site.head_tags(data, {'share': {'goatcounter': 'bad code!'}}, 'x'), 'only valid codes'
+    page = site.share_page(data['tess']['cands'][0], data['site']['url'])
+    assert 'og:image" content="https://example.github.io/Space-Lab/files/plots/tess/123.png' in page and '#tic-123' in page
+    fd = site.feed(data)
+    assert 'Big &lt;news&gt;' in fd and 'c/123.html' in fd and fd.startswith('<?xml')
+    import xml.etree.ElementTree as ET
+    ET.fromstring(fd); ET.fromstring(site.sitemap(data))
+    assert 'your visitor-counter key' in publish.forbidden(dict(cfg))
+    d = Path(tempfile.mkdtemp())
+    (d / 'index.html').write_text('<html><head><title>t</title></head><body></body></html>')
+    site.build(d, data, cfg, d, publish.TITLE, log=print)
+    for name in ('feed.xml', 'sitemap.xml', 'robots.txt', 'manifest.webmanifest', 'c/123.html'):
+        assert (d / name).is_file(), name
+    assert 'og:title' in (d / 'index.html').read_text()
+    try:
+        import matplotlib  # noqa: F401
+        assert (d / 'icon-192.png').is_file() and (d / 'og.png').is_file()
+    except ImportError:
+        pass
+    assert publish.scan(d, cfg) == [], publish.scan(d, cfg)
 
 
 import urllib.error  # noqa: E402
