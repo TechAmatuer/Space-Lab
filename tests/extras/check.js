@@ -70,10 +70,11 @@ async function boot({ extras = true, storage = {}, data = FIXTURE, hash = '', se
   w.document.head.appendChild(style);
   const json = JSON.parse(JSON.stringify(data));
   if (json.beyond && json.beyond.iss) json.beyond.iss.t0 = Math.floor(Date.now() / 1000) - 60;   // the fixture's ISS path starts "now"
-  w.fetch = async () => ({ ok: true, json: async () => json });
+  const ZIPS = '12345 4000 -10500\n10001 4075 -7400\n';
+  w.fetch = async u => (/zip\.txt$/.test(String(u)) ? { ok: true, text: async () => ZIPS } : { ok: true, json: async () => json, text: async () => JSON.stringify(json) });
   w.eval(read('web/public.js'));
   if (extras) {
-    for (const f of ['web/beyond.js', 'web/extras.js', 'web/home.js']) {
+    for (const f of ['web/beyond.js', 'web/extras.js', 'web/home.js', 'web/stargazing.js']) {
       try { w.eval(read(f)); } catch (e) { rec.errors.push(f + ' crashed while loading: ' + e.message); }
     }
   }
@@ -123,15 +124,16 @@ const CHECKS = {
     // click every extras control in every tab: the page must survive
     for (const t of env.$$('nav.tabs button').map(b => b.dataset.tab).filter(Boolean)) {
       const view = await env.tab(t);
-      for (const el of [...view.querySelectorAll('button[class*="sl-"], a[class*="sl-"], [class*="sl-"] button, [class*="sl-"][role=button], .sl-fav, button[class*="bx-"], [class*="bx-"] button, button[class*="hm-"], [class*="hm-"] button')]) {
+      for (const el of [...view.querySelectorAll('button[class*="sl-"], a[class*="sl-"], [class*="sl-"] button, [class*="sl-"][role=button], .sl-fav, button[class*="bx-"], [class*="bx-"] button, button[class*="hm-"], [class*="hm-"] button, button[class*="sg-"], [class*="sg-"] button')]) {
         if (!el.isConnected) continue;
         el.click(); await sleep(5);
         if (env.visible().length !== 1 || /undefined/.test(env.w.location.hash)) { fails.push(`clicking "${norm(el.textContent).slice(0, 30)}" in tab ${t} broke the page`); break; }
       }
     }
     // Links out are fine (they open in a new tab when clicked); loading anything from another site is not.
-    const LINKS_OK = ['https://github.com/TechAmatuer/Space-Lab', 'https://techamatuer.github.io/Space-Lab/', 'https://sky.esa.int/esasky/', 'http://www.w3.org/2000/svg'];
-    for (const f of ['web/extras.js', 'web/beyond.js', 'web/home.js']) {
+    const LINKS_OK = ['https://github.com/TechAmatuer/Space-Lab', 'https://techamatuer.github.io/Space-Lab/', 'https://sky.esa.int/esasky/', 'http://www.w3.org/2000/svg',
+                      'https://www.openstreetmap.org/', 'https://www.lightpollutionmap.info/', 'https://calendar.google.com/calendar/'];
+    for (const f of ['web/extras.js', 'web/beyond.js', 'web/home.js', 'web/stargazing.js']) {
       const src = read(f);
       const urls = (src.match(/https?:\/\/[^\s'"`)]+/g) || []).filter(u => !LINKS_OK.some(ok => u.startsWith(ok)));
       if (urls.length) fails.push(f + ' may only link to the project, its page and ESASky; found: ' + urls.join(', '));
@@ -477,7 +479,7 @@ const CHECKS = {
     const groups = env.$$('nav.tabs .navgroup').map(g => g.textContent).join('|');
     if (groups !== 'Explore|Research|Join in') fails.push('tabs must be grouped Explore | Research | Join in (got ' + groups + ')');
     const order = env.$$('nav.tabs button').map(b => b.dataset.tab).join(' ');
-    if (order !== 'today sky brief beyond tess asteroids exowatch results play create mylist about') fails.push('tab order: ' + order);
+    if (order !== 'today sky stargazing brief beyond tess asteroids exowatch results play create mylist about') fails.push('tab order: ' + order);
     report(17, 'Home, candidate of the day and navigation', fails);
   },
 
@@ -505,10 +507,77 @@ const CHECKS = {
     if (!/https:\/\/example\.github\.io\/Space-Lab\/c\/111111\.html/.test(tess.querySelector('#tic-111111 .sl-sharebox textarea').value)) fails.push('share text must link to the candidate\'s own page c/<TIC>.html on the site address from data.site');
     report(18, 'Results, radar, deep links and share pages', fails);
   },
+  async 19() {
+    const fails = [], env = await boot();
+    const v = await env.tab('stargazing');
+    if (!v) { fails.push('no Stargazing tab'); return report(19, 'Stargazing tools', fails); }
+    const zip = v.querySelector('.sg-zip');
+    zip.value = '99999'; v.querySelector('.sg-setzip').click(); await sleep(20);
+    if (!/not found/.test(v.querySelector('.sg-placeout').textContent)) fails.push('an unknown ZIP code must say "not found"');
+    v.querySelector('.sg-zip').value = '12345'; v.querySelector('.sg-setzip').click(); await sleep(20);
+    const pl = JSON.parse(env.w.localStorage.getItem('sl_place') || 'null');
+    if (!pl || Math.abs(pl.lat - 40.0) > 0.01 || Math.abs(pl.lon + 105.0) > 0.01) fails.push('ZIP 12345 must set sl_place to 40.0, -105.0 (got ' + JSON.stringify(pl) + ')');
+    if (!/ZIP 12345/.test(v.querySelector('.sg-placeout').textContent)) fails.push('confirm the place that is being used');
+    if (env.rec.opened.length) fails.push('looking up a ZIP code must not open or send anything');
+    const ev = v.querySelector('.sg-ev');
+    if (ev.querySelectorAll('.sg-events li').length !== FIXTURE.beyond.events.length) fails.push('list every upcoming event');
+    const sub = ev.querySelector('a[href^="webcal:"]');
+    if (!sub || sub.getAttribute('href') !== 'webcal://example.github.io/Space-Lab/events.ics') fails.push('offer a calendar subscription to webcal://<site>/events.ics');
+    const met = [...ev.querySelectorAll('.sg-kind')].find(b => b.dataset.k === 'meteor'); met.click(); await sleep(2);
+    if (ev.querySelectorAll('.sg-events li').length !== 2) fails.push('the meteor filter must show only the 2 showers');
+    ev.querySelector('.sg-remind').click(); await sleep(2);
+    const dl = env.rec.downloads[env.rec.downloads.length - 1];
+    const ics = dl ? decodeURIComponent(dl.href.split(',')[1]) : '';
+    if (!/BEGIN:VCALENDAR/.test(ics) || !/DTSTART;VALUE=DATE:20991117/.test(ics) || !/BEGIN:VALARM/.test(ics)) fails.push('"Remind me" must download a calendar file with the date and an alarm');
+    const SG = env.w.SpaceLabStargazing, place = { lat: 40.0, lon: -105.0 };
+    let when = null;
+    for (let h = 0; h < 48 && !when; h++) { const t = new Date(Date.UTC(2026, 10, 9, h)); const [alt] = SG.altAz(200.12, -11.34, place.lat, place.lon, t); if (alt > 5 && alt < 25 && SG.sunAlt(place.lat, place.lon, t) < -6) when = t; }
+    if (!when) fails.push('test setup: no time found when Venus is low and the sky is dark');
+    if (when) {
+      const [, az] = SG.altAz(200.12, -11.34, place.lat, place.lon, when);
+      const dir = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(az / 45) % 8];
+      const r = SG.identify(place, when, dir, 'low', 'still', 'bright');
+      if (!r.length || !/Venus/.test(r[0].name)) fails.push(`a very bright, still light low in the ${dir} when Venus is there must be identified as Venus (got ${r.map(x => x.name).join(', ')})`);
+    }
+    const plane = SG.identify(place, new Date(), 'N', 'mid', 'steady', 'redgreen');
+    if (!/aircraft/i.test(plane[0].name)) fails.push('red and green lights must be identified as an aircraft');
+    const met2 = SG.identify(place, new Date(), 'N', 'mid', 'streak', 'steady');
+    if (!/meteor/i.test(met2[0].name)) fails.push('a fast streak must be identified as a meteor');
+    const ds = { bbox: [24, -125, 50, -66], w: 118, h: 52, cdf: FIXTURE.beyond.darksky.cdf, lo: -3, hi: 1 };
+    const grid = new Uint8Array(118 * 52).fill(200);
+    const at = (la, lo) => Math.round((50 - la) / 26 * 52) * 118 + Math.round((lo + 125) / 59 * 118);
+    grid[at(40.5, -106.3)] = 20;                 // a dark spot ~120 km west-north-west of the place
+    for (let i = 0; i < 118; i++) grid[51 * 118 + i] = 255;   // water along the bottom edge
+    const res = SG.darkSpots(ds, grid, place, 150);
+    if (!res || !res.found.length || Math.abs(res.found[0].la - 40.5) > 0.4 || Math.abs(res.found[0].lo + 106.3) > 0.4) fails.push('dark-sky finder must find the dark spot near 40.5N 106.3W (got ' + JSON.stringify(res && res.found.map(f => [f.la.toFixed(2), f.lo.toFixed(2)])) + ')');
+    if (SG.darkSpots(ds, grid, { lat: 61, lon: -150 }, 150) !== null) fails.push('places outside the map (e.g. Alaska) must return null');
+    const sky = await env.tab('sky');
+    sky.querySelector('.bx-issgo').click(); await sleep(20);
+    if (/cannot share|not shared/.test(sky.querySelector('.bx-issout').textContent)) fails.push('ISS passes must use the saved place instead of asking for location');
+    report(19, 'Stargazing: place, events and reminders, what\'s that, dark skies', fails);
+  },
+
+  async 20() {
+    const fails = [], env = await boot();
+    const p = await env.tab('play');
+    if (!/reviewed <b>0<\/b> of <b>3<\/b>/.test(p.querySelector('.sl-rev').innerHTML)) fails.push('show "You\'ve reviewed 0 of 3"');
+    for (let i = 0; i < 3; i++) { const a = p.querySelector('.sl-rev button.sl-answer'); if (!a) break; a.click(); await sleep(3); const n = p.querySelector('.sl-next'); if (n) { n.click(); await sleep(3); } }
+    if (!/seen them all/.test(p.querySelector('.sl-rev').textContent) || !p.querySelector('.sl-summary')) fails.push('after reviewing everything, celebrate and show what the candidates told us');
+    if (p.querySelectorAll('.sl-depthgame .sl-depth').length !== 4) fails.push('estimate-the-depth game needs 4 answers');
+    const t = await env.tab('tess');
+    if (!t.querySelector('#tic-111111 .sl-reviewed')) fails.push('TESS cards must say "you reviewed this"');
+    if (t.querySelectorAll('.hm-funnel rect').length !== 5) fails.push('TESS tab needs the big-picture funnel with 5 steps');
+    if (t.querySelectorAll('.hm-next tr').length !== 2) fails.push('TESS tab needs the next predicted dips of the 2 periodic candidates');
+    const m = await env.tab('mylist');
+    if (!/You're a <b>/.test(m.innerHTML)) fails.push('My lab must show the learning path level');
+    const ct = m.querySelector('.sl-contrib');
+    if (!ct || !/reviewed 3 TESS planet candidates/.test(ct.value)) fails.push('My lab must offer a shareable summary of what you did');
+    report(20, 'Progress, celebration, big picture, path and sharing', fails);
+  },
 };
 
 (async () => {
-  const order = ['G', '2', '3', '5', '6', '7', '8', '9', '11', '12', '13', '14', '15', '16', '17', '18'];
+  const order = ['G', '2', '3', '5', '6', '7', '8', '9', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20'];
   for (const k of order) {
     if (ONLY && k !== ONLY && k !== 'G') continue;
     try { await CHECKS[k](); } catch (e) { report(k, 'check crashed', ['the check itself crashed (usually because an expected element is missing): ' + e.message]); }

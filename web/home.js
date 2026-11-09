@@ -182,11 +182,64 @@
     render({});
   }
 
+  // ------------------------------------------------------------------ TESS tab: the big picture and what's next
+  function funnelSVG(f) {
+    const steps = [[f.stars, 'stars searched'], [f.signals, 'had repeating dips or a lone dip'], [f.signals - f.auto_rejected, 'passed the automatic checks'],
+                   [f.review + f.planet_like, 'still in the running'], [f.planet_like, 'marked planet-like by the volunteer']];
+    const max = Math.max(1, steps[0][0]);
+    return `<svg class="hm-funnel" viewBox="0 0 600 ${steps.length * 38}" role="img" aria-label="from stars searched to planet-like signals">${steps.map(([n, label], i) => {
+      const w = Math.max(6, Math.sqrt((n || 0) / max) * 380);
+      return `<rect x="${(380 - w) / 2}" y="${i * 38 + 4}" width="${w.toFixed(1)}" height="28" rx="5" class="hm-f${i}"/><text x="392" y="${i * 38 + 23}" class="hm-ft"><tspan font-weight="bold">${Number(n || 0).toLocaleString()}</tspan> ${esc(label)}</text>`;
+    }).join('')}</svg>`;
+  }
+  function bigPicture() {
+    const f = (D().tess || {}).funnel;
+    if (!f || !f.stars) return '';
+    return `<div class="card hm-big"><h3>🔭 The big picture</h3><p class="small">Why so few planets? Most dips in a star's light are something else. This is what has happened to every signal this computer found:</p>${funnelSVG(f)}
+      <details class="small"><summary><b>Not every dip is a planet</b>: what else makes a star dim?</summary><ul class="hm-list">
+        <li><b>Two stars eclipsing each other</b>: V-shaped dips, and odd and even dips of different depths. By far the most common impostor.</li>
+        <li><b>A different star nearby</b>: TESS pixels are big (21 arc-seconds), so a faint eclipsing pair next door can fake a dip. The centroid test checks this.</li>
+        <li><b>Starspots and pulsations</b>: the star itself changes brightness in waves, not sharp dips.</li>
+        <li><b>The spacecraft</b>: thruster firings, scattered sunlight and gaps in the data can all leave dips.</li>
+        <li><b>A real planet</b>: flat-bottomed, the same depth every time, and it comes from the target star. Even then, astronomers confirm it with other telescopes before calling it a planet.</li></ul></details></div>`;
+  }
+  function nextTransits() {
+    const now = Date.now(), btjdNow = now / 864e5 + 2440587.5 - 2457000;
+    const up = ((D().tess || {}).cands || []).filter(c => c.kind === 'periodic' && c.period && c.t0).map(c => {
+      const n = Math.ceil((btjdNow - c.t0) / c.period);
+      return { c, ms: (c.t0 + n * c.period + 2457000 - 2440587.5) * 864e5, epochs: n };
+    }).sort((a, b) => a.ms - b.ms).slice(0, 5);
+    if (!up.length) return '';
+    return `<div class="card hm-next"><h3>⏳ Next predicted dips</h3><p class="small">If these signals are real, each star dims again at these times. Predictions get less certain the longer it has been since TESS watched (could be off by hours).</p>
+      <table class="compact">${up.map(x => `<tr><td><a href="#tic-${x.c.tic}" data-tic-go="${x.c.tic}">TIC ${x.c.tic}</a></td><td>${new Date(x.ms).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}</td>
+        <td class="mono hm-count" data-ms="${Math.round(x.ms)}"></td><td class="small muted">${Math.round(x.c.depth * 1e6)} ppm${x.c.depth >= 0.005 ? ' · deep enough for a good amateur telescope' : ''}</td></tr>`).join('')}</table></div>`;
+  }
+  function tickCounts(el) {
+    const tick = () => {
+      if (!el.isConnected) return clearInterval(t);
+      el.querySelectorAll('.hm-count').forEach(c => { const s = (+c.dataset.ms - Date.now()) / 1000; c.textContent = s <= 0 ? 'now' : `in ${Math.floor(s / 3600)}h ${Math.floor(s % 3600 / 60)}m`; });
+    };
+    const t = setInterval(tick, 30000); tick();
+  }
+  function tessTop(el) {
+    if (el.querySelector('.hm-big, .hm-next')) return;
+    const box = document.createElement('div'); box.className = 'hm-tesstop';
+    box.innerHTML = `<div class="grid g2">${bigPicture()}${nextTransits()}</div>`;
+    const anchor = el.querySelector('.card');
+    if (anchor) anchor.after(box); else el.prepend(box);
+    tickCounts(box);
+    box.querySelectorAll('[data-tic-go]').forEach(a => a.addEventListener('click', ev => {
+      const card = el.querySelector(`.card[data-tic="${a.dataset.ticGo}"]`);
+      if (card) { ev.preventDefault(); if (card.scrollIntoView) card.scrollIntoView({ block: 'start' }); card.classList.add('flash'); }
+    }));
+  }
+
   // ------------------------------------------------------------------ wiring
   S.addTab('results', 'Results', resultsTab);
   S.onRender((tab, el) => {
     if (!el) return;
     if (tab === 'today') home(el);
+    if (tab === 'tess') tessTop(el);
     if (tab === 'brief' && !el.querySelector('.hm-radar-card')) {
       const card = document.createElement('div'); card.className = 'card hm-radar-card'; card.innerHTML = radarCard(true);
       const anchor = el.querySelector('#arxivTop') || el.querySelector('.card');

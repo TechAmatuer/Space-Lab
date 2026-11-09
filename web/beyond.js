@@ -50,7 +50,7 @@
     return [x * Math.cos(th) + y * Math.sin(th), -x * Math.sin(th) + y * Math.cos(th), z];
   }
   const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-  function issPasses(iss, lat, lon, minEl = 10) {
+  function issPasses(iss, lat, lon, minEl = 10, includePast = false) {
     const a = 6378.137, e2 = 0.00669438, la = lat * D2R, lo = lon * D2R, N = a / Math.sqrt(1 - e2 * Math.sin(la) ** 2);
     const o = [N * Math.cos(la) * Math.cos(lo), N * Math.cos(la) * Math.sin(lo), N * (1 - e2) * Math.sin(la)];
     const up = [Math.cos(la) * Math.cos(lo), Math.cos(la) * Math.sin(lo), Math.sin(la)], east = [-Math.sin(lo), Math.cos(lo), 0];
@@ -63,7 +63,7 @@
         const d = [p[0] - o[0], p[1] - o[1], p[2] - o[2]], rng = Math.hypot(...d);
         const el = Math.asin(dot(d, up) / rng) / D2R, az = (Math.atan2(dot(d, east), dot(d, north)) / D2R + 360) % 360;
         if (el >= minEl) {
-          if (ms < Date.now() - 60000) continue;
+          if (!includePast && ms < Date.now() - 60000) continue;
           const sun = sunECEF(ms), s = dot(p, sun), lit = s > 0 || Math.hypot(p[0] - s * sun[0], p[1] - s * sun[1], p[2] - s * sun[2]) > 6371;
           const dark = Math.asin(dot(sun, up)) / D2R < -6;
           if (!cur) cur = { start: ms, az0: az, max: el, tmax: ms, visible: false };
@@ -94,16 +94,20 @@
     const b = el.querySelector('.bx-issgo'); if (!b) return;
     b.addEventListener('click', () => {
       const out = el.querySelector('.bx-issout');
-      if (!navigator.geolocation) { out.textContent = 'This browser cannot share a location.'; return; }
-      out.textContent = 'Asking your browser for your location…';
-      navigator.geolocation.getCurrentPosition(pos => {
-        const ps = issPasses(B().iss, pos.coords.latitude, pos.coords.longitude), vis = ps.filter(p => p.visible);
+      let saved = null; try { saved = JSON.parse(localStorage.getItem('sl_place')); } catch (_) { /* none */ }
+      const show = (lat, lon) => {
+        const ps = issPasses(B().iss, lat, lon), vis = ps.filter(p => p.visible);
         const row = p => `<tr><td>${dt(p.start, { weekday: 'short', hour: '2-digit', minute: '2-digit' })}</td><td class="mono">${Math.round((p.end - p.start) / 60000) || 1} min</td><td class="mono">${Math.round(p.max)}°</td><td>${compass(p.az0)} → ${compass(p.az1)}</td><td>${p.visible ? '<span class="chip ok">visible</span>' : '<span class="small muted">daylight or Earth\'s shadow</span>'}</td></tr>`;
         out.innerHTML = ps.length ? `<p>${vis.length ? `<b>${vis.length}</b> visible pass${vis.length > 1 ? 'es' : ''} in the next day and a half.` : 'No visible passes in the next day and a half (the ISS passes over in daylight or in Earth\'s shadow). Check back in a few days.'}</p>
           <table class="compact"><tr><th>starts</th><th>lasts</th><th>highest</th><th>direction</th><th></th></tr>${ps.map(row).join('')}</table>
           <p class="small muted">"Highest" is degrees above the horizon (90° = straight up). Higher passes are brighter. Look toward where it starts.</p>`
           : '<p>No passes above 10° in the next day and a half.</p>';
-      }, () => { out.textContent = 'Location not shared, so passes cannot be worked out. Nothing was stored.'; }, { timeout: 15000, maximumAge: 600000 });
+      };
+      if (saved && isFinite(saved.lat)) return show(saved.lat, saved.lon);
+      if (!navigator.geolocation) { out.textContent = 'This browser cannot share a location. Set a ZIP code in the Stargazing tab instead.'; return; }
+      out.textContent = 'Asking your browser for your location…';
+      navigator.geolocation.getCurrentPosition(pos => show(pos.coords.latitude, pos.coords.longitude),
+        () => { out.textContent = 'Location not shared, so passes cannot be worked out. Nothing was stored. You can set a ZIP code in the Stargazing tab instead.'; }, { timeout: 15000, maximumAge: 600000 });
     });
   }
 

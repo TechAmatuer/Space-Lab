@@ -31,6 +31,7 @@ def head_tags(data, cfg, title):
             '<link rel="icon" type="image/png" href="icon-192.png">',
             '<link rel="apple-touch-icon" href="icon-192.png">',
             f'<link rel="alternate" type="application/atom+xml" title="Space Lab updates" href="{e(url)}feed.xml">',
+            f'<link rel="alternate" type="text/calendar" title="Space Lab sky events" href="{e(url)}events.ics">',
             '<meta property="og:type" content="website">', f'<meta property="og:title" content="{e(title)}">',
             f'<meta property="og:description" content="{e(describe(data))}">', '<meta property="og:site_name" content="Space Lab">',
             '<meta name="twitter:card" content="summary_large_image">']
@@ -91,6 +92,48 @@ def feed(data):
     return (f'<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom"><title>Space Lab</title>'
             f'<link href="{e(url)}"/><link rel="self" href="{e(url)}feed.xml"/><id>{e(url) or "urn:spacelab"}</id><updated>{_iso(None)}</updated>'
             f'<author><name>Space Lab</name></author>{body}</feed>')
+
+
+def _ics_text(s):
+    return str(s or '').replace('\\', '\\\\').replace(';', '\\;').replace(',', '\\,').replace('\n', '\\n')
+
+
+def _fold(line):
+    out, b = [], line.encode('utf-8')
+    while len(b) > 73:
+        cut = 73
+        while (b[cut] & 0xC0) == 0x80:      # never split a multi-byte character
+            cut -= 1
+        out.append(b[:cut].decode('utf-8')); b = b[cut:]
+    out.append(b.decode('utf-8'))
+    return '\r\n '.join(out)
+
+
+def ics(events, url=''):
+    """Calendar of upcoming sky events. Subscribe once and new events appear by themselves."""
+    from datetime import timedelta
+    stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+    lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Space Lab//Sky events//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
+             'X-WR-CALNAME:Space Lab sky events', 'X-WR-CALDESC:Meteor showers\\, eclipses\\, Moon phases\\, launches and comets',
+             'REFRESH-INTERVAL;VALUE=DURATION:PT12H', 'X-PUBLISHED-TTL:PT12H']
+    for ev in events or []:
+        uid = re.sub(r'[^A-Za-z0-9]+', '-', f"{ev.get('kind')}-{ev.get('date') or ev.get('t')}-{ev.get('title')}")[:120] + '@spacelab'
+        lines += ['BEGIN:VEVENT', f'UID:{uid}', f'DTSTAMP:{stamp}']
+        if ev.get('t'):
+            try:
+                t = datetime.fromisoformat(ev['t'].replace('Z', '+00:00')).astimezone(timezone.utc)
+            except ValueError:
+                continue
+            lines += [f"DTSTART:{t.strftime('%Y%m%dT%H%M%SZ')}", f"DTEND:{(t + timedelta(hours=1)).strftime('%Y%m%dT%H%M%SZ')}"]
+            trigger = '-PT2H'
+        else:
+            d = datetime.fromisoformat(ev['date'])
+            lines += [f"DTSTART;VALUE=DATE:{d.strftime('%Y%m%d')}", f"DTEND;VALUE=DATE:{(d + timedelta(days=1)).strftime('%Y%m%d')}"]
+            trigger = '-PT6H'                    # 6 pm the evening before
+        lines += [f"SUMMARY:{_ics_text(ev.get('title'))}", f"DESCRIPTION:{_ics_text((ev.get('detail') or '') + (' ' + url if url else ''))}",
+                  'BEGIN:VALARM', 'ACTION:DISPLAY', f"DESCRIPTION:{_ics_text(ev.get('title'))}", f'TRIGGER:{trigger}', 'END:VALARM', 'END:VEVENT']
+    lines.append('END:VCALENDAR')
+    return '\r\n'.join(_fold(x) for x in lines) + '\r\n'
 
 
 def sitemap(data):
@@ -169,6 +212,7 @@ def build(site, data, cfg, files_root, title, log=print):
     for c in (data.get('tess') or {}).get('cands', []):
         (site / 'c' / f"{int(c['tic'])}.html").write_text(share_page(c, url))
     (site / 'feed.xml').write_text(feed(data))
+    (site / 'events.ics').write_text(ics((data.get('beyond') or {}).get('events'), url), newline='')
     (site / 'sitemap.xml').write_text(sitemap(data))
     (site / 'robots.txt').write_text('User-agent: *\nAllow: /\n' + (f'Sitemap: {url}sitemap.xml\n' if url else ''))
     (site / 'manifest.webmanifest').write_text(manifest())

@@ -10,6 +10,9 @@
 * The ISS: its path for the next 36 hours (from CelesTrak's orbit data and the sgp4 package), so each visitor's own
   browser can work out passes over them. No location is used here.
 * Earth science: magnitude 4.5+ earthquakes this week (USGS).
+* Stargazing helpers: upcoming events (meteor showers, eclipses, Moon phases, launches, comets), satellite counts
+  (CelesTrak), a dark-sky map of the lower 48 from NASA's night-lights picture, and ZIP code centres (Census Bureau)
+  so visitors can find dark skies near them. Their location never leaves their browser.
 * This week's sky for everyone (no location): Moon phase, which planets are in the evening/morning sky, meteor showers.
 * Community: reviews people post on GitHub (leaderboard and per-candidate consensus).
 * Housekeeping: nightly database backup (7 kept), cache clean-up, disk use.
@@ -37,6 +40,17 @@ GH_ISSUES = 'https://api.github.com/repos/{repo}/issues'
 GIBS = 'https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi'
 CELESTRAK = 'https://celestrak.org/NORAD/elements/gp.php'
 USGS = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_week.geojson'
+CENSUS_ZCTA = 'https://www2.census.gov/geo/docs/maps-data/data/gazetteer/{y}_Gazetteer/{y}_Gaz_zcta_national.zip'
+CONUS = (24.0, -125.0, 50.0, -66.0)          # lat0, lon0, lat1, lon1 of the dark-sky map (the lower 48 states)
+
+# Eclipses worth travelling for in the next few years (dates UTC). Source: NASA eclipse predictions.
+ECLIPSES = [('2027-02-06', 'Annular solar eclipse ("ring of fire")', 'Chile, Argentina and western Africa; partial over most of South America'),
+            ('2027-08-02', 'Total solar eclipse (over 6 minutes, the longest until 2114)', 'Spain, Morocco, Algeria, Tunisia, Libya, Egypt, Saudi Arabia, Yemen'),
+            ('2028-01-26', 'Annular solar eclipse ("ring of fire")', 'Ecuador, Peru and Brazil, ending at sunset in Portugal and Spain'),
+            ('2028-07-22', 'Total solar eclipse', 'Australia (including Sydney) and New Zealand'),
+            ('2028-12-31', 'Total lunar eclipse (the Moon turns red)', 'Europe, Africa, Asia and Australia'),
+            ('2044-08-23', 'Total solar eclipse in the USA', 'Montana and North Dakota (and Canada)'),
+            ('2045-08-12', 'Total solar eclipse across the USA', 'coast to coast, from California to Florida')]
 EPIC = 'https://epic.gsfc.nasa.gov'
 
 # Major annual meteor showers: (name, peak month, peak day, typical peak rate per hour under dark skies, parent body)
@@ -346,12 +360,14 @@ def sky_week(log):
         phase = ('New Moon' if illum < 0.03 else 'Full Moon' if illum > 0.97 else
                  ('Waxing ' if waxing else 'Waning ') + ('crescent' if illum < 0.45 else 'gibbous' if illum > 0.55 else 'half (quarter)'))
         planets = []
+        TYPICAL_MAG = {'mercury': 0.0, 'venus': -4.2, 'mars': 0.5, 'jupiter': -2.4, 'saturn': 0.7}
         for name in ('mercury', 'venus', 'mars', 'jupiter', 'saturn'):
             p = get_body(name, t)
             e = sun.separation(p).deg
             east = ((lam(p) - lam(sun)) % 360) < 180
             need = 18 if name == 'mercury' else 15
-            planets.append({'name': name.title(), 'elongation': round(e, 1),
+            planets.append({'name': name.title(), 'elongation': round(e, 1), 'ra': round(float(p.ra.deg), 2),   # geocentric
+                            'dec': round(float(p.dec.deg), 2), 'mag': TYPICAL_MAG[name],
                             'where': ('evening sky (after sunset, west)' if east else 'morning sky (before sunrise, east)') if e >= need else 'too close to the Sun'})
         today = datetime.now(timezone.utc).date()
         showers = []
@@ -362,10 +378,179 @@ def sky_week(log):
                 if -3 <= dd <= 30:
                     showers.append({'name': name, 'peak': peak.isoformat(), 'days': dd, 'zhr': zhr, 'parent': parent})
         return {'moon': {'illumination': round(illum, 2), 'phase': phase}, 'planets': planets,
-                'showers': sorted(showers, key=lambda s: s['days'])}
+                'showers': sorted(showers, key=lambda s: s['days']), 'moon_phases': moon_phases(t)}
     except Exception as e:
         log(f'  sky this week skipped: {e}')
         return None
+
+
+def moon_phases(t0, days=60):
+    """New, first-quarter, full and last-quarter Moon times for the next two months (UTC, to a few minutes)."""
+    import numpy as np
+    from astropy.coordinates import get_body, get_sun, GeocentricTrueEcliptic
+    from astropy.time import Time
+    import astropy.units as u
+    ts = t0 + np.arange(0, days * 24 + 1, 2) * u.hour
+    frame = GeocentricTrueEcliptic(equinox=ts)
+    d = (get_body('moon', ts).transform_to(frame).lon.deg - get_sun(ts).transform_to(frame).lon.deg) % 360
+    names = {0: 'New Moon', 90: 'First quarter Moon', 180: 'Full Moon', 270: 'Last quarter Moon'}
+    out = []
+    for i in range(len(d) - 1):
+        a, b = d[i], d[i + 1]
+        for target, name in names.items():
+            # unwrap so the step a->b crosses `target` without the 360->0 jump
+            aa, bb = (a - target + 180) % 360 - 180, (b - target + 180) % 360 - 180
+            if aa < 0 <= bb and bb - aa < 90:
+                f = -aa / (bb - aa)
+                when = Time(ts[i].jd + f * (ts[i + 1].jd - ts[i].jd), format='jd')
+                out.append({'t': when.isot[:16] + 'Z', 'name': name})
+    return out
+
+
+# ------------------------------------------------------------------ satellites (how crowded orbit is; Starlink trains)
+def satellites(log, prev=None, max_age_h=24):
+    if prev and time.time() - (prev.get('t') or 0) < max_age_h * 3600:
+        return prev
+    try:
+        js = net.fetch_json(CELESTRAK, params={'GROUP': 'active', 'FORMAT': 'json'}, timeout=120)
+        names = [str(o.get('OBJECT_NAME') or '') for o in js]
+        return {'active': len(names), 'starlink': sum(n.startswith('STARLINK') for n in names),
+                'oneweb': sum(n.startswith('ONEWEB') for n in names), 't': time.time()}
+    except Exception as e:
+        log(f'  satellite count skipped: {e}')
+        return None
+
+
+# ------------------------------------------------------------------ dark-sky map (lower 48) and ZIP code centres
+def _gibs(layer, bbox, w, h, fmt='image/jpeg', dated=False):
+    params = {'SERVICE': 'WMS', 'REQUEST': 'GetMap', 'VERSION': '1.3.0', 'LAYERS': layer, 'STYLES': '', 'FORMAT': fmt,
+              'CRS': 'EPSG:4326', 'BBOX': ','.join(str(x) for x in bbox), 'WIDTH': w, 'HEIGHT': h}
+    b = net.fetch(GIBS, params=params, timeout=180, retries=2)
+    if not (b[:3] == b'\xff\xd8\xff' or b[:4] == b'\x89PNG') or len(b) < 20000:
+        raise RuntimeError(f'{layer}: not an image')
+    return b
+
+
+def sky_glow(lights, km_x, km_y, reach_km=200):
+    """Rough sky brightness: every lit pixel brightens the sky around it, fading with distance (about d^-2.5).
+    lights: 2-D array of night-light brightness (0-1). Returns an array of the same shape."""
+    import numpy as np
+    rx, ry = int(reach_km / km_x), int(reach_km / km_y)
+    yy, xx = np.mgrid[-ry:ry + 1, -rx:rx + 1]
+    d = np.hypot(xx * km_x, yy * km_y)
+    k = np.where(d <= reach_km, 1.0 / (d + 3.0) ** 2.5, 0.0)
+    H, W = lights.shape
+    fh, fw = H + 2 * ry + 1, W + 2 * rx + 1
+    F = np.fft.rfft2(lights, (fh, fw)) * np.fft.rfft2(k, (fh, fw))
+    return np.fft.irfft2(F, (fh, fw))[ry:ry + H, rx:rx + W]
+
+
+def dark_sky_map(log, prev=None, max_age_days=30):
+    """Estimated night-sky brightness for the lower 48 from NASA's Black Marble night-lights picture (refreshed monthly).
+    Saved as a small greyscale PNG (0 = darkest, 254 = brightest, 255 = water) for the Stargazing tab's dark-sky finder."""
+    import io
+    import numpy as np
+    from PIL import Image
+    rel = 'plots/beyond/darksky.png'
+    if prev and time.time() - (prev.get('made') or 0) < max_age_days * 86400 and (config.DATA / rel).is_file():
+        return prev
+    try:
+        lat0, lon0, lat1, lon1 = CONUS
+        W, H = 2360, 1040                                    # 0.025 degrees per pixel
+        night = np.asarray(Image.open(io.BytesIO(_gibs('VIIRS_Black_Marble', CONUS, W, H))).convert('L'), dtype=float) / 255
+        lights = np.clip(night - 0.12, 0, None) ** 2.2       # ignore the faint land texture, stretch bright cities
+        km_y = 0.025 * 111.32
+        km_x = km_y * np.cos(np.radians((lat0 + lat1) / 2))
+        glow = sky_glow(lights, km_x, km_y)
+        idx = np.log10(glow + 1e-6)
+        water = None
+        for layer in ('BlueMarble_NextGeneration', 'BlueMarble_ShadedRelief_Bathymetry'):
+            try:
+                day = np.asarray(Image.open(io.BytesIO(_gibs(layer, CONUS, W, H))).convert('RGB'), dtype=int)
+                r, g, b = day[..., 0], day[..., 1], day[..., 2]
+                water = (b > r + 12) & (b >= g) & (r + g + b < 360)
+                break
+            except Exception as e:
+                log(f'  land/water layer {layer} skipped: {e}')
+        lo, hi = np.percentile(idx, 1), np.percentile(idx, 99.9)
+        v = np.clip((idx - lo) / (hi - lo) * 254, 0, 254)
+        if water is not None:
+            v[water] = 255
+        img = Image.fromarray(v.astype(np.uint8)).resize((W // 2, H // 2), Image.NEAREST)   # 0.05 degrees per pixel
+        arr = np.asarray(img)
+        land = arr[arr < 255]
+        hist = np.bincount(land.ravel(), minlength=255)[:255]
+        cdf = (np.cumsum(hist) / max(1, land.size)).round(4).tolist()
+        (config.DATA / 'plots' / 'beyond').mkdir(parents=True, exist_ok=True)
+        img.save(config.DATA / rel, optimize=True)
+        log(f'  dark-sky map made ({img.size[0]}x{img.size[1]}, land/water mask: {"yes" if water is not None else "no"})')
+        return {'path': rel, 'bbox': [lat0, lon0, lat1, lon1], 'w': img.size[0], 'h': img.size[1], 'cdf': cdf,
+                'lo': round(float(lo), 3), 'hi': round(float(hi), 3), 'water': water is not None, 'made': time.time()}
+    except Exception as e:
+        log(f'  dark-sky map skipped: {e}')
+        return None
+
+
+def zip_index(log, prev=None, max_age_days=180):
+    """Centre point of every US ZIP code (Census Bureau ZCTA gazetteer), as 'ZIP lat*100 lon*100' lines.
+    The Stargazing tab loads it only when a visitor types a ZIP code, and looks it up inside their browser."""
+    import io
+    import zipfile
+    rel = 'plots/beyond/zip.txt'
+    if prev and time.time() - (prev.get('made') or 0) < max_age_days * 86400 and (config.DATA / rel).is_file():
+        return prev
+    year = datetime.now().year
+    for y in range(year, year - 5, -1):
+        try:
+            raw = net.fetch(CENSUS_ZCTA.format(y=y), timeout=180, retries=1)
+            z = zipfile.ZipFile(io.BytesIO(raw))
+            text = z.read(z.namelist()[0]).decode('utf-8', 'replace').splitlines()
+            head = [h.strip().upper() for h in text[0].split('\t')]
+            gi, la, lo = head.index('GEOID'), head.index('INTPTLAT'), head.index('INTPTLONG')
+            lines = []
+            for row in text[1:]:
+                c = row.split('\t')
+                if len(c) > max(gi, la, lo):
+                    lines.append(f'{c[gi].strip()} {round(float(c[la]) * 100)} {round(float(c[lo]) * 100)}')
+            (config.DATA / 'plots' / 'beyond').mkdir(parents=True, exist_ok=True)
+            (config.DATA / rel).write_text('\n'.join(lines) + '\n')
+            log(f'  ZIP code centres saved ({len(lines)} ZIP codes, Census {y})')
+            return {'path': rel, 'year': y, 'n': len(lines), 'made': time.time()}
+        except Exception as e:
+            log(f'  Census ZIP file {y} skipped: {e}')
+    return None
+
+
+# ------------------------------------------------------------------ upcoming events (also published as a calendar)
+def build_events(out, now=None):
+    now = now or datetime.now(timezone.utc)
+    ev = []
+    for name, m, d, zhr, parent in SHOWERS:
+        for y in (now.year, now.year + 1):
+            peak = datetime(y, m, d, tzinfo=timezone.utc)
+            if now - timedelta(days=1) <= peak <= now + timedelta(days=365):
+                ev.append({'date': peak.date().isoformat(), 'kind': 'meteor', 'title': f'{name} meteor shower peak',
+                           'detail': f'Up to about {zhr} meteors an hour under dark skies, best after midnight. Debris from {parent}. '
+                                     'Watch the nights around the peak too.'})
+    for p in ((out.get('sky') or {}).get('moon_phases') or []):
+        if p['name'] in ('New Moon', 'Full Moon'):
+            ev.append({'t': p['t'], 'kind': 'moon', 'title': p['name'],
+                       'detail': 'Darkest skies of the month: best for faint stars, galaxies and meteors.' if p['name'] == 'New Moon'
+                       else 'The Moon is up all night: great for looking at the Moon, poor for faint objects.'})
+    for date, title, where in ECLIPSES:
+        if date >= now.date().isoformat():
+            ev.append({'date': date, 'kind': 'eclipse', 'title': title, 'detail': f'Visible from: {where}.'})
+    for L in ((out.get('launches') or {}).get('upcoming') or [])[:8]:
+        if L.get('net'):
+            ev.append({'t': L['net'], 'kind': 'launch', 'title': f"Launch: {L['name']}",
+                       'detail': f"{L.get('provider') or ''}{', to ' + L['orbit'] if L.get('orbit') else ''}. Launch times often slip."})
+    for c in (out.get('comets') or []):
+        dtp = c.get('days_to_perihelion')
+        if dtp is not None and 0 <= dtp <= 120 and (c.get('m1') or 99) < 11:
+            ev.append({'date': (now + timedelta(days=dtp)).date().isoformat(), 'kind': 'comet', 'title': f"Comet {c['name']} closest to the Sun",
+                       'detail': f"Comets are often brightest around this time. It passes {c.get('q_au')} AU from the Sun."})
+    key = lambda e: e.get('t') or e.get('date')
+    return sorted(ev, key=key)[:80]
 
 
 # ------------------------------------------------------------------ community reviews (GitHub issues)
@@ -463,7 +648,8 @@ def run(ctx):
              'supernovae': lambda: supernovae(log), 'launches': lambda: launches(log),
              'habitable': lambda: habitable_worlds(log), 'sky': lambda: sky_week(log),
              'earth': lambda: earth_images(log, prev.get('earth')), 'iss': lambda: iss_track(log, prev.get('iss')),
-             'quakes': lambda: earthquakes(log)}
+             'quakes': lambda: earthquakes(log), 'satellites': lambda: satellites(log, prev.get('satellites')),
+             'darksky': lambda: dark_sky_map(log, prev.get('darksky')), 'zip': lambda: zip_index(log, prev.get('zip'))}
     out, ok = {}, []
     for k, fn in parts.items():
         v = fn()
@@ -472,6 +658,7 @@ def run(ctx):
             ok.append(k)
         elif prev.get(k):
             out[k] = prev[k]          # keep the last good copy when a source is down
+    out['events'] = build_events(out)
     out['t'] = time.time()
     db.kv_set(con, 'beyond', out)
     comm = community(log, (cfg.get('share') or {}).get('github_repo'))

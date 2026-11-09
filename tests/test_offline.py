@@ -529,7 +529,7 @@ def beyond_run_keeps_last_good_copy():
     fail = lambda *a, **k: None
     saved = {n: getattr(beyond, n) for n in ('space_weather', 'fireballs', 'comets', 'gravitational_waves', 'supernovae',
                                             'launches', 'habitable_worlds', 'sky_week', 'earth_images', 'iss_track', 'earthquakes',
-                                            'community', 'backup_db', 'clean_and_measure')}
+                                            'satellites', 'dark_sky_map', 'zip_index', 'community', 'backup_db', 'clean_and_measure')}
     try:
         for n in saved:
             setattr(beyond, n, fail)
@@ -718,6 +718,82 @@ def website_extras_and_privacy():
     except ImportError:
         pass
     assert publish.scan(d, cfg) == [], publish.scan(d, cfg)
+
+
+# ---------------------------------------------------------------- stargazing data: events, dark-sky map, ZIP codes, satellites
+@test
+def events_and_calendar():
+    from datetime import datetime, timezone
+    from spacelab import beyond, site
+    now = datetime(2026, 11, 9, tzinfo=timezone.utc)
+    out = {'sky': {'moon_phases': [{'t': '2026-11-24T14:53Z', 'name': 'Full Moon'}, {'t': '2026-11-17T11:47Z', 'name': 'First quarter Moon'}]},
+           'launches': {'upcoming': [{'name': 'Falcon 9 | Example', 'net': '2026-11-20T10:00:00Z', 'provider': 'SpaceX'}]},
+           'comets': [{'name': 'C/2026 X1', 'days_to_perihelion': 30, 'm1': 9, 'q_au': 0.5}, {'name': 'faint', 'days_to_perihelion': 10, 'm1': 16}]}
+    ev = beyond.build_events(out, now)
+    kinds = [e['kind'] for e in ev]
+    assert ev[0]['title'] == 'Leonids meteor shower peak' and kinds.count('moon') == 1 and 'launch' in kinds, ev[:4]
+    assert sum(1 for e in ev if e['kind'] == 'comet') == 1, 'faint comets are left out'
+    assert any(e['kind'] == 'eclipse' and e['date'] == '2027-08-02' for e in ev)
+    assert all((e.get('t') or e.get('date')) >= '2026-11-08' for e in ev)
+    cal = site.ics(ev, 'https://example.github.io/Space-Lab/')
+    assert cal.startswith('BEGIN:VCALENDAR\r\n') and cal.count('BEGIN:VEVENT') == len(ev) and 'DTSTART;VALUE=DATE:20261117' in cal
+    assert all(len(line.encode()) <= 75 for line in cal.split('\r\n')), 'calendar lines must be folded'
+    assert '\\,' in cal and 'TRIGGER:-PT6H' in cal
+
+
+@test
+def moon_phases_are_right():
+    from astropy.time import Time
+    from spacelab import beyond
+    ph = beyond.moon_phases(Time('2026-11-10T00:00'), days=30)
+    full = [p for p in ph if p['name'] == 'Full Moon']
+    assert full and full[0]['t'].startswith('2026-11-24T1'), ph       # Full Moon: 24 Nov 2026, 14:53 UTC
+
+
+@test
+def dark_sky_map_from_night_lights():
+    import io
+    import numpy as np
+    from PIL import Image
+    from spacelab import beyond, net, config
+    W, H = 2360, 1040
+    night = np.zeros((H, W), np.uint8); night[500:510, 1500:1510] = 255            # one bright city
+    day = np.zeros((H, W, 3), np.uint8); day[...] = (60, 90, 40); day[1000:, :] = (10, 20, 60)   # land, water at the bottom
+    jpg = lambda a: (lambda b: (Image.fromarray(a).save(b, 'PNG'), b.getvalue())[1])(io.BytesIO())
+    old = net.fetch
+    try:
+        net.fetch = lambda url, params=None, **k: jpg(night if params['LAYERS'] == 'VIIRS_Black_Marble' else day) + b'0' * 20000
+        r = beyond.dark_sky_map(print)
+        assert r and r['w'] == W // 2 and r['water'] and len(r['cdf']) == 255, r
+        img = np.asarray(Image.open(config.DATA / r['path']))
+        assert img[(1000 + 10) // 2, 100] == 255, 'water must be marked 255'
+        city, far = img[505 // 2, 1505 // 2], img[200 // 2, 200 // 2]
+        assert city > far + 50, (city, far)
+        assert beyond.dark_sky_map(print, r) is r, 'the map is reused for a month'
+    finally:
+        net.fetch = old
+
+
+@test
+def zip_codes_and_satellites():
+    import io
+    import zipfile
+    from spacelab import beyond, net, config
+    txt = 'GEOID\tALAND\tAWATER\tALAND_SQMI\tAWATER_SQMI\tINTPTLAT\tINTPTLONG \n12345\t1\t1\t1\t1\t40.000\t-105.000\n10001\t1\t1\t1\t1\t40.750\t-73.997\n'
+    b = io.BytesIO()
+    with zipfile.ZipFile(b, 'w') as z:
+        z.writestr('2025_Gaz_zcta_national.txt', txt)
+    old_f, old_j = net.fetch, net.fetch_json
+    try:
+        net.fetch = lambda url, **k: b.getvalue() if '2025' in url or '2026' in url else (_ for _ in ()).throw(RuntimeError('404'))
+        r = beyond.zip_index(print)
+        assert r and r['n'] == 2, r
+        assert (config.DATA / r['path']).read_text() == '12345 4000 -10500\n10001 4075 -7400\n'
+        net.fetch_json = lambda url, **k: [{'OBJECT_NAME': 'STARLINK-1007'}, {'OBJECT_NAME': 'ISS (ZARYA)'}, {'OBJECT_NAME': 'ONEWEB-0012'}]
+        sat = beyond.satellites(print)
+        assert sat['active'] == 3 and sat['starlink'] == 1 and sat['oneweb'] == 1
+    finally:
+        net.fetch, net.fetch_json = old_f, old_j
 
 
 import urllib.error  # noqa: E402

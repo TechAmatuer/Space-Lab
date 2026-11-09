@@ -132,6 +132,8 @@
       if (!c) continue;
       const box = mk('div', 'sl-tools');
       if (c.created && seen && c.created * 1000 > seen) box.appendChild(mk('span', 'sl-newtag chip warn', 'new since your last visit'));
+      const myReview = LS.get('sl_reviews', []).filter(r => String(r.tic) === String(c.tic)).pop();
+      if (myReview) box.appendChild(mk('span', 'sl-reviewed chip ok', `✓ you reviewed this on ${esc(new Date(myReview.t).toLocaleDateString())}: ${esc(myReview.answer)}`));
       if (c.star && c.star.teff) {
         const [r, g, b] = starRGB(c.star.teff);
         box.appendChild(mk('span', 'sl-starcolor', `<i style="background:rgb(${r},${g},${b})"></i>${spectral(c.star.teff)}-type star, ${Math.round(c.star.teff)} K${c.star.dist_pc ? ', ' + Math.round(c.star.dist_pc * 3.26) + ' light-years away' : ''}`));
@@ -229,13 +231,31 @@
   // must match the options in .github/ISSUE_TEMPLATE/candidate-review.yml so GitHub can prefill the form
   const ANS = ['Planet-like', 'Eclipsing binary (two stars)', 'Comes from a nearby star', 'Noise / instrument glitch', 'Not sure'];
   const AANS = ['A moving dot where predicted (real)', 'Nothing there', 'Star, galaxy or image defect', 'Not sure'];
+  function progressBar() {
+    const all = cands(), mine = new Set(LS.get('sl_reviews', []).map(r => String(r.tic))), n = all.filter(c => mine.has(String(c.tic))).length;
+    return all.length ? `<div class="sl-progress"><div class="small">You've reviewed <b>${n}</b> of <b>${all.length}</b> candidates</div><div class="sl-bar"><i style="width:${Math.round(n / all.length * 100)}%"></i></div></div>` : '';
+  }
+  function allDone() {          // the "you've seen them all" moment: what the candidates told us
+    const all = cands(), rv = LS.get('sl_reviews', []), byTic = {};
+    rv.forEach(r => { byTic[String(r.tic)] = r.answer; });
+    const ai = {}, agree = { yes: 0, n: 0 };
+    all.forEach(c => {
+      const v = c.ai ? c.ai.verdict : 'no AI verdict yet'; ai[v] = (ai[v] || 0) + 1;
+      const mine = byTic[String(c.tic)];
+      if (c.ai && mine) { agree.n++; if ((/planet/i.test(mine) && /planet/i.test(v)) || (/binary|two stars/i.test(mine) && /binary/i.test(v)) || (/noise/i.test(mine) && /noise/i.test(v))) agree.yes++; }
+    });
+    const flagged = all.filter(c => (c.flags || []).length).length;
+    return `<h3>🎉 You've seen them all</h3><p>You've reviewed every one of the <b>${all.length}</b> candidates the planet search has found so far. Thank you: this is exactly how volunteers help find planets.</p>
+      <table class="compact sl-summary"><tr><th>What the local AI thought</th><th>candidates</th></tr>${Object.entries(ai).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<tr><td>${esc(k)}</td><td class="mono">${n}</td></tr>`).join('')}</table>
+      <p class="small">${flagged} of them carry a warning from the automatic checks. ${agree.n ? `You agreed with the AI on <b>${agree.yes}</b> of ${agree.n}.` : ''} New candidates appear as the search runs: come back for more.</p>`;
+  }
   function reviewSection(rev) {
     const done = LS.get('sl_reviews', []).map(r => String(r.tic));
     const c = cands().find(x => !done.includes(String(x.tic)));
-    if (!c) { rev.innerHTML = `<h3>Planet or not?</h3><p>${cands().length ? "You've reviewed every candidate. New ones appear as the search runs." : 'No candidates to review yet. They appear as the planet search runs.'}</p>${badgeHTML()}`; return; }
+    if (!c) { rev.innerHTML = cands().length ? allDone() + progressBar() + badgeHTML() : `<h3>Planet or not?</h3><p>No candidates to review yet. They appear as the planet search runs.</p>${badgeHTML()}`; return; }
     const intro = LS.get('sl_rev_intro', 0) ? '' : `<div class="note small">How to judge a plot: <b>1.</b> top left, a dip under every red line? <b>2.</b> bottom left, a flat-bottomed U (planet) or a sharp V (often two stars)? <b>3.</b> bottom right, odd and even dips equally deep?</div>`;
     LS.set('sl_rev_intro', 1);
-    rev.innerHTML = `<h3>Planet or not?</h3>${intro}<div class="sl-cand" data-tic="${esc(c.tic)}"><div class="small muted">TIC ${esc(c.tic)} · ${c.period ? 'dips every ' + num(c.period, 3) + ' days' : 'one lone dip'} · ${Math.round(c.depth * 1e6)} ppm deep</div>
+    rev.innerHTML = `<h3>Planet or not?</h3>${progressBar()}${intro}<div class="sl-cand" data-tic="${esc(c.tic)}"><div class="small muted">TIC ${esc(c.tic)} · ${c.period ? 'dips every ' + num(c.period, 3) + ' days' : 'one lone dip'} · ${Math.round(c.depth * 1e6)} ppm deep</div>
       <img class="plot" src="${esc(c.plot || '')}" alt="light-curve plots for TIC ${esc(c.tic)}"></div><div class="row">${ANS.map(a => `<button type="button" class="b sl-answer">${esc(a)}</button>`).join('')}</div>`;
     rev.querySelectorAll('.sl-answer').forEach(b => b.addEventListener('click', () => {
       const r = LS.get('sl_reviews', []); r.push({ tic: c.tic, answer: b.textContent, t: Date.now() }); LS.set('sl_reviews', r);
@@ -246,6 +266,7 @@
         <p><a class="b sl-send" target="_blank" rel="noopener" href="${esc(reviewLink(c.tic, b.textContent))}">Send my review to the project</a> <span class="small muted">(opens GitHub; needs a free GitHub account)</span></p>
         <button type="button" class="b primary sl-next">Next candidate</button>${badgeHTML()}`;
       rev.querySelector('.sl-next').addEventListener('click', () => reviewSection(rev));
+      rev.querySelector('.sl-send').addEventListener('click', () => bump('sl_sent'));
     }));
   }
   function asteroidSection(ast) {
@@ -316,6 +337,25 @@
     };
     next();
   }
+  function depthGame(box) {
+    const DEPTHS = [0.001, 0.003, 0.01, 0.03], dep = DEPTHS[Math.floor(Math.random() * 4)], r = rand(Math.floor(Math.random() * 1e6)), n = 300, noise = dep * 0.15;
+    const y = []; for (let i = 0; i < n; i++) y.push(1 + gauss(r) * noise - (Math.abs(i / n - 0.5) < 0.06 ? dep : 0));
+    box.innerHTML = `<h3>How deep is the dip? (practice)</h3><p class="small">Astronomers turn the depth of a dip into the planet's size: a 1% dip on a Sun-like star means a Jupiter, 0.01% an Earth. Read the scale on the left.</p>
+      <canvas width="640" height="180"></canvas><div class="row">${DEPTHS.map(d => `<button type="button" class="b sl-depth" data-d="${d}">${d * 100}%</button>`).join('')}<span class="sl-depthmsg small"></span></div>`;
+    const cv = box.querySelector('canvas'), x = cv.getContext && cv.getContext('2d');
+    if (x) {
+      const lo = 1 - dep * 1.4, hi = 1 + dep * 0.4, Y = v => (hi - v) / (hi - lo) * (cv.height - 20) + 10;
+      x.fillStyle = getComputedStyle(document.body).color || '#ccc'; x.font = '12px sans-serif';
+      y.forEach((v, i) => x.fillRect(50 + i / n * (cv.width - 60), Y(v), 2, 2));
+      [1, 1 - dep / 2, 1 - dep].forEach(v => x.fillText(((v - 1) * 100).toFixed(2) + '%', 2, Y(v) + 4));
+    }
+    box.querySelectorAll('.sl-depth').forEach(b => b.addEventListener('click', () => {
+      const ok = +b.dataset.d === dep;
+      box.querySelector('.sl-depthmsg').textContent = ok ? `✓ Right: ${dep * 100}%. Around a Sun-like star that's a planet about ${num(Math.sqrt(dep) * 109, 1)}× Earth's width.` : `✗ It was ${dep * 100}%. Look at the bottom of the dip against the scale.`;
+      if (ok) bump('sl_depth_wins');
+      setTimeout(() => depthGame(box), 2600);
+    }));
+  }
   function blinkGame(box) {
     const r = rand(Math.floor(Math.random() * 1e6)), stars = [];
     for (let i = 0; i < 70; i++) stars.push([r() * 600, r() * 260, 0.6 + r() * 2.4]);
@@ -376,10 +416,10 @@
   function playTab(el) {
     el.innerHTML = `<div class="grid g2"><div class="card sl-rev"></div><div class="card sl-ast"></div></div>
       <div class="grid g2"><div class="card sl-pbox"></div><div class="card sl-dip"></div></div>
-      <div class="grid g2"><div class="card sl-blink"></div><div class="card sl-mys"></div></div><div class="card sl-race"></div>`;
+      <div class="grid g2"><div class="card sl-blink"></div><div class="card sl-mys"></div></div><div class="grid g2"><div class="card sl-depthgame"></div><div class="card sl-race"></div></div>`;
     reviewSection(el.querySelector('.sl-rev')); asteroidSection(el.querySelector('.sl-ast'));
     practiceGame(el.querySelector('.sl-pbox')); dipGame(el.querySelector('.sl-dip'));
-    blinkGame(el.querySelector('.sl-blink')); mystery(el.querySelector('.sl-mys')); raceTimer(el.querySelector('.sl-race'));
+    blinkGame(el.querySelector('.sl-blink')); mystery(el.querySelector('.sl-mys')); raceTimer(el.querySelector('.sl-race')); depthGame(el.querySelector('.sl-depthgame'));
   }
 
   // ------------------------------------------------------------------ Create tab
@@ -428,9 +468,8 @@
     const go = box.querySelector('.sl-locate'); if (!go) return;
     go.addEventListener('click', () => {
       const t = ts[+box.querySelector('.sl-ptarget').value], out = box.querySelector('.sl-pout');
-      if (!navigator.geolocation) { out.textContent = 'This browser cannot share a location.'; return; }
-      out.textContent = 'Asking your browser for your location…';
-      navigator.geolocation.getCurrentPosition(p => {
+      const saved = LS.get('sl_place', null);
+      const show = p => {
         const [alt, az] = altAz(t.ra, t.dec, p.coords.latitude, p.coords.longitude, new Date());
         out.innerHTML = alt > 0 ? `<p><b>${esc(t.name)}</b> is <b>${Math.round(alt)}°</b> above the horizon toward the <b>${compass(az)}</b> (bearing ${Math.round(az)}°).</p><div class="sl-arrow" style="transform:rotate(${Math.round(az)}deg)">⬆</div><p class="small muted sl-compassnote">The arrow points that way when the top of your screen faces north.</p>${'DeviceOrientationEvent' in window ? '<button type="button" class="b sl-compass">📱 Use my phone\'s compass</button>' : ''}`
                                 : `<p><b>${esc(t.name)}</b> is below your horizon right now (${Math.round(alt)}°). Try later tonight.</p>`;
@@ -447,7 +486,11 @@
           };
           addEventListener('deviceorientation', on);
         });
-      }, () => { out.textContent = 'Location not shared, so the pointer cannot work. Nothing was stored.'; }, { timeout: 15000, maximumAge: 600000 });
+      };
+      if (saved && isFinite(saved.lat)) return show({ coords: { latitude: saved.lat, longitude: saved.lon } });
+      if (!navigator.geolocation) { out.textContent = 'This browser cannot share a location. Set a ZIP code in the Stargazing tab instead.'; return; }
+      out.textContent = 'Asking your browser for your location…';
+      navigator.geolocation.getCurrentPosition(show, () => { out.textContent = 'Location not shared, so the pointer cannot work. Nothing was stored.'; }, { timeout: 15000, maximumAge: 600000 });
     });
   }
   function observingLog(box) {
@@ -490,6 +533,25 @@
     ['First telescope', 'A 6–8 inch Dobsonian is the classic best value: simple, stable and bright. Avoid "high magnification" toys on wobbly tripods.'],
     ['Smart telescopes', 'Seestar or Dwarf-type smart scopes photograph faint objects from cities and can time exoplanet transits for NASA\'s Exoplanet Watch.'],
     ['Join in', 'Local astronomy clubs lend telescopes. Citizen-science projects (Exoplanet Watch, AAVSO, Zooniverse) turn your nights into real data.']];
+  const LEVELS = [[0, 'Stargazer', 'just starting'], [5, 'Classifier', 'can read a light curve'], [20, 'Reviewer', 'checks candidates like the pros'],
+                  [50, 'Analyst', 'spots binaries and glitches at a glance'], [100, 'Contributor', 'sends reviews to the project']];
+  function points() {
+    const s = stats();
+    return s.reviews + s.ast + (window.SpaceLabHome ? Object.keys(LS.get('sl_daily', {})).length : 0) + 2 * (s.periodWins + s.blinkWins + s.mystery + LS.get('sl_depth_wins', 0)) + 5 * LS.get('sl_sent', 0);
+  }
+  function levelHTML() {
+    const pt = points(), i = LEVELS.filter(l => pt >= l[0]).length - 1, cur = LEVELS[i], nxt = LEVELS[i + 1];
+    return `<div class="sl-level"><div class="sl-path">${LEVELS.map((l, j) => `<span class="${j <= i ? 'on' : ''}">${esc(l[1])}</span>`).join('<i>→</i>')}</div>
+      <p>You're a <b>${esc(cur[1])}</b> (${esc(cur[2])}) with <b>${pt}</b> points.${nxt ? ` ${nxt[0] - pt} more to become a ${esc(nxt[1])}.` : ' The top level: thank you!'}</p>
+      ${nxt ? `<div class="sl-bar"><i style="width:${Math.round((pt - cur[0]) / (nxt[0] - cur[0]) * 100)}%"></i></div>` : ''}
+      <p class="small muted">Points: 1 per review or daily vote, 2 per game won, 5 per review sent to GitHub.</p></div>`;
+  }
+  function contribText() {
+    const s = stats(), daily = Object.keys(LS.get('sl_daily', {})).length;
+    const parts = [s.reviews && `reviewed ${s.reviews} TESS planet candidate${s.reviews > 1 ? 's' : ''}`, s.ast && `checked ${s.ast} asteroid sighting${s.ast > 1 ? 's' : ''}`,
+                   daily && `voted on ${daily} candidate${daily > 1 ? 's' : ''} of the day`].filter(Boolean);
+    return parts.length ? `🔭 I've ${parts.join(', ')} on Space Lab, citizen science with real NASA data. Join in: ${site()}` : '';
+  }
   const favSig = c => `${c.status}${c.ai ? ', AI: ' + c.ai.verdict : ''}${c.fpp ? ', ' + c.fpp.verdict : ''}`;
   function myLab(el) {
     const favs = LS.get('sl_favs', []).map(String), last = LS.get('sl_seen_at', 0), snap = LS.get('sl_fav_snap', {}), notes = LS.get('sl_notes', {});
@@ -504,6 +566,7 @@
         return `<div class="sl-tcard" style="border-color:rgb(${r},${g},${b})"><b><a href="#tess" data-goto="tic-${esc(c.tic)}">TIC ${esc(c.tic)}</a></b><div class="small">${c.period ? num(c.period, 2) + '-day orbit' : 'lone dip'} · ${num(c.rp, 1)}× Earth if real</div><div class="small muted">${esc(now)}</div>${changed}
           <textarea rows="2" data-note="${esc(c.tic)}" placeholder="your notes">${esc(notes[t] || '')}</textarea></div>`;
       }).join('')}</div><p class="small muted">Notes stay in this browser. Share a card with the "Share text" button on the TESS tab.</p>` : '<p class="muted small">Tap ☆ Save on any TESS candidate to collect it here.</p>'}</div>
+      <div class="card"><h3>🧭 Your path</h3>${levelHTML()}${contribText() ? `<h4>Share what you've done</h4><textarea class="sl-contrib" readonly rows="3">${esc(contribText())}</textarea><button type="button" class="b sl-copy">Copy</button>` : '<p class="small muted">Review a candidate or vote on the candidate of the day to start your record.</p>'}</div>
       <div class="card"><h3>🔔 Watchlist</h3><p>${last ? `${fresh.length} new candidate${fresh.length === 1 ? '' : 's'} since your last visit (${new Date(last).toLocaleDateString()}).` : 'This is your first visit: from now on, new candidates are marked for you.'}</p>
         <p class="small">Saved candidates: ${favs.length}.${changes ? ` <b>${changes} of them changed</b> since you last looked (see the 🔔 on the cards).` : ' When the AI, a test or the volunteer updates one, it gets a 🔔 here.'}</p><h3>🔥 Streak</h3><p>You've checked in <b>${streak()}</b> day${streak() === 1 ? '' : 's'} in a row.</p>${badgeHTML()}</div></div>
       <div class="grid g2"><div class="card sl-log"></div><div class="card sl-pointer"></div></div>
@@ -512,6 +575,8 @@
       <div class="card"><h3>📊 This lab's contributions</h3><div class="kv"><b>Stars searched</b><span>${contrib.stars_searched ?? '—'}</span><b>Candidates reviewed</b><span>${contrib.tess_reviewed ?? '—'}</span><b>Exoplanet Watch light curves</b><span>${contrib.exowatch_reduced ?? '—'}</span><b>Asteroid sightings checked</b><span>${contrib.asteroid_sightings_checked ?? '—'}</span><b>Results submitted</b><span>${contrib.uploads_done ?? '—'}</span></div></div></div>
       <div class="card"><h3>🔭 Starting out with a telescope</h3><ol>${GUIDE.map(([h, t]) => `<li><b>${esc(h)}.</b> ${esc(t)}</li>`).join('')}</ol></div>`;
     observingLog(el.querySelector('.sl-log')); skyPointer(el.querySelector('.sl-pointer'));
+    const cp = el.querySelector('.sl-copy');
+    if (cp) cp.addEventListener('click', () => { const t = el.querySelector('.sl-contrib'); t.select(); try { navigator.clipboard && navigator.clipboard.writeText(t.value); } catch (_) {} cp.textContent = 'Copied ✓'; });
     el.querySelectorAll('textarea[data-note]').forEach(t => t.addEventListener('input', () => { const n = LS.get('sl_notes', {}); n[t.dataset.note] = t.value.slice(0, 1000); LS.set('sl_notes', n); }));
     el.querySelectorAll('[data-goto]').forEach(a => a.addEventListener('click', () => setTimeout(() => { const x = document.getElementById(a.dataset.goto) || document.querySelector(`.card[data-tic="${a.dataset.goto.slice(4)}"]`); if (x && x.scrollIntoView) x.scrollIntoView({ block: 'center' }); }, 400)));
     // remember what saved candidates look like now, so the next visit can show what changed

@@ -98,3 +98,26 @@ nav.tabs .navgroup:first-child{margin-left:0}
   .hm-bar{grid-template-columns:130px 1fr 30px}
   nav.tabs .navgroup{display:none}
 }
+
+/* ---- progress, learning path, funnel (extras.js / home.js) */
+.sl-progress{margin:4px 0 10px}
+.sl-bar{height:8px;border-radius:4px;background:var(--panel-2);border:1px solid var(--line);overflow:hidden;max-width:420px;margin:3px 0}
+.sl-bar i{display:block;height:100%;background:var(--ok)}
+.sl-path{display:flex;flex-wrap:wrap;gap:4px;align-items:center;font-size:12px;margin:4px 0 8px}
+.sl-path span{padding:2px 8px;border-radius:999px;border:1px solid var(--line-2);color:var(--muted)}
+.sl-path span.on{border-color:var(--ok);color:var(--ink);background:var(--panel-2)}
+.sl-path i{color:var(--muted);font-style:normal}
+.sl-contrib{width:100%;font:13px var(--f-body);background:var(--panel-2);color:var(--ink);border:1px solid var(--line-2);border-radius:6px;padding:6px}
+.sl-reviewed{margin:0 0 6px}
+.sl-depthgame canvas{width:100%;max-width:640px;height:auto;background:var(--panel-2);border-radius:6px;margin:6px 0}
+.hm-funnel{width:100%;max-width:640px;height:auto}
+.hm-funnel rect{fill:var(--accent)} .hm-funnel .hm-f0{fill:var(--line-2)} .hm-funnel .hm-f1{fill:#7fa7c4} .hm-funnel .hm-f2{fill:#5c9fbf}
+.hm-funnel .hm-f4{fill:var(--ok)} .hm-ft{fill:currentColor;font-size:13px}
+
+/* ---- Stargazing tab (stargazing.js) */
+.sg-zip{font:inherit;background:var(--panel-2);color:var(--ink);border:1px solid var(--line-2);border-radius:6px;padding:4px 8px}
+.sg-map{width:100%;max-width:360px;height:auto;border-radius:8px;margin:8px 0;display:block}
+.sg-events li{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.sg-kinds{gap:6px;flex-wrap:wrap;margin:8px 0}
+.sg-guesses li{margin:6px 0}
+.bx-form input[type=datetime-local]{max-width:220px}

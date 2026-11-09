@@ -30,6 +30,9 @@ function runExtras(tab) {
 window.SpaceLab = {
   get data() { return PUB; },
   esc: s => esc(s), num: (x, d) => num(x, d), local: true,
+  // load a file from this same site (never another site), e.g. the ZIP code table for the dark-sky finder
+  load: p => /^[A-Za-z0-9_./-]+$/.test(p) && !p.includes('..') && !p.startsWith('/')
+    ? fetch(p).then(r => (r.ok ? r.text() : Promise.reject(new Error('HTTP ' + r.status)))) : Promise.reject(new Error('only files from this site')),
   onRender(fn) { HOOKS.push(fn); },
   addTab(id, title, render) {
     if (EXTRA_TABS[id] || $('#v-' + id)) return;
@@ -51,7 +54,7 @@ window.SpaceLab = {
   },
   track() {},          // visitor counting happens only on the public page
 };
-const NAV = [['Explore', ['today', 'sky', 'arxiv', 'beyond']], ['Research', ['tess', 'asteroids', 'exowatch', 'results']],
+const NAV = [['Explore', ['today', 'sky', 'stargazing', 'arxiv', 'beyond']], ['Research', ['tess', 'asteroids', 'exowatch', 'results']],
              ['Join in', ['play', 'create', 'mylist']], ['', ['setup']]];
 let navReady = false;
 function layoutNav() {   // same groups as the public page

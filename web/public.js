@@ -26,6 +26,9 @@ function track(path, event, tries = 0) {
 window.SpaceLab = {
   get data() { return D; },
   esc, num, track,
+  // load a file from this same site (never another site), e.g. the ZIP code table for the dark-sky finder
+  load: p => /^[A-Za-z0-9_./-]+$/.test(p) && !p.includes('..') && !p.startsWith('/')
+    ? fetch(p).then(r => (r.ok ? r.text() : Promise.reject(new Error('HTTP ' + r.status)))) : Promise.reject(new Error('only files from this site')),
   onRender(fn) { HOOKS.push(fn); },                   // fn(tabName, viewElement, data) after every tab render
   addTab(id, title, render) {                          // render(viewElement, data)
     if (R[id] || EXTRA_TABS[id]) return;
@@ -46,7 +49,7 @@ function runExtras(tab) {
 }
 
 // Tabs in groups, so 12 tabs still read clearly. Extras' tabs are slotted in by id; unknown tabs go before About.
-const NAV = [['Explore', ['today', 'sky', 'brief', 'beyond']], ['Research', ['tess', 'asteroids', 'exowatch', 'results']],
+const NAV = [['Explore', ['today', 'sky', 'stargazing', 'brief', 'beyond']], ['Research', ['tess', 'asteroids', 'exowatch', 'results']],
              ['Join in', ['play', 'create', 'mylist']], ['', ['about']]];
 let navReady = false;
 function layoutNav() {
@@ -193,6 +196,7 @@ function about() {
     <li><b>Space brief</b>: new research papers summarized, stories from popular science outlets matched to the papers behind them, and a 50-year paper library.</li></ul>
     <p>This page mirrors the volunteer's private dashboard. Two things stay on the Mac because they need its local AI: asking questions about the results, and searching the library by meaning (the public library search uses NASA ADS instead). Want all of it? Space Lab is free and open source: <a href="https://github.com/TechAmatuer/Space-Lab" target="_blank" rel="noopener">github.com/TechAmatuer/Space-Lab</a>.</p>
     <p>All AI runs locally. Every result is checked by a person before anything is reported to the AAVSO or the Minor Planet Center. Feedback from scientists is very welcome.</p>
+    <p><b>Privacy.</b> No cookies and no accounts. Visits, tabs opened and candidate-of-the-day votes are counted anonymously with GoatCounter. A ZIP code or location you enter for the stargazing tools stays in your own browser and is never sent anywhere. Reminders are plain calendar files.</p>
     <p class="small muted">Data: NASA TESS/MAST, NASA Exoplanet Archive, ExoClock, ExoFOP, TESS EB catalog, JPL Small-Body Database, Sentry, Scout and Horizons, CADC SSOIS, Pan-STARRS1 (STScI), ZTF (IRSA/Caltech), Gaia (ESA), arXiv, OpenAlex, NASA ADS, and the news outlets linked in the Space brief.</p></div>`;
 }
 

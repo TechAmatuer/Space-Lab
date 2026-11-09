@@ -25,6 +25,8 @@ Each `FAIL` line says exactly what to fix. GitHub runs the `G` (general safety) 
 | 16 | Asteroid "story behind this picture" and the asteroid race timer |
 | 17 | Home page, candidate of the day (vote, streak, yesterday's result) and grouped navigation |
 | 18 | Results tab, the radar in the Space brief, `#tic-<TIC>` links and share pages |
+| 19 | Stargazing: ZIP code place, events with calendar reminders, "What's that in the sky?", dark-sky finder, ISS with saved place |
+| 20 | Review progress, "you've seen them all", the TESS big picture and next predicted dips, learning path, shareable summary |
 
 ## Built (November 2026)
 
@@ -61,6 +63,13 @@ yesterday's result · space-science radar (the local AI reads ~35 sources every 
 (what was sent where, and what happened) · link previews with a daily preview picture · a share page per candidate ·
 Atom feed, sitemap, app icon (add to home screen) · optional GoatCounter visitor counter (no cookies) · grouped tabs
 (Explore / Research / Join in) · own web address support.
+
+**Stargazing and contributions (November 2026, part 3):** Stargazing tab (your place by ZIP code or GPS, kept in the
+browser; dark skies within driving distance from NASA's night-lights map; meteor showers, eclipses, Moon phases, launches
+and comets with "Remind me" calendar files and a subscribable calendar; "What's that in the sky?") · review progress bar
+and "you've seen them all" summary · "you reviewed this" on cards · the big-picture funnel and "not every dip is a planet" ·
+next predicted dips with countdowns · learning path (Stargazer → Contributor) · shareable contribution summary ·
+estimate-the-depth game · satellite counts · GoatCounter on.
 
 ## Ideas not built yet (good next tasks)
 - TESS mission tracker (which sector TESS is observing now): needs a dependable machine-readable pointing table.

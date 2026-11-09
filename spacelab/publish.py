@@ -21,7 +21,7 @@ from . import classifier, config, db, net
 API = 'https://api.github.com'
 SITE = config.DATA / 'public'
 WEB = config.ROOT / 'web'
-SITE_FILES = ('public.html', 'public.js', 'style.css', 'lcviewer.js', 'orbit3d.js', 'extras.js', 'extras.css', 'beyond.js', 'home.js')
+SITE_FILES = ('public.html', 'public.js', 'style.css', 'lcviewer.js', 'orbit3d.js', 'extras.js', 'extras.css', 'beyond.js', 'home.js', 'stargazing.js')
 TITLE = 'Space Lab: hunting planets and asteroids with open NASA data'
 
 
@@ -34,7 +34,8 @@ def _j(x):
 
 def _beyond_public(b):
     """Sky watch / Beyond astronomy data is all public and location-free already; drop anything unexpected."""
-    keep = ('t', 'space_weather', 'fireballs', 'comets', 'gw', 'supernovae', 'launches', 'habitable', 'sky', 'earth', 'iss', 'quakes')
+    keep = ('t', 'space_weather', 'fireballs', 'comets', 'gw', 'supernovae', 'launches', 'habitable', 'sky', 'earth', 'iss', 'quakes',
+            'satellites', 'events', 'darksky', 'zip')
     return {k: b[k] for k in keep if k in b}
 
 
@@ -106,6 +107,9 @@ def build_data(con, cfg):
                      'star': {'teff': st.get('teff'), 'radius_sun': st.get('rad'), 'dist_pc': st.get('dist'), 'tmag': st.get('tmag')},
                      'centroid': ({k: cen.get(k) for k in ('verdict', 'offset_arcsec', 'signif', 'snr')} | {'png': f(cen.get('png'))}) if cen else None})
     stats = {r['status']: r['n'] for r in db.rows(con, 'SELECT status, COUNT(*) AS n FROM tess_targets GROUP BY status')}
+    cst = {r['status']: r['n'] for r in db.rows(con, 'SELECT status, COUNT(*) AS n FROM tess_cands GROUP BY status')}
+    funnel = {'stars': stats.get('done', 0), 'signals': sum(cst.values()), 'auto_rejected': cst.get('auto-rejected', 0),
+              'not_planet': cst.get('fake', 0), 'review': cst.get('new', 0) + cst.get('unsure', 0), 'planet_like': cst.get('real', 0)}
     from .jobs import JOBS
     runs = []
     for job, spec in JOBS.items():
@@ -162,6 +166,10 @@ def build_data(con, cfg):
     for r in results:
         r['note'] = clean(r.get('note'))
     beyond = _beyond_public(db.kv_get(con, 'beyond') or {})
+    for k in ('darksky', 'zip'):                     # map the saved files to their public address
+        if isinstance(beyond.get(k), dict):
+            img = f(beyond[k].get('path'))
+            beyond[k] = {kk: vv for kk, vv in beyond[k].items() if kk != 'path'} | {'url': img} if img else None
     if beyond.get('earth'):
         beyond['earth'] = [{k: e.get(k) for k in ('key', 'caption', 'source', 'date')} | {'img': f(e.get('path'))}
                            for e in beyond['earth'] if f(e.get('path'))]
@@ -173,7 +181,7 @@ def build_data(con, cfg):
             'today': {'brief': {'t': brief_kv.get('t'), 'text': clean(brief_kv.get('text') or ''), 'model': brief_kv.get('model')},
                       'jobs': runs, 'always_on': bool(cfg.get('always_on'))},
             'tess': {'stats': {k: stats.get(k, 0) for k in ('done', 'queued', 'nodata', 'error', 'known')}, 'cands': tess,
-                     'engine': db.kv_get(con, 'tess_engine'),
+                     'engine': db.kv_get(con, 'tess_engine'), 'funnel': funnel,
                      'model': {k: (model or {}).get(k) for k in ('ready', 'n_user', 'n_auto', 'acc', 'top', 'need')}},
             'asteroids': {'text': (db.kv_get(con, 'neo_watch_text') or {}).get('text'), 'cad': (w.get('cad') or [])[:15],
                           'sentry': [{k: r.get(k) for k in ('des', 'fullname', 'ip', 'ps', 'ts_max', 'range', 'h', 'diameter')} for r in (w.get('sentry') or [])[:12]],
@@ -246,7 +254,7 @@ def scan(folder, cfg):
     for p in Path(folder).rglob('*'):
         if '.git' in p.parts:
             continue
-        if p.is_file() and p.suffix in ('.json', '.html', '.js', '.css', '.txt', '.md', '.xml', '.webmanifest'):
+        if p.is_file() and p.suffix in ('.json', '.html', '.js', '.css', '.txt', '.md', '.xml', '.webmanifest', '.ics'):
             text = p.read_text(errors='ignore')
             for label, s in bad.items():
                 if str(s) in text:
