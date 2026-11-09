@@ -66,7 +66,23 @@
   }
 
   // ------------------------------------------------------------------ home slots
+  function youCard() {
+    const d = D().daily || {}, voted = d.date && LS.get('sl_daily', {})[d.date];
+    const all = ((D().tess || {}).cands || []), mine = new Set(LS.get('sl_reviews', []).map(r => String(r.tic)));
+    const left = all.filter(c => !mine.has(String(c.tic))).length, lv = window.SpaceLabExtras && window.SpaceLabExtras.level ? window.SpaceLabExtras.level() : null;
+    const sg = window.SpaceLabStargazing, p = sg && sg.place();
+    return `<div class="row"><h3>👋 Your Space Lab</h3><span class="spacer"></span>${lv ? `<span class="small">You're a <b>${esc(lv.name)}</b> · ${lv.points} points${streak() ? ` · 🔥 ${streak()}-day streak` : ''}</span>` : ''}</div>
+      <p class="small">Everything here is for you to use and to help with. Pick something:</p>
+      <div class="hm-actions">
+        <button type="button" class="hm-act" data-go="today-daily"><b>🪐 ${voted ? 'Voted today ✓' : 'Vote on today\'s candidate'}</b><span>${voted ? 'see how it compares' : 'one tap, no account'}</span></button>
+        <button type="button" class="hm-act" data-tab="play"><b>🔍 Review candidates</b><span>${left ? `${left} waiting for you` : 'you\'ve seen them all 🎉'}</span></button>
+        <button type="button" class="hm-act" ${p ? 'data-go="hm-tonight"' : 'data-place="1"'}><b>🌙 ${p ? 'Your sky tonight' : 'Set your location'}</b><span>${p ? esc(p.label) : 'for tonight\'s sky, ISS passes, dark skies'}</span></button>
+        <button type="button" class="hm-act" data-tab="stargazing"><b>🔭 Go stargazing</b><span>dark skies, reminders, what's that light?</span></button>
+      </div>`;
+  }
   function tonightCard() {
+    const sg = window.SpaceLabStargazing, p = sg && sg.place();
+    if (p) return sg.tonightHTML(p);
     const b = D().beyond || {}, s = b.sky, w = b.space_weather || {};
     if (!s) return '<h3>🌙 Tonight</h3><p class="muted small">Sky data appears after the next update.</p>';
     const vis = (s.planets || []).filter(p => !/too close/.test(p.where));
@@ -118,14 +134,21 @@
       const ask = el.querySelector('#askBox');
       if (ask) ask.after(slots); else el.prepend(slots);
     }
-    slots.innerHTML = `<div class="card hm-daily-card" id="today-daily"></div>
-      <div class="grid g2"><div class="card">${tonightCard()}</div><div class="card">${resultsSummary()}</div></div>
+    slots.innerHTML = `<div class="card hm-you">${youCard()}</div><div class="card hm-daily-card" id="today-daily"></div>
+      <div class="grid g2"><div class="card" id="hm-tonight">${tonightCard()}</div><div class="card">${resultsSummary()}</div></div>
       <div class="card">${radarCard(false)}</div>
       ${S.local ? '' : `<div class="card"><h3>🙋 How you can help</h3><ul class="hm-list"><li><b>Vote</b> on the candidate of the day, or review more in <a href="#play" data-tabgo="play">Play & review</a>.</li>
         <li><b>Measure a transit</b> for NASA's Exoplanet Watch with free telescope data (see the Exoplanet Watch tab).</li>
         <li><b>Suggest ideas or report mistakes</b> on <a href="https://github.com/TechAmatuer/Space-Lab/issues" target="_blank" rel="noopener">GitHub</a>.</li>
         <li><b>Follow along:</b> add <a href="feed.xml">the feed</a> to a news reader, or put this page on your phone's home screen.</li></ul></div>`}`;
     dailyCard(slots.querySelector('#today-daily'));
+    const sg = window.SpaceLabStargazing, p = sg && sg.place();
+    if (p && sg.wireTonight) sg.wireTonight(slots.querySelector('#hm-tonight'), p);
+    slots.querySelectorAll('.hm-act').forEach(b => b.addEventListener('click', () => {
+      if (b.dataset.place && sg) return sg.openPlace();
+      if (b.dataset.tab) return goTab(b.dataset.tab);
+      const t = document.getElementById(b.dataset.go); if (t && t.scrollIntoView) t.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }));
     slots.querySelectorAll('.hm-go').forEach(b => b.addEventListener('click', () => goTab(b.dataset.tab)));
     slots.querySelectorAll('[data-tabgo]').forEach(a => a.addEventListener('click', ev => { ev.preventDefault(); goTab(a.dataset.tabgo); }));
   }
@@ -234,12 +257,78 @@
     }));
   }
 
+  // ------------------------------------------------------------------ "Suggest an improvement" on every box
+  const SKIP = '.task, [data-tic], [data-pc], .hm-you, .sl-cand';
+  const tabTitle = tab => { const b = document.querySelector(`nav.tabs button[data-tab="${tab === 'brief' && !document.querySelector('nav.tabs button[data-tab="brief"]') ? 'arxiv' : tab}"]`); return b ? b.textContent.replace(/\d+$/, '').trim() : tab; };
+  const clean = t => String(t || '').replace(/\p{Extended_Pictographic}|️/gu, '').replace(/\s+/g, ' ').trim();
+  function addSuggest(tab, el) {
+    if (!el || tab === 'setup') return;
+    const sug = ((D().community || {}).suggestions) || {};
+    el.querySelectorAll('.card').forEach(card => {
+      if (card.matches(SKIP) || card.parentElement.closest('.card') || card.querySelector(':scope > .sl-suggest')) return;
+      const h = card.querySelector('h3');
+      if (!h) return;
+      const section = `${clean(tabTitle(tab))} › ${clean(h.textContent)}`.slice(0, 80), list = sug[section] || [];
+      const f = document.createElement('div'); f.className = 'sl-suggest';
+      f.innerHTML = `<button type="button" class="sl-sugbtn">💬 Suggest an improvement${list.length ? ` (${list.length})` : ''}</button>`;
+      card.appendChild(f);
+      f.querySelector('.sl-sugbtn').addEventListener('click', () => {
+        if (f.querySelector('.sl-sugform')) { f.querySelector('.sl-sugform').remove(); return; }
+        const form = document.createElement('div'); form.className = 'sl-sugform';
+        form.innerHTML = `${list.length ? `<ul class="sl-suglist">${list.map(x => `<li><b>${esc(x.user)}</b>: ${esc(x.text)} ${x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener">↗</a>` : ''}${x.state === 'closed' ? ' <span class="chip ok">done</span>' : ''}</li>`).join('')}</ul>` : ''}
+          <textarea rows="2" placeholder="How could “${esc(clean(h.textContent))}” be better?"></textarea>
+          <div class="row"><a class="b primary sl-sugsend" target="_blank" rel="noopener">Send on GitHub</a><button type="button" class="b sl-sugcopy">Copy for Discord</button><span class="small muted sl-sugmsg"></span></div>
+          <p class="small muted">Suggestions are public on GitHub (free account needed) or paste them in the Discord channel.</p>`;
+        f.appendChild(form);
+        const ta = form.querySelector('textarea'), send = form.querySelector('.sl-sugsend');
+        const link = () => { send.href = `${ISSUES}?template=suggestion.yml&title=${encodeURIComponent('Suggestion: ' + section)}&section=${encodeURIComponent(section)}&idea=${encodeURIComponent(ta.value.slice(0, 1500))}`; };
+        ta.addEventListener('input', link); link();
+        send.addEventListener('click', () => S.track('suggest', true));
+        form.querySelector('.sl-sugcopy').addEventListener('click', () => {
+          const txt = `💡 Space Lab suggestion for "${section}": ${ta.value}`;
+          try { navigator.clipboard && navigator.clipboard.writeText(txt); } catch (_) {}
+          form.querySelector('.sl-sugmsg').textContent = 'Copied: paste it in Discord.';
+        });
+        ta.focus && ta.focus();
+      });
+    });
+  }
+
+  // ------------------------------------------------------------------ Space brief: explore the research news
+  function newsExplorer(el) {
+    const host = el.querySelector('#paperNews');
+    if (!host || host.querySelector('.hm-news')) return;
+    const b = D().brief || {}, sets = { paper: b.paper_news || [], all: (b.paper_news || []).concat(b.news || []) };
+    const st = { set: 'paper', days: 0, topic: '', q: '' };
+    host.innerHTML = `<div class="hm-news"><p class="small muted">Stories from popular science outlets and research news. Pick what you want to see.</p>
+      <div class="row hm-nf"><input type="search" class="hm-nq" placeholder="Search, e.g. black hole, Mars, JWST" style="flex:1;min-width:200px">
+        <select class="hm-nset"><option value="paper">Stories that cite a research paper</option><option value="all">All space news this week</option></select>
+        <select class="hm-ndays"><option value="0">Any time</option><option value="1">Last 24 hours</option><option value="3">Last 3 days</option><option value="7">Last week</option></select></div>
+      <div class="row hm-ntopics"></div><ul class="list hm-nlist"></ul></div>`;
+    const draw = () => {
+      const items = sets[st.set].filter(n => (!st.days || (n.date && n.date > Date.now() / 1000 - st.days * 86400)) && (!st.topic || n.topic === st.topic) &&
+        (!st.q || (n.title + ' ' + (n.source || '') + ' ' + (n.papers || []).map(p => p.title).join(' ')).toLowerCase().includes(st.q))).sort((a, b) => (b.date || 0) - (a.date || 0));
+      const topics = [...new Set(sets[st.set].map(n => n.topic).filter(Boolean))];
+      host.querySelector('.hm-ntopics').innerHTML = `<button type="button" class="b hm-nt ${st.topic ? '' : 'primary'}" data-t="">All topics</button>` + topics.map(t => `<button type="button" class="b hm-nt ${st.topic === t ? 'primary' : ''}" data-t="${esc(t)}">${esc(t)}</button>`).join('');
+      host.querySelectorAll('.hm-nt').forEach(x => x.addEventListener('click', () => { st.topic = x.dataset.t; draw(); }));
+      host.querySelector('.hm-nlist').innerHTML = items.slice(0, 60).map(n => `<li><span><a href="${esc(n.url)}" target="_blank" rel="noopener"><b>${esc(n.title)}</b></a>
+        <br><span class="small muted">${esc(n.source || '')}${n.date ? ' · ' + ago(n.date) : ''}${n.topic ? ` · <span class="chip">${esc(n.topic)}</span>` : ''}</span>
+        ${(n.papers || []).length ? `<br><span class="small">📄 ${(n.papers || []).map(p => `<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title || p.id)}</a>${p.venue ? ` <span class="muted">(${esc(p.venue)}${p.year ? ', ' + p.year : ''})</span>` : ''}`).join(' · ')}</span>` : ''}</span></li>`).join('') || '<li class="muted">Nothing matches. Try another topic or a longer time.</li>';
+    };
+    host.querySelector('.hm-nq').addEventListener('input', e => { st.q = e.target.value.trim().toLowerCase(); draw(); });
+    host.querySelector('.hm-nset').addEventListener('change', e => { st.set = e.target.value; st.topic = ''; draw(); });
+    host.querySelector('.hm-ndays').addEventListener('change', e => { st.days = +e.target.value; draw(); });
+    draw();
+  }
+
   // ------------------------------------------------------------------ wiring
   S.addTab('results', 'Results', resultsTab);
   S.onRender((tab, el) => {
     if (!el) return;
     if (tab === 'today') home(el);
     if (tab === 'tess') tessTop(el);
+    if (tab === 'brief') newsExplorer(el);
+    setTimeout(() => addSuggest(tab, el), 0);       // after every other extra has added its boxes
     if (tab === 'brief' && !el.querySelector('.hm-radar-card')) {
       const card = document.createElement('div'); card.className = 'card hm-radar-card'; card.innerHTML = radarCard(true);
       const anchor = el.querySelector('#arxivTop') || el.querySelector('.card');

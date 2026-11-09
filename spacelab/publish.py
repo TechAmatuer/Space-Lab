@@ -21,7 +21,7 @@ from . import classifier, config, db, net
 API = 'https://api.github.com'
 SITE = config.DATA / 'public'
 WEB = config.ROOT / 'web'
-SITE_FILES = ('public.html', 'public.js', 'style.css', 'lcviewer.js', 'orbit3d.js', 'extras.js', 'extras.css', 'beyond.js', 'home.js', 'stargazing.js')
+SITE_FILES = ('public.html', 'public.js', 'style.css', 'lcviewer.js', 'orbit3d.js', 'extras.js', 'extras.css', 'beyond.js', 'home.js', 'stargazing.js', 'asteroids.js')
 TITLE = 'Space Lab: hunting planets and asteroids with open NASA data'
 
 
@@ -35,8 +35,15 @@ def _j(x):
 def _beyond_public(b):
     """Sky watch / Beyond astronomy data is all public and location-free already; drop anything unexpected."""
     keep = ('t', 'space_weather', 'fireballs', 'comets', 'gw', 'supernovae', 'launches', 'habitable', 'sky', 'earth', 'iss', 'quakes',
-            'satellites', 'events', 'darksky', 'zip')
+            'satellites', 'events', 'darksky', 'zip', 'live', 'wiki')
     return {k: b[k] for k in keep if k in b}
+
+
+def _topics(items):
+    """Give each news story a topic (the same topics the radar uses) so visitors can filter."""
+    from .radar import keyword_score
+    return [dict(i, topic=keyword_score({'title': i.get('title') or '', 'summary': ' '.join(p.get('title') or '' for p in i.get('papers') or [])})['topic'])
+            for i in items]
 
 
 def _contrib(con):
@@ -170,6 +177,9 @@ def build_data(con, cfg):
         if isinstance(beyond.get(k), dict):
             img = f(beyond[k].get('path'))
             beyond[k] = {kk: vv for kk, vv in beyond[k].items() if kk != 'path'} | {'url': img} if img else None
+    if beyond.get('live'):
+        beyond['live'] = [{k: x.get(k) for k in ('key', 'caption', 'source', 'page', 't')} | {'img': f(x.get('path'))}
+                          for x in beyond['live'] if f(x.get('path'))]
     if beyond.get('earth'):
         beyond['earth'] = [{k: e.get(k) for k in ('key', 'caption', 'source', 'date')} | {'img': f(e.get('path'))}
                            for e in beyond['earth'] if f(e.get('path'))]
@@ -191,8 +201,8 @@ def build_data(con, cfg):
                                        "SELECT des, fullname, h, arc, searched, nimg, ncand, note FROM pc_targets WHERE origin='new-neo' ORDER BY rowid DESC LIMIT 20")]},
             'exowatch': {'results': exo, 'stale': (eph.get('stale') or [])[:30], 'ephem_t': eph.get('t')},
             'brief': {'date': dates[0] if dates else None, 'papers': papers,
-                      'news': ((db.kv_get(con, 'news') or {}).get('items') or [])[:30],
-                      'paper_news': ((db.kv_get(con, 'paper_news') or {}).get('items') or [])[:25],
+                      'news': _topics(((db.kv_get(con, 'news') or {}).get('items') or [])[:30]),
+                      'paper_news': _topics(((db.kv_get(con, 'paper_news') or {}).get('items') or [])[:40]),
                       'library': {k: lib.get(k) for k in ('papers', 'embedded', 'years', 'complete', 'topics')}}}
     return data, files
 

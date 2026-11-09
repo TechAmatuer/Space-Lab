@@ -633,5 +633,6 @@
     });
     addEventListener('pagehide', () => LS.set('sl_seen_at', Date.now()));
   }
-  window.SpaceLabExtras = { starRGB, spectral, altAz };
+  window.SpaceLabExtras = { starRGB, spectral, altAz,
+    level: () => { const pt = points(), i = LEVELS.filter(l => pt >= l[0]).length - 1; return { name: LEVELS[i][1], points: pt, next: LEVELS[i + 1] || null }; } };
 })();

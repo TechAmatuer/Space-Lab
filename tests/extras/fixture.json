@@ -267,7 +267,7 @@
   "cad": [
    {
     "des": "2026 VQ",
-    "cd": "2026-Nov-12 04:10",
+    "cd": "2099-Nov-12 04:10",
     "dist": "0.0031",
     "v_rel": "11.2",
     "h": "26.1"
@@ -369,23 +369,42 @@
   ],
   "news": [
    {
-    "source": "AAS Nova",
-    "title": "News item",
-    "url": "https://aasnova.org/x",
-    "date": 1794196918.123678
+    "title": "Rocket launch moved to Friday",
+    "url": "https://example.com/n3",
+    "source": "NASA",
+    "date": 1794195000,
+    "topic": "Missions & launches",
+    "summary": "x"
    }
   ],
   "paper_news": [
    {
+    "title": "Black hole caught eating a star",
+    "url": "https://example.com/n1",
     "source": "Space.com",
-    "title": "Weird planet",
-    "url": "https://space.com/x",
-    "date": 1794196918.1234148,
+    "date": 1794190000,
+    "topic": "Black holes & extreme events",
     "papers": [
      {
-      "id": "2611.01234",
-      "title": "A weird planet",
-      "url": "https://arxiv.org/abs/2611.01234"
+      "url": "https://arxiv.org/abs/2611.00001",
+      "title": "A tidal disruption event",
+      "venue": "arXiv",
+      "year": 2026
+     }
+    ]
+   },
+   {
+    "title": "Water found on a warm exoplanet",
+    "url": "https://example.com/n2",
+    "source": "Phys.org",
+    "date": 1793000000,
+    "topic": "Exoplanets",
+    "papers": [
+     {
+      "url": "https://doi.org/10.1000/x",
+      "title": "JWST water",
+      "venue": "Nature",
+      "year": 2026
      }
     ]
    }
@@ -429,7 +448,18 @@
    }
   },
   "asteroids": {},
-  "t": 1794200000
+  "t": 1794200000,
+  "suggestions": {
+   "Sky watch \u203a Space weather": [
+    {
+     "user": "stargazer-example",
+     "text": "Add a Kp alert.",
+     "url": "https://github.com/TechAmatuer/Space-Lab/issues/1",
+     "date": "2026-11-09",
+     "state": "open"
+    }
+   ]
+  }
  },
  "contributions": {
   "tess_reviewed": 12,
@@ -1301,7 +1331,11 @@
     "st_spectype": "M8 V",
     "disc_year": 2017,
     "disc_method": "Transit",
-    "similarity": 0.85
+    "similarity": 0.85,
+    "ra": 4.6,
+    "dec": 16.9,
+    "sy_vmag": 15.1,
+    "constellation": "Aries"
    }
   ],
   "earth": [
@@ -4654,6 +4688,49 @@
    "year": 2025,
    "n": 2,
    "made": 1794200000
+  },
+  "live": [
+   {
+    "key": "sun-corona",
+    "caption": "The Sun right now in extreme ultraviolet",
+    "source": "NASA SDO (AIA 193)",
+    "page": "https://example.com/sdo",
+    "t": 1794200000,
+    "img": "files/plots/beyond/live-sun-corona.jpg"
+   },
+   {
+    "key": "earth-now",
+    "caption": "Earth from 36,000 km above the Americas",
+    "source": "NOAA GOES-East",
+    "page": "https://example.com/goes",
+    "t": 1794200000,
+    "img": "files/plots/beyond/live-earth-now.jpg"
+   }
+  ],
+  "wiki": {
+   "t": 1794200000,
+   "items": {
+    "99942 Apophis": {
+     "title": "99942 Apophis",
+     "extract": "Apophis is a near-Earth asteroid about 340 metres across. It will pass very close to Earth in 2029. More text here.",
+     "url": "https://en.wikipedia.org/wiki/99942_Apophis",
+     "famous": true,
+     "citations": [
+      {
+       "text": "Example, A. (2022). \"Apophis orbit\". Example Journal.",
+       "url": "https://doi.org/10.1000/example",
+       "year": 2022
+      }
+     ]
+    },
+    "2026 VQ": {
+     "title": "2026 VQ",
+     "extract": "A small asteroid that passed Earth.",
+     "url": "https://en.wikipedia.org/wiki/2026_VQ",
+     "famous": false,
+     "citations": []
+    }
+   }
   }
  },
  "daily": {

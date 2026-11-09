@@ -26,6 +26,9 @@ function track(path, event, tries = 0) {
 window.SpaceLab = {
   get data() { return D; },
   esc, num, track,
+  // Cloud forecast for a place, only when a visitor asks for it: the free Open-Meteo service gets the place rounded to ~10 km.
+  weather: (lat, lon) => fetch(`https://api.open-meteo.com/v1/forecast?latitude=${(+lat).toFixed(1)}&longitude=${(+lon).toFixed(1)}&hourly=cloud_cover&forecast_days=2&timeformat=unixtime&timezone=auto`)
+    .then(r => (r.ok ? r.json() : Promise.reject(new Error('weather service: HTTP ' + r.status)))),
   // load a file from this same site (never another site), e.g. the ZIP code table for the dark-sky finder
   load: p => /^[A-Za-z0-9_./-]+$/.test(p) && !p.includes('..') && !p.startsWith('/')
     ? fetch(p).then(r => (r.ok ? r.text() : Promise.reject(new Error('HTTP ' + r.status)))) : Promise.reject(new Error('only files from this site')),
@@ -171,7 +174,7 @@ function brief() {
   $('#v-brief').innerHTML = `<div class="card"><h3>Space brief ${esc(b.date || '')}</h3><p class="small muted">New astronomy papers from arXiv, explained in plain English by a local AI.</p></div>
     <div class="card"><details><summary>How this tab works</summary><p style="margin:0">A daily script scans arXiv for new astrophysics papers, ranks them by relevance using embeddings (bge-m3), and has a local AI summarize each paper in plain English with an explanation of why it matters for astronomy.</p></details></div>
     ${libraryCard(b.library || {})}
-    ${(b.paper_news || []).length ? `<h2>Research in the news</h2><div class="card"><p class="small muted">Stories from popular science outlets this week that link to the research paper behind them.</p><ul class="list">${b.paper_news.slice(0, 15).map(n => `<li><span><a href="${esc(n.url)}" target="_blank" rel="noopener"><b>${esc(n.title)}</b></a> <span class="small muted">${esc(n.source)}${n.date ? ' · ' + day(n.date) : ''}</span><br><span class="small">📄 the paper: ${(n.papers || []).map(p => `<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title || p.id)}</a>${p.venue ? ` <span class="muted">(${esc(p.venue)}${p.year ? ', ' + p.year : ''})</span>` : ''}`).join(' · ')}</span></span></li>`).join('')}</ul></div>` : ''}
+    ${(b.paper_news || []).length ? `<h2>Research in the news</h2><div class="card" id="paperNews"><p class="small muted">Stories from popular science outlets this week that link to the research paper behind them.</p><ul class="list">${b.paper_news.slice(0, 15).map(n => `<li><span><a href="${esc(n.url)}" target="_blank" rel="noopener"><b>${esc(n.title)}</b></a> <span class="small muted">${esc(n.source)}${n.date ? ' · ' + day(n.date) : ''}</span><br><span class="small">📄 the paper: ${(n.papers || []).map(p => `<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title || p.id)}</a>${p.venue ? ` <span class="muted">(${esc(p.venue)}${p.year ? ', ' + p.year : ''})</span>` : ''}`).join(' · ')}</span></span></li>`).join('')}</ul></div>` : ''}
     <h2>New on arXiv</h2>
     ${(b.papers || []).map(p => `<div class="card"><h3><a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title)}</a></h3><div class="small muted">${esc(p.authors)}</div><p>${esc(p.summary || '')}</p>${p.why ? `<p><b>Why it matters:</b> ${esc(p.why)}</p>` : ''}</div>`).join('') || '<div class="card empty">No new papers today (arXiv posts Sunday–Thursday evenings).</div>'}
     ${(b.news || []).length ? `<h2>Elsewhere this week</h2><div class="card"><ul class="list">${b.news.slice(0, 25).map(n => `<li><span><a href="${esc(n.url)}" target="_blank" rel="noopener">${esc(n.title)}</a><br><span class="small muted">${esc(n.source)}${n.date ? ' · ' + day(n.date) : ''}</span></span></li>`).join('')}</ul></div>` : ''}`;
@@ -196,7 +199,7 @@ function about() {
     <li><b>Space brief</b>: new research papers summarized, stories from popular science outlets matched to the papers behind them, and a 50-year paper library.</li></ul>
     <p>This page mirrors the volunteer's private dashboard. Two things stay on the Mac because they need its local AI: asking questions about the results, and searching the library by meaning (the public library search uses NASA ADS instead). Want all of it? Space Lab is free and open source: <a href="https://github.com/TechAmatuer/Space-Lab" target="_blank" rel="noopener">github.com/TechAmatuer/Space-Lab</a>.</p>
     <p>All AI runs locally. Every result is checked by a person before anything is reported to the AAVSO or the Minor Planet Center. Feedback from scientists is very welcome.</p>
-    <p><b>Privacy.</b> No cookies and no accounts. Visits, tabs opened and candidate-of-the-day votes are counted anonymously with GoatCounter. A ZIP code or location you enter for the stargazing tools stays in your own browser and is never sent anywhere. Reminders are plain calendar files.</p>
+    <p><b>Privacy.</b> No cookies and no accounts. Visits, tabs opened and candidate-of-the-day votes are counted anonymously with GoatCounter. A ZIP code or location you enter stays in your own browser. Only if you tap "Cloud forecast" is the place, rounded to about 10 km, sent to the free Open-Meteo weather service. Reminders are plain calendar files.</p>
     <p class="small muted">Data: NASA TESS/MAST, NASA Exoplanet Archive, ExoClock, ExoFOP, TESS EB catalog, JPL Small-Body Database, Sentry, Scout and Horizons, CADC SSOIS, Pan-STARRS1 (STScI), ZTF (IRSA/Caltech), Gaia (ESA), arXiv, OpenAlex, NASA ADS, and the news outlets linked in the Space brief.</p></div>`;
 }
 

@@ -295,15 +295,115 @@
     });
   }
 
+  // ------------------------------------------------------------------ tonight from your place
+  const RADIANT = { Quadrantids: [230, 49], Lyrids: [271, 34], 'Eta Aquariids': [338, -1], 'Southern Delta Aquariids': [340, -16], Perseids: [48, 58],
+                    Draconids: [262, 54], Orionids: [95, 16], Leonids: [152, 22], Geminids: [112, 33], Ursids: [217, 76] };
+  const hm = t => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  function tonight(p, now = new Date()) {
+    const start = new Date(now); start.setHours(12, 0, 0, 0);
+    if (now.getHours() < 12) start.setDate(start.getDate() - 1);
+    const N = 145, step = 6e5, ts = Array.from({ length: N }, (_, i) => new Date(start.getTime() + i * step));
+    const sun = ts.map(t => sunAlt(p.lat, p.lon, t));
+    const cross = (arr, level, up) => { for (let i = 1; i < arr.length; i++) if (up ? arr[i - 1] < level && arr[i] >= level : arr[i - 1] >= level && arr[i] < level) return ts[i].getTime(); return null; };
+    const night = { sunset: cross(sun, -0.83, false), sunrise: cross(sun, -0.83, true), dark: cross(sun, -18, false), darkEnd: cross(sun, -18, true) };
+    const darkIdx = i => sun[i] < -6;
+    const track = (ra, dec) => ts.map(t => altAz(ra, dec, p.lat, p.lon, t));
+    const upWindow = (alts) => {          // first and last moment above 10 degrees while the sky is dark, and the highest point
+      let a = null, b = null, best = null;
+      alts.forEach(([alt, az], i) => { if (alt > 10 && darkIdx(i)) { if (a === null) a = i; b = i; if (!best || alt > best[0]) best = [alt, az, i]; } });
+      return a === null ? null : { from: ts[a].getTime(), to: ts[b].getTime(), alt: best[0], az: best[1], at: ts[best[2]].getTime() };
+    };
+    const planets = ((B().sky || {}).planets || []).filter(x => x.ra !== undefined).map(x => ({ name: x.name, mag: x.mag, w: upWindow(track(x.ra, x.dec)) }));
+    const moonAlt = ts.map(t => { const [ra, dec] = moonRaDec(t); return altAz(ra, dec, p.lat, p.lon, t)[0]; });
+    const moon = { rise: cross(moonAlt, 0, true), set: cross(moonAlt, 0, false), illum: ((B().sky || {}).moon || {}).illumination, phase: ((B().sky || {}).moon || {}).phase };
+    const showers = ((B().sky || {}).showers || []).filter(x => Math.abs(x.days) <= 4 && RADIANT[x.name]).map(x => {
+      const w = upWindow(track(...RADIANT[x.name]));
+      const moonUp = w ? moonAlt[Math.round((w.at - start.getTime()) / step)] > 0 : false;
+      return { ...x, w, rate: w ? Math.round(x.zhr * Math.sin(w.alt * D2R) * (moonUp && (moon.illum || 0) > 0.5 ? 0.4 : 1)) : 0 };
+    });
+    const kp = (((B().space_weather || {}).kp) || []).filter(k => k.kp !== null).slice(-1)[0];
+    const kpNeed = p.lat >= 50 ? 5 : p.lat >= 47 ? 6 : p.lat >= 44 ? 7 : p.lat >= 40 ? 8 : 9;
+    let iss = [];
+    const beyond = window.SpaceLabBeyond;
+    if (B().iss && beyond) iss = beyond.issPasses(B().iss, p.lat, p.lon).filter(x => x.visible && x.start >= ts[0].getTime() && x.start <= ts[N - 1].getTime());
+    return { night, planets, moon, showers, kp, kpNeed, iss, start };
+  }
+  function tonightHTML(p) {
+    const t = tonight(p), n = t.night;
+    const vis = t.planets.filter(x => x.w).sort((a, b) => a.mag - b.mag);
+    return `<div class="row"><h3>🌙 Tonight from ${esc(p.label)}</h3><span class="spacer"></span><span class="small muted">times are your clock</span></div>
+      <div class="kv"><b>Sunset</b><span>${n.sunset ? hm(n.sunset) : '—'}${n.dark ? ` · fully dark from <b>${hm(n.dark)}</b>` : ' · never fully dark tonight'}${n.darkEnd ? ` to <b>${hm(n.darkEnd)}</b>` : ''}</span>
+      <b>Moon</b><span>${esc(t.moon.phase || '')}${t.moon.illum !== undefined ? `, ${Math.round(t.moon.illum * 100)}% lit` : ''}${t.moon.rise ? ` · rises ${hm(t.moon.rise)}` : ''}${t.moon.set ? ` · sets ${hm(t.moon.set)}` : ''}</span></div>
+      <h4>Planets you can see</h4>${vis.length ? `<ul class="hm-list">${vis.map(x => `<li><b>${esc(x.name)}</b>: ${hm(x.w.from)} to ${hm(x.w.to)}, highest (${Math.round(x.w.alt)}°) in the ${compass(x.w.az)} around ${hm(x.w.at)}</li>`).join('')}</ul>` : '<p class="small muted">No bright planets are up while it is dark tonight.</p>'}
+      ${t.showers.length ? `<h4>Meteors</h4><ul class="hm-list">${t.showers.map(x => `<li><b>${esc(x.name)}</b> (peak ${x.days === 0 ? 'tonight' : x.days > 0 ? 'in ' + x.days + ' day' + (x.days > 1 ? 's' : '') : Math.abs(x.days) + ' days ago'}): ${x.w ? `best around ${hm(x.w.at)}, maybe ${x.rate} an hour from a dark site` : 'the shower\'s source stays low tonight'}</li>`).join('')}</ul>` : ''}
+      ${t.iss.length ? `<h4>Space Station</h4><ul class="hm-list">${t.iss.map(x => `<li><b>${hm(x.start)}</b>, ${Math.round((x.end - x.start) / 6e4) || 1} min, up to ${Math.round(x.max)}° high, ${compass(x.az0)} → ${compass(x.az1)}</li>`).join('')}</ul>` : '<p class="small muted">No visible Space Station pass tonight.</p>'}
+      <p class="small"><b>Aurora:</b> at your latitude it usually takes Kp ${t.kpNeed} or more${t.kp ? `; right now Kp is ${num(t.kp.kp, 1)}${t.kp.kp >= t.kpNeed ? ' <span class="chip warn">look north after dark!</span>' : ''}` : ''}.</p>
+      <div class="row"><button type="button" class="b sg-clouds">☁️ Cloud forecast for tonight</button><span class="small muted">asks Open-Meteo, a free weather service, for your area (rounded to ~10 km)</span></div><div class="sg-cloudout"></div>`;
+  }
+  function wireTonight(box, p) {
+    const b = box.querySelector('.sg-clouds'); if (!b) return;
+    b.addEventListener('click', () => {
+      const out = box.querySelector('.sg-cloudout');
+      if (!S.weather) { out.textContent = 'Not available here.'; return; }
+      out.textContent = 'Checking…';
+      S.weather(p.lat, p.lon).then(w => {
+        const h = w.hourly || {}, t0 = tonight(p).start.getTime();
+        const rows = (h.time || []).map((t, i) => [t * 1000, (h.cloud_cover || [])[i]]).filter(([t]) => t >= t0 + 5 * 36e5 && t <= t0 + 20 * 36e5);
+        if (!rows.length) { out.textContent = 'No forecast for tonight.'; return; }
+        const clear = rows.filter(r => r[1] <= 30).length;
+        out.innerHTML = `<div class="sg-clouds-bars">${rows.map(([t, c]) => `<span title="${hm(t)}: ${c}% cloud" style="--c:${c}"><i></i><em>${new Date(t).getHours()}</em></span>`).join('')}</div>
+          <p class="small">${clear >= rows.length * 0.6 ? '✅ Mostly clear: a good night to go out.' : clear >= rows.length * 0.25 ? '⛅ Some clear spells.' : '☁️ Mostly cloudy tonight.'} Bars show the % of sky covered by cloud each hour (shorter = clearer). Forecast: Open-Meteo.</p>`;
+      }, e => { out.textContent = 'The weather service did not answer: ' + e.message; });
+    });
+  }
+
+  // ------------------------------------------------------------------ location chip in the header (every tab)
+  function chip() {
+    let c = document.querySelector('.sg-chip');
+    if (!c) {
+      const h1 = document.querySelector('header h1');
+      if (!h1) return;
+      c = document.createElement('button'); c.type = 'button'; c.className = 'b sg-chip';
+      h1.after(c);
+      c.addEventListener('click', openPlace);
+    }
+    const p = place();
+    c.textContent = p ? '📍 ' + p.label : '📍 Set your location';
+    c.title = 'Personalise tonight\'s sky, Space Station passes and dark-sky spots. Stays in this browser.';
+  }
+  function rerender() {
+    chip();
+    const cur = document.querySelector('nav.tabs button[aria-selected="true"]');
+    if (cur) cur.click();
+  }
+  function openPlace() {
+    const m = document.getElementById('modal'), body = document.getElementById('modalBody');
+    if (!m || !body) { const b = document.querySelector('nav.tabs button[data-tab="stargazing"]'); if (b) b.click(); return; }
+    body.innerHTML = '<div class="card sg-place"></div>';
+    placeCard(body.querySelector('.sg-place'), () => { rerender(); setTimeout(() => m.classList.remove('on'), 900); });
+    m.classList.add('on');
+  }
+
   // ------------------------------------------------------------------ tab
   function tab(el) {
     el.innerHTML = `<div class="card"><h3>🔭 Stargazing</h3><p>Tools to get out and see things: find dark skies within driving distance, get reminders for meteor showers and eclipses, and work out what that light in the sky was.</p></div>
       <div class="card sg-place"></div><div class="grid g2"><div class="card sg-dark"></div><div class="card sg-what"></div></div><div class="card sg-ev"></div>`;
-    const refresh = () => { darkFinder(el.querySelector('.sg-dark')); whatsThat(el.querySelector('.sg-what')); };
+    const refresh = () => { chip(); darkFinder(el.querySelector('.sg-dark')); whatsThat(el.querySelector('.sg-what')); };
     placeCard(el.querySelector('.sg-place'), refresh);
     refresh();
     eventsCard(el.querySelector('.sg-ev'));
   }
   S.addTab('stargazing', 'Stargazing', tab);
-  window.SpaceLabStargazing = { identify, altAz, moonRaDec, sunAlt, icsFor, lookupZip, darkSpots, skyClass };
+  S.onRender((t, el) => {
+    chip();
+    const p = place();
+    if (t === 'sky' && el && !el.querySelector('.sg-tonight')) {
+      const box = document.createElement('div'); box.className = 'card sg-tonight';
+      box.innerHTML = p ? tonightHTML(p) : '<h3>🌙 Tonight from your place</h3><p>Set your location to see when it gets dark, which planets are up and when, the best time for meteors and Space Station passes over you.</p><button type="button" class="b primary sg-setplace">📍 Set your location</button>';
+      const first = el.querySelector('.card'); if (first) first.after(box); else el.prepend(box);
+      if (p) wireTonight(box, p); else box.querySelector('.sg-setplace').addEventListener('click', openPlace);
+    }
+  });
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', chip); else chip();
+  window.SpaceLabStargazing = { identify, altAz, moonRaDec, sunAlt, icsFor, lookupZip, darkSpots, skyClass, tonight, tonightHTML, wireTonight, openPlace, place };
 })();

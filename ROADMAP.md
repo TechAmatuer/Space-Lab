@@ -27,6 +27,8 @@ Each `FAIL` line says exactly what to fix. GitHub runs the `G` (general safety) 
 | 18 | Results tab, the radar in the Space brief, `#tic-<TIC>` links and share pages |
 | 19 | Stargazing: ZIP code place, events with calendar reminders, "What's that in the sky?", dark-sky finder, ISS with saved place |
 | 20 | Review progress, "you've seen them all", the TESS big picture and next predicted dips, learning path, shareable summary |
+| 21 | Header location chip, "Tonight from your place", suggestions on every box, research-news explorer, live pictures, finding habitable worlds |
+| 22 | Asteroid guide: sizes, speeds and distances pictured, orbit links, famous asteroids with Wikipedia summaries and citations |
 
 ## Built (November 2026)
 
@@ -71,11 +73,19 @@ and "you've seen them all" summary · "you reviewed this" on cards · the big-pi
 next predicted dips with countdowns · learning path (Stargazer → Contributor) · shareable contribution summary ·
 estimate-the-depth game · satellite counts · GoatCounter on.
 
+**People first (November 2026, part 4):** "Your Space Lab" on Home · a location chip on every page and "Tonight from your
+place" (darkness, planets with times, Moon, meteors, ISS, aurora odds, optional cloud forecast) · "Suggest an improvement"
+on every box (GitHub or Discord; suggestions shown back on the box) · filterable research news · live pictures of the Sun,
+Earth and aurora · habitable worlds with constellation and "where is it now?" · asteroid guide with Wikipedia citations ·
+the local AI runs whenever the Mac is idle for 5 minutes.
+
 ## Ideas not built yet (good next tasks)
 - TESS mission tracker (which sector TESS is observing now): needs a dependable machine-readable pointing table.
 - "Click the dot": tap the moving asteroid in the frames instead of choosing an answer.
 - Automatic posts to the public Discord channel (candidate of the day, aurora alerts).
 - A small server (e.g. Cloudflare Workers) for votes and comments without GitHub, once there are regular visitors.
+- Quality control for votes like reCAPTCHA: mix known answers (confirmed planets, known binaries) into the review game to
+  weigh each reviewer's votes, then publish the labelled set as an open dataset (e.g. on Zenodo).
 - Live retraining of the planet model from public reviews (needs a review step by the owner first).
 - Full augmented-reality star finder (the sky pointer + compass is the light version).
 - Hardware projects from the fun list (water-quality sensors, a radio-telescope dongle), a bioblitz and a

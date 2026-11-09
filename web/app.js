@@ -30,6 +30,9 @@ function runExtras(tab) {
 window.SpaceLab = {
   get data() { return PUB; },
   esc: s => esc(s), num: (x, d) => num(x, d), local: true,
+  // Cloud forecast for a place, only when a visitor asks for it: the free Open-Meteo service gets the place rounded to ~10 km.
+  weather: (lat, lon) => fetch(`https://api.open-meteo.com/v1/forecast?latitude=${(+lat).toFixed(1)}&longitude=${(+lon).toFixed(1)}&hourly=cloud_cover&forecast_days=2&timeformat=unixtime&timezone=auto`)
+    .then(r => (r.ok ? r.json() : Promise.reject(new Error('weather service: HTTP ' + r.status)))),
   // load a file from this same site (never another site), e.g. the ZIP code table for the dark-sky finder
   load: p => /^[A-Za-z0-9_./-]+$/.test(p) && !p.includes('..') && !p.startsWith('/')
     ? fetch(p).then(r => (r.ok ? r.text() : Promise.reject(new Error('HTTP ' + r.status)))) : Promise.reject(new Error('only files from this site')),
@@ -226,7 +229,7 @@ function renderArxiv(d) {
   $('#arxivTop').innerHTML = `<div class="row"><h2 style="margin:4px 0">Space brief</h2><span class="spacer"></span>${d.dates.length ? `<select id="arxivDate">${opts}</select>` : ''}</div>
     <p class="muted small">New astronomy papers from arXiv, ranked against your interests by your local embedding model, explained by your local AI. Edit your interests in Setup.</p>`;
   const tr = (d.tracked || []).slice(0, 10);
-  $('#arxivBody').innerHTML = (tr.length ? `<h2>New papers about your targets</h2><div class="card"><ul class="list">${tr.map(h => `<li><span><a href="${esc(h.url)}" target="_blank" rel="noopener"><b>${esc(h.title)}</b></a><br><span class="small muted">mentions ${h.matches.map(esc).join(', ')} · ${ago(h.t)}</span></span></li>`).join('')}</ul></div>` : '') + (pn.length ? `<h2>Research in the news</h2><div class="card"><p class="small muted">Stories from popular science outlets this week that link to the research paper behind them.</p><ul class="list">${pn.slice(0, 15).map(paperNewsLi).join('')}</ul></div>` : '') +
+  $('#arxivBody').innerHTML = (tr.length ? `<h2>New papers about your targets</h2><div class="card"><ul class="list">${tr.map(h => `<li><span><a href="${esc(h.url)}" target="_blank" rel="noopener"><b>${esc(h.title)}</b></a><br><span class="small muted">mentions ${h.matches.map(esc).join(', ')} · ${ago(h.t)}</span></span></li>`).join('')}</ul></div>` : '') + (pn.length ? `<h2>Research in the news</h2><div class="card" id="paperNews"><p class="small muted">Stories from popular science outlets this week that link to the research paper behind them.</p><ul class="list">${pn.slice(0, 15).map(paperNewsLi).join('')}</ul></div>` : '') +
     (cards || '<div class="card empty">No digest yet. It runs every morning (arXiv posts new papers Sunday–Thursday evenings).</div>') +
     (news.length ? `<h2>Elsewhere this week</h2><div class="card"><ul class="list">${news.slice(0, 25).map(n => `<li><span><a href="${esc(n.url)}" target="_blank" rel="noopener">${esc(n.title)}</a><br><span class="small muted">${esc(n.source)}${n.date ? ' · ' + new Date(n.date * 1000).toLocaleDateString() : ''}</span></span></li>`).join('')}</ul></div>` : '');
   afterRender();
@@ -462,6 +465,7 @@ function renderSetup(cfg) {
       <label class="f"><span>TESS stars at a time (0 = automatic)</span><input type="number" id="sTessW" min="0" max="12" value="${esc(cfg.tess.workers || 0)}"></label>
       <label class="f"><span>Asteroids per night</span><input type="number" id="sPcN" min="1" max="30" value="${esc(cfg.precovery.max_targets)}"></label></div>
       <label class="f" style="margin-top:8px"><input type="checkbox" id="sAlways" ${cfg.always_on ? 'checked' : ''}> <b>Full-time mode</b>: keep this Mac awake and keep hunting (TESS stars and the paper library run back-to-back whenever nothing else is scheduled). Keep the Mac plugged in; closing a laptop lid still puts it to sleep.</label>
+      <label class="f" style="margin-top:8px"><input type="checkbox" id="sAiIdle" ${cfg.ai_when_idle !== false ? 'checked' : ''}> <b>Run the local AI whenever this Mac is idle</b> for <input type="number" id="sIdleMin" min="1" max="60" value="${esc(cfg.idle_minutes || 5)}" style="width:56px"> minutes: AI first looks for new TESS candidates and a fresh news radar. It stops as soon as you use the Mac again.</label>
       <button class="b primary" id="saveSched">Save</button> <span id="saved2" class="small ok-t"></span>
       <p class="small muted">Jobs run one at a time, at night, so they never compete with you or with Meridian for memory.</p></div>
     <h2>Space brief interests</h2><div class="card"><label class="f"><span>One interest per line. Papers are ranked by how close they are in meaning (local bge-m3 embeddings).</span><textarea id="sInterests">${esc(cfg.arxiv.interests.join('\n'))}</textarea></label>
@@ -567,7 +571,7 @@ document.addEventListener('click', async e => {
     }
     if (t.id === 'saveSched') {
       const schedule = {}; $$('[data-sched]').forEach(i => schedule[i.dataset.sched] = i.value);
-      await api('api/settings', { schedule, always_on: $('#sAlways').checked, tess: { max_targets: +$('#sTessN').value, workers: +$('#sTessW').value }, precovery: { max_targets: +$('#sPcN').value } });
+      await api('api/settings', { schedule, always_on: $('#sAlways').checked, ai_when_idle: $('#sAiIdle').checked, idle_minutes: Math.max(1, +$('#sIdleMin').value || 5), tess: { max_targets: +$('#sTessN').value, workers: +$('#sTessW').value }, precovery: { max_targets: +$('#sPcN').value } });
       $('#saved2').textContent = 'Saved'; return;
     }
     if (t.id === 'saveInterests') {

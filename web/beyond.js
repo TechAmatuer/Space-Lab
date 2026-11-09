@@ -183,9 +183,15 @@
       <table class="compact"><tr><th>object</th><th>first seen</th><th>classifier</th><th></th></tr>${s.map(x => `<tr><td>${link(x.url, esc(x.id))}</td><td>${mjdDate(x.first_mjd)}</td><td class="mono">${x.prob ? Math.round(x.prob * 100) + '%' : '—'}</td><td>${x.ra !== null ? link(`https://sky.esa.int/esasky/?target=${x.ra}%20${x.dec}&hips=DSS2+color&fov=0.1`, 'sky') : ''}</td></tr>`).join('')}</table>
       <p class="small muted">Candidates, not confirmed: confirmation needs a spectrum. Data: ZTF via the ALeRCE broker.</p>`);
   }
+  function liveCard() {
+    const L = B().live || [];
+    if (!L.length) return '';
+    return card('📡 Live from space', `<p class="small">The newest pictures from spacecraft watching the Sun and the Earth, refreshed every time this page updates (tap one to enlarge).</p>
+      <div class="bx-live">${L.map(x => `<figure><img class="plot" src="${esc(x.img)}" alt="${esc(x.caption)}" loading="lazy"><figcaption class="small">${esc(x.caption)}<br><span class="muted">${esc(x.source)} · ${ago(x.t)}${x.page ? ` · <a href="${esc(x.page)}" target="_blank" rel="noopener">latest at the source ↗</a>` : ''}</span></figcaption></figure>`).join('')}</div>`, 'bx-livecard');
+  }
   function skyTab(el) {
     el.innerHTML = `<div class="card"><h3>🔭 Sky watch</h3><p>What's happening up there right now: the Moon and planets, the Space Station, the Sun's mood, fireballs, comets, black-hole collisions and exploding stars. Updated every 3 hours ${B().t ? '(last ' + ago(B().t) + ')' : ''}.</p></div>
-      <div class="grid g2">${skyCard()}${issCard()}</div>${weatherCard()}<div class="grid g2">${fireballCard()}${cometCard()}</div><div class="grid g2">${gwCard()}${snCard()}</div>`;
+      <div class="grid g2">${skyCard()}${issCard()}</div>${liveCard()}${weatherCard()}<div class="grid g2">${fireballCard()}${cometCard()}</div><div class="grid g2">${gwCard()}${snCard()}</div>`;
     wireISS(el);
     const sb = el.querySelector('.bx-sun'); if (sb) sb.addEventListener('click', () => listenSun(sb));
   }
@@ -311,9 +317,11 @@
     if (!h) return card('🌍 Possibly habitable worlds', none('exoplanet'));
     const rows = h.filter(p => p.similarity).sort((a, b) => b.similarity - a.similarity).slice(0, 15);
     return card('🌍 The most Earth-like planets found so far', `<p class="small">Planets less than 2.5 times Earth's width that get roughly Earth-like sunlight from their star. "Habitable" only means liquid water might be possible on the surface, not that anything lives there.</p>
-      <table class="compact"><tr><th>planet</th><th>size</th><th>sunlight</th><th>temperature*</th><th>distance</th><th>Earth-likeness</th></tr>${rows.map(p => `<tr><td><b>${esc(p.pl_name)}</b><div class="small muted">${esc(p.st_spectype || '')} star, found ${esc(p.disc_year || '')} (${esc(p.disc_method || '')})</div></td>
+      <table class="compact"><tr><th>planet</th><th>size</th><th>sunlight</th><th>temperature*</th><th>distance</th><th>Earth-likeness</th><th>in the sky</th></tr>${rows.map(p => `<tr><td><b>${esc(p.pl_name)}</b><div class="small muted">${esc(p.st_spectype || '')} star, found ${esc(p.disc_year || '')} (${esc(p.disc_method || '')})</div></td>
         <td class="mono">${num(p.pl_rade, 2)}× Earth</td><td class="mono">${num(p.pl_insol, 2)}× Earth's</td><td class="mono">${p.pl_eqt ? Math.round(p.pl_eqt - 273) + ' °C' : '—'}</td>
-        <td class="mono">${p.sy_dist ? Math.round(p.sy_dist * 3.26) + ' ly' : '—'}</td><td><span class="bx-meter"><i style="width:${Math.round(p.similarity * 100)}%"></i></span> ${num(p.similarity, 2)}</td></tr>`).join('')}</table>
+        <td class="mono">${p.sy_dist ? Math.round(p.sy_dist * 3.26) + ' ly' : '—'}</td><td><span class="bx-meter"><i style="width:${Math.round(p.similarity * 100)}%"></i></span> ${num(p.similarity, 2)}</td>
+        <td class="small">${p.ra !== undefined && p.ra !== null ? `${p.constellation ? 'in <b>' + esc(p.constellation) + '</b>' : ''}${p.sy_vmag ? `, star magnitude ${num(p.sy_vmag, 1)} (${p.sy_vmag < 6 ? 'naked eye' : p.sy_vmag < 9 ? 'binoculars' : p.sy_vmag < 13 ? 'small telescope' : 'big telescope'})` : ''}
+          <br><button type="button" class="b bx-findhab" data-ra="${p.ra}" data-dec="${p.dec}" data-name="${esc(p.hostname)}">Where is it now?</button> ${link(`https://sky.esa.int/esasky/?target=${p.ra}%20${p.dec}&hips=DSS2+color&fov=0.5`, 'sky map')}<span class="bx-findout"></span>` : ''}</td></tr>`).join('')}</table>
       <p class="small muted">*Temperature without any atmosphere (Earth's would be about −18 °C; greenhouse gases warm it to +15 °C). "Earth-likeness" is a rough score from size and sunlight only (1 = Earth), not the full Earth Similarity Index. Data: NASA Exoplanet Archive.</p>`);
   }
   function earthCard() {
@@ -337,6 +345,14 @@
       <h2 id="bx-eng">🛠 Engineering: how do we get there?</h2>${launchCard()}<div class="grid g2">${rocketCard()}${orbitCard()}</div>
       <h2 id="bx-earth">🌎 Earth and other worlds</h2>${earthCard()}${card('🫨 Quakes on other worlds', list(QUAKES))}
       <p class="small muted">Live data updated ${B().t ? ago(B().t) : '—'}. Sources: NASA (Exoplanet Archive, GIBS, EPIC), USGS, The Space Devs. Science notes written for this page; corrections welcome on GitHub.</p>`;
+    el.querySelectorAll('.bx-findhab').forEach(b => b.addEventListener('click', () => {
+      const out = b.parentElement.querySelector('.bx-findout');
+      let pl = null; try { pl = JSON.parse(localStorage.getItem('sl_place')); } catch (_) { /* none */ }
+      if (!pl) { out.innerHTML = ' Set your location (📍 at the top) first.'; return; }
+      const SG = window.SpaceLabStargazing; if (!SG) return;
+      const [alt, az] = SG.altAz(+b.dataset.ra, +b.dataset.dec, pl.lat, pl.lon, new Date());
+      out.innerHTML = alt > 0 ? ` Right now ${esc(b.dataset.name)} is <b>${Math.round(alt)}°</b> up in the <b>${compass(az)}</b>.` : ` ${esc(b.dataset.name)} is below your horizon right now.`;
+    }));
     el.querySelectorAll('[data-jump]').forEach(b => b.addEventListener('click', () => { const t = document.getElementById(b.dataset.jump); if (t && t.scrollIntoView) t.scrollIntoView({ behavior: 'smooth' }); }));
     el.querySelectorAll('.bx-els button').forEach(b => b.addEventListener('click', () => {
       const on = !b.classList.contains('primary');

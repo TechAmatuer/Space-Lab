@@ -33,6 +33,8 @@ DEFAULTS = {
         'embed': 'bge-m3',
     },
     'always_on': False,         # full-time mode: keep the Mac awake and run TESS + library back-to-back when idle
+    'ai_when_idle': True,       # run the local AI (TESS first looks, news radar) whenever nobody has used the Mac for a while
+    'idle_minutes': 5,
     'schedule': {               # local time, 24h. Jobs run one at a time.
         'tess': '01:30',
         'precovery': '03:30',

@@ -121,3 +121,34 @@ nav.tabs .navgroup:first-child{margin-left:0}
 .sg-kinds{gap:6px;flex-wrap:wrap;margin:8px 0}
 .sg-guesses li{margin:6px 0}
 .bx-form input[type=datetime-local]{max-width:220px}
+
+/* ---- location chip, tonight, live images, suggestions, news explorer, Home actions */
+.sg-chip{white-space:nowrap;font-size:12px;padding:3px 10px}
+.sg-tonight .kv{margin-bottom:6px}
+.sg-clouds-bars{display:flex;align-items:flex-end;gap:3px;height:70px;margin:8px 0 2px}
+.sg-clouds-bars span{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;flex:1;max-width:26px}
+.sg-clouds-bars i{display:block;width:100%;height:calc(var(--c) * 0.55px + 2px);background:linear-gradient(#b3bfcb,#8a99a9);border-radius:3px 3px 0 0}
+.sg-clouds-bars em{font-style:normal;font-size:10px;color:var(--muted)}
+.bx-live{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+.bx-live figure{margin:0} .bx-live img{width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:8px;background:#000;cursor:zoom-in}
+.sl-suggest{margin-top:8px;border-top:1px dashed var(--line);padding-top:4px;text-align:right}
+.sl-sugbtn{background:none;border:0;color:var(--muted);font:inherit;font-size:12px;cursor:pointer;padding:2px 0}
+.sl-sugbtn:hover{color:var(--accent)}
+.sl-sugform{text-align:left;margin-top:6px}
+.sl-sugform textarea{width:100%;font:inherit;background:var(--panel-2);color:var(--ink);border:1px solid var(--line-2);border-radius:6px;padding:6px}
+.sl-suglist{margin:4px 0 8px;padding-left:18px;font-size:13px}
+.hm-actions{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px;margin:8px 0}
+.hm-act{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;font:inherit;padding:10px 12px;border-radius:10px;border:1px solid var(--line-2);background:var(--panel-2);color:var(--ink);cursor:pointer}
+.hm-act:hover{border-color:var(--accent)} .hm-act span{font-size:12px;color:var(--muted)}
+.hm-nf{gap:6px;flex-wrap:wrap} .hm-nf input,.hm-nf select{font:inherit;background:var(--panel-2);color:var(--ink);border:1px solid var(--line-2);border-radius:6px;padding:4px 8px}
+.hm-ntopics{gap:6px;flex-wrap:wrap;margin:8px 0}
+@media (max-width: 600px){ .sg-chip{order:2} }
+
+/* ---- asteroid guide (asteroids.js) */
+.as-flys{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;margin:8px 0}
+.as-fly{background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.as-dist{width:100%;height:auto;max-width:340px;display:block;margin:4px 0}
+.as-dist text{font-size:9px;fill:var(--muted)} .as-axis{stroke:var(--line-2);stroke-dasharray:3 3}
+.as-earth{fill:#4a90d9} .as-moon{fill:#c9c9c9} .as-rock{fill:var(--p-asteroids)}
+.as-famous{border-top:1px solid var(--line);padding:6px 0} .as-famous summary{cursor:pointer}
+.as-famous ol{padding-left:18px} .as-famous li{margin:3px 0}

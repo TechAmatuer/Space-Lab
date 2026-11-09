@@ -211,7 +211,7 @@ def launches(log):
 
 
 def habitable_worlds(log):
-    q = ('select pl_name,hostname,pl_rade,pl_bmasse,pl_eqt,pl_insol,sy_dist,st_teff,st_spectype,disc_year,disc_method '
+    q = ('select pl_name,hostname,pl_rade,pl_bmasse,pl_eqt,pl_insol,sy_dist,st_teff,st_spectype,disc_year,disc_method,ra,dec,sy_vmag '
          'from pscomppars where pl_rade < 2.5 and pl_insol between 0.25 and 1.8 order by sy_dist')
     try:
         txt = net.fetch_text(NEA_TAP, params={'query': q, 'format': 'json'}, timeout=120)
@@ -220,6 +220,16 @@ def habitable_worlds(log):
             # rough Earth-similarity from size and sunlight only (1 = Earth); not the full Earth Similarity Index
             rr, s = _f(r.get('pl_rade')), _f(r.get('pl_insol'))
             r['similarity'] = round(math.sqrt((1 - abs((rr - 1) / (rr + 1))) * (1 - abs((s - 1) / (s + 1)))), 2) if rr and s else None
+        try:                       # which constellation the star is in, so people can find it
+            from astropy.coordinates import SkyCoord, get_constellation
+            import astropy.units as u
+            ok = [r for r in rows[:40] if r.get('ra') is not None and r.get('dec') is not None]
+            if ok:
+                names = get_constellation(SkyCoord([r['ra'] for r in ok] * u.deg, [r['dec'] for r in ok] * u.deg))
+                for r, n in zip(ok, names):
+                    r['constellation'] = str(n)
+        except Exception as e:
+            log(f'  constellations skipped: {e}')
         return rows[:40]
     except Exception as e:
         log(f'  habitable worlds skipped: {e}')
@@ -284,6 +294,121 @@ def earth_images(log, prev=None, max_age_h=12):
     except Exception as e:
         log(f'  EPIC image skipped: {e}')
     return out or None
+
+
+LIVE = [('sun-corona', 'The Sun right now in extreme ultraviolet: the hot corona, flares and dark coronal holes',
+         'NASA SDO (AIA 193)', ['https://sdo.gsfc.nasa.gov/assets/img/latest/latest_1024_0193.jpg'], 'https://sdo.gsfc.nasa.gov/data/'),
+        ('sun-spots', 'The Sun in visible light: today\'s sunspots', 'NASA SDO (HMI)',
+         ['https://sdo.gsfc.nasa.gov/assets/img/latest/latest_1024_HMIIC.jpg'], 'https://sdo.gsfc.nasa.gov/data/'),
+        ('sun-cme', 'The Sun blocked out (the white circle shows its size): watch for clouds of gas thrown into space',
+         'ESA/NASA SOHO (LASCO C3)', ['https://soho.nascom.nasa.gov/data/realtime/c3/1024/latest.jpg'], 'https://soho.nascom.nasa.gov/data/realtime-images.html'),
+        ('earth-now', 'Earth from 36,000 km above the Americas, in the last few hours', 'NOAA GOES-East',
+         ['https://cdn.star.nesdis.noaa.gov/GOES19/ABI/FD/GEOCOLOR/1808x1808.jpg', 'https://cdn.star.nesdis.noaa.gov/GOES16/ABI/FD/GEOCOLOR/1808x1808.jpg'],
+         'https://www.star.nesdis.noaa.gov/GOES/'),
+        ('aurora', 'Aurora forecast for tonight (northern hemisphere): green to red = more likely', 'NOAA SWPC',
+         ['https://services.swpc.noaa.gov/images/animations/ovation/north/latest.jpg'], 'https://www.swpc.noaa.gov/products/aurora-30-minute-forecast')]
+
+
+def live_images(log, prev=None, max_age_min=50):
+    """Fresh pictures of the Sun, the Earth and the aurora, saved here so visitors load them from this site only."""
+    if prev and time.time() - min(x.get('t') or 0 for x in prev) < max_age_min * 60 and all((config.DATA / x['path']).is_file() for x in prev):
+        return prev
+    d = config.DATA / 'plots' / 'beyond'
+    d.mkdir(parents=True, exist_ok=True)
+    old = {x['key']: x for x in prev or []}
+    out = []
+    for key, caption, source, urls, page in LIVE:
+        got = None
+        for u in urls:
+            try:
+                b = net.fetch(u, timeout=90, retries=2)
+                if _jpeg(b) or (b[:4] == b'\x89PNG' and len(b) > 20000):
+                    got = b
+                    break
+            except Exception as e:
+                log(f'  live image {key} ({u.split("/")[2]}) skipped: {e}')
+        rel = f'plots/beyond/live-{key}.jpg'
+        if got:
+            (config.DATA / rel).write_bytes(got)
+            out.append({'key': key, 'caption': caption, 'source': source, 'page': page, 'path': rel, 't': time.time()})
+        elif key in old and (config.DATA / rel).is_file():
+            out.append(old[key])              # keep the last good picture
+    return out or None
+
+
+# ------------------------------------------------------------------ asteroids on Wikipedia: summary + scientific citations
+WIKI = 'https://en.wikipedia.org'
+WIKI_UA = {'User-Agent': 'SpaceLab/1.0 (https://github.com/TechAmatuer/Space-Lab; citizen science, low request rate)'}
+FAMOUS = ['99942 Apophis', '101955 Bennu', '162173 Ryugu', '65803 Didymos', '2024 YR4', '433 Eros', '25143 Itokawa',
+          '16 Psyche', '1 Ceres', '4 Vesta', '3200 Phaethon', '\u02bbOumuamua']
+CITE = re.compile(r'<cite[^>]*class="[^"]*citation (?:journal|arxiv|conference)[^"]*"[^>]*>(.*?)</cite>', re.S)
+
+
+def _plain(h):
+    import html as _html
+    return re.sub(r'\s+', ' ', _html.unescape(re.sub(r'<[^>]+>', '', h or ''))).strip()
+
+
+def wiki_page(title, log):
+    """Summary and up to 6 journal citations (with DOI or arXiv links) from one Wikipedia article."""
+    t = urllib.parse.quote(title.replace(' ', '_'), safe='')
+    summ = net.fetch_json(f'{WIKI}/api/rest_v1/page/summary/{t}', headers=WIKI_UA, timeout=40)
+    if summ.get('type') == 'disambiguation' or not summ.get('extract'):
+        return None
+    page = net.fetch_json(f'{WIKI}/w/api.php', params={'action': 'parse', 'page': summ.get('title') or title, 'prop': 'text',
+                                                       'format': 'json', 'formatversion': 2, 'redirects': 1}, headers=WIKI_UA, timeout=60)
+    body = (page.get('parse') or {}).get('text') or ''
+    cites = []
+    for raw in CITE.findall(body):
+        doi = re.search(r'href="(https://doi\.org/[^"]+)"', raw)
+        arx = re.search(r'href="(https://arxiv\.org/abs/[^"]+)"', raw)
+        link = (doi or arx).group(1) if (doi or arx) else None
+        text = _plain(raw)
+        if link and len(text) > 30 and all(c['url'] != link for c in cites):
+            year = re.search(r'\((\d{4})\)|\b(19|20)\d{2}\b', text)
+            cites.append({'text': text[:300], 'url': link.replace('&amp;', '&'), 'year': int(re.search(r'(19|20)\d{2}', text).group(0)) if year and re.search(r'(19|20)\d{2}', text) else None})
+    cites.sort(key=lambda c: -(c['year'] or 0))
+    return {'title': summ.get('title'), 'extract': summ.get('extract')[:900], 'url': ((summ.get('content_urls') or {}).get('desktop') or {}).get('page'),
+            'citations': cites[:6]}
+
+
+def wiki_find(des, log):
+    """Wikipedia article for an asteroid designation like '2024 YR4' or '(99942) Apophis', if there is one."""
+    key = re.sub(r'[()]', '', des or '').strip()
+    if not key:
+        return None
+    js = net.fetch_json(f'{WIKI}/w/api.php', params={'action': 'query', 'list': 'search', 'srsearch': f'"{key}" asteroid', 'srlimit': 3,
+                                                     'format': 'json'}, headers=WIKI_UA, timeout=40)
+    for hit in (js.get('query') or {}).get('search') or []:
+        t = hit.get('title') or ''
+        if key.lower() in t.lower() or key.split(' ')[0].lower() in t.lower().split(' '):
+            return t
+    return None
+
+
+def asteroid_wiki(con, log, prev=None, max_age_days=7, budget=40):
+    """Plain-English summaries and journal citations for famous asteroids and the ones on this lab's lists (weekly)."""
+    if prev and time.time() - (prev.get('t') or 0) < max_age_days * 86400:
+        return prev
+    w = db.kv_get(con, 'neo_watch') or {}
+    names = list(FAMOUS)
+    for r in (w.get('sentry') or [])[:8] + (w.get('cad') or [])[:10]:
+        if r.get('fullname') or r.get('des'):
+            names.append(r.get('fullname') or r.get('des'))
+    out, seen = {}, set()
+    for n in names[:budget]:
+        try:
+            title = n if n in FAMOUS else wiki_find(n, log)
+            if not title or title in seen:
+                continue
+            seen.add(title)
+            pg = wiki_page(title, log)
+            if pg:
+                pg['famous'] = n in FAMOUS
+                out[re.sub(r'[()]', '', n).strip()] = pg
+        except Exception as e:
+            log(f'  Wikipedia: {n} skipped: {e}')
+    return {'t': time.time(), 'items': out} if out else None
 
 
 # ------------------------------------------------------------------ ISS path (Earth-fixed positions, no observer)
@@ -564,27 +689,56 @@ def parse_issue(body):
     return out
 
 
+def _kind(it):
+    """Which review form an issue came from: by label, or by the title the form sets (labels may not exist in the repo)."""
+    labels = {(lb.get('name') if isinstance(lb, dict) else str(lb)) for lb in it.get('labels') or []}
+    title = (it.get('title') or '').strip()
+    if 'suggestion' in labels or title.lower().startswith('suggestion'):
+        return 'suggestion'
+    if 'candidate-review' in labels or re.match(r'^TIC\s*\d+\s+review', title, re.I):
+        return 'tess'
+    if 'asteroid-review' in labels or title.lower().startswith('asteroid sighting review'):
+        return 'asteroid'
+    return None
+
+
 def community(log, repo):
+    """Reviews and suggestions people posted on GitHub: leaderboard, per-candidate votes, suggestions per page section."""
     if not repo or '/' not in repo:
         return None
-    people, tess, ast = {}, {}, {}
+    people, tess, ast, sugg = {}, {}, {}, {}
     try:
-        for label, bucket in (('candidate-review', tess), ('asteroid-review', ast)):
-            js = net.fetch_json(GH_ISSUES.format(repo=repo), params={'labels': label, 'state': 'all', 'per_page': 100},
+        items = []
+        for page in (1, 2, 3):
+            js = net.fetch_json(GH_ISSUES.format(repo=repo), params={'state': 'all', 'per_page': 100, 'page': page},
                                 headers={'Accept': 'application/vnd.github+json'}, timeout=40)
-            for it in js if isinstance(js, list) else []:
-                user = (it.get('user') or {}).get('login') or '?'
-                f = parse_issue(it.get('body'))
-                verdict = f.get('what do you think it is?') or f.get('what do you see?') or 'not given'
-                key = f.get('tic number') or f.get('sighting') or ''
-                key = re.sub(r'\D', '', key) if label == 'candidate-review' else key[:80]
-                if not key or verdict.startswith('_No response'):
-                    continue
-                people[user] = people.get(user, 0) + 1
-                bucket.setdefault(key, {}).setdefault(verdict, 0)
-                bucket[key][verdict] += 1
+            if not isinstance(js, list) or not js:
+                break
+            items += [it for it in js if 'pull_request' not in it]
+            if len(js) < 100:
+                break
+        for it in items:
+            kind, f = _kind(it), parse_issue(it.get('body'))
+            user = (it.get('user') or {}).get('login') or '?'
+            if kind == 'suggestion':
+                sec, idea = (f.get('which part of the page?') or 'General').strip()[:80], (f.get('your suggestion') or '').strip()
+                if idea and not idea.startswith('_No response'):
+                    sugg.setdefault(sec, []).append({'user': user, 'text': idea[:400], 'url': it.get('html_url'),
+                                                     'date': it.get('created_at'), 'state': it.get('state')})
+                continue
+            if kind not in ('tess', 'asteroid'):
+                continue
+            verdict = f.get('what do you think it is?') or f.get('what do you see?') or 'not given'
+            key = f.get('tic number') or f.get('sighting') or ''
+            key = re.sub(r'\D', '', key) if kind == 'tess' else key[:80]
+            if not key or verdict.startswith('_No response'):
+                continue
+            people[user] = people.get(user, 0) + 1
+            bucket = tess if kind == 'tess' else ast
+            bucket.setdefault(key, {}).setdefault(verdict, 0)
+            bucket[key][verdict] += 1
         board = sorted(({'user': u, 'reviews': n} for u, n in people.items()), key=lambda x: -x['reviews'])[:20]
-        return {'leaderboard': board, 'tess': tess, 'asteroids': ast, 't': time.time()}
+        return {'leaderboard': board, 'tess': tess, 'asteroids': ast, 'suggestions': {k: v[:8] for k, v in sugg.items()}, 't': time.time()}
     except Exception as e:
         log(f'  community reviews skipped: {e}')
         return None
@@ -649,7 +803,8 @@ def run(ctx):
              'habitable': lambda: habitable_worlds(log), 'sky': lambda: sky_week(log),
              'earth': lambda: earth_images(log, prev.get('earth')), 'iss': lambda: iss_track(log, prev.get('iss')),
              'quakes': lambda: earthquakes(log), 'satellites': lambda: satellites(log, prev.get('satellites')),
-             'darksky': lambda: dark_sky_map(log, prev.get('darksky')), 'zip': lambda: zip_index(log, prev.get('zip'))}
+             'darksky': lambda: dark_sky_map(log, prev.get('darksky')), 'zip': lambda: zip_index(log, prev.get('zip')),
+             'live': lambda: live_images(log, prev.get('live')), 'wiki': lambda: asteroid_wiki(con, log, prev.get('wiki'))}
     out, ok = {}, []
     for k, fn in parts.items():
         v = fn()

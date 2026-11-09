@@ -150,6 +150,26 @@ def keep_awake(on):
         log('full-time mode off: the Mac may sleep normally')
 
 
+def ai_when_idle(cfg, con):
+    """When nobody has touched the Mac for `idle_minutes`, let the local AI catch up (TESS first looks, news radar)."""
+    if not cfg.get('ai_when_idle', True):
+        return False
+    from .idle import user_idle_seconds
+    s = user_idle_seconds()
+    STATE['user_idle'] = s
+    if s is None or s < float(cfg.get('idle_minutes') or 5) * 60:
+        return False
+    with LOCK:
+        free = not QUEUED and not STATE['running']
+    if not free:
+        return False
+    last = con.execute("SELECT MAX(started) FROM runs WHERE job='ai'").fetchone()[0]
+    if last and time.time() - last < 20 * 60:
+        return False
+    enqueue('ai', 'Mac idle')
+    return True
+
+
 def fill_idle(cfg, con):
     with LOCK:
         idle = not QUEUED and not STATE['running']
@@ -209,7 +229,7 @@ def scheduler():
                        if not p.name.startswith('.') and p.name not in ('processed', 'failed')):
                     enqueue('exowatch', 'new dataset')
             keep_awake(bool(cfg.get('always_on')))
-            if cfg.get('always_on'):
+            if not ai_when_idle(cfg, con) and cfg.get('always_on'):
                 fill_idle(cfg, con)
         except Exception as e:
             log(f'scheduler: {e}')
@@ -237,7 +257,7 @@ def state():
             'jobs': {k: v[1] for k, v in JOBS.items()}, 'inbox': str(config.EXO_INBOX),
             'profile': {k: cfg.get(k) for k in ('observer_name', 'aavso_code', 'contact_email', 'sarc_verified')},
             'selftest': db.kv_get(con, 'selftest'), 'disk': db.kv_get(con, 'disk'), 'contributions': db.contributions(con),
-            'visitors': db.kv_get(con, 'visitors')}
+            'visitors': db.kv_get(con, 'visitors'), 'user_idle': STATE.get('user_idle'), 'ai_when_idle': cfg.get('ai_when_idle', True)}
 
 
 def api_arxiv(q):
@@ -362,7 +382,7 @@ def api_logs(q):
     return {'job': job, 'file': str(files[-1]) if files else None, 'text': tail(files[-1]) if files else '(no runs yet)'}
 
 
-SETTABLE = {'always_on', 'observer_name', 'aavso_code', 'contact_email', 'sarc_verified', 'discord_webhook', 'discord_alerts', 'schedule', 'arxiv',
+SETTABLE = {'always_on', 'ai_when_idle', 'idle_minutes', 'observer_name', 'aavso_code', 'contact_email', 'sarc_verified', 'discord_webhook', 'discord_alerts', 'schedule', 'arxiv',
             'tess', 'precovery', 'llm', 'telescope', 'share', 'neocp', 'targets'}
 MASK = '••••••••'
 

@@ -1,0 +1,12 @@
+name: Suggest an improvement
+description: An idea for one part of the Space Lab page
+title: "Suggestion"
+labels: ["suggestion"]
+body:
+  - type: input
+    id: section
+    attributes: {label: Which part of the page?, placeholder: "e.g. Sky watch › Space weather"}
+  - type: textarea
+    id: idea
+    attributes: {label: Your suggestion, placeholder: "What would make this part more useful or more fun?"}
+    validations: {required: true}

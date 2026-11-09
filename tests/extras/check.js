@@ -74,7 +74,7 @@ async function boot({ extras = true, storage = {}, data = FIXTURE, hash = '', se
   w.fetch = async u => (/zip\.txt$/.test(String(u)) ? { ok: true, text: async () => ZIPS } : { ok: true, json: async () => json, text: async () => JSON.stringify(json) });
   w.eval(read('web/public.js'));
   if (extras) {
-    for (const f of ['web/beyond.js', 'web/extras.js', 'web/home.js', 'web/stargazing.js']) {
+    for (const f of ['web/beyond.js', 'web/extras.js', 'web/home.js', 'web/stargazing.js', 'web/asteroids.js']) {
       try { w.eval(read(f)); } catch (e) { rec.errors.push(f + ' crashed while loading: ' + e.message); }
     }
   }
@@ -124,7 +124,7 @@ const CHECKS = {
     // click every extras control in every tab: the page must survive
     for (const t of env.$$('nav.tabs button').map(b => b.dataset.tab).filter(Boolean)) {
       const view = await env.tab(t);
-      for (const el of [...view.querySelectorAll('button[class*="sl-"], a[class*="sl-"], [class*="sl-"] button, [class*="sl-"][role=button], .sl-fav, button[class*="bx-"], [class*="bx-"] button, button[class*="hm-"], [class*="hm-"] button, button[class*="sg-"], [class*="sg-"] button')]) {
+      for (const el of [...view.querySelectorAll('button[class*="sl-"], a[class*="sl-"], [class*="sl-"] button, [class*="sl-"][role=button], .sl-fav, button[class*="bx-"], [class*="bx-"] button, button[class*="hm-"], [class*="hm-"] button, button[class*="sg-"], [class*="sg-"] button, [class*="as-"] button')]) {
         if (!el.isConnected) continue;
         el.click(); await sleep(5);
         if (env.visible().length !== 1 || /undefined/.test(env.w.location.hash)) { fails.push(`clicking "${norm(el.textContent).slice(0, 30)}" in tab ${t} broke the page`); break; }
@@ -132,8 +132,9 @@ const CHECKS = {
     }
     // Links out are fine (they open in a new tab when clicked); loading anything from another site is not.
     const LINKS_OK = ['https://github.com/TechAmatuer/Space-Lab', 'https://techamatuer.github.io/Space-Lab/', 'https://sky.esa.int/esasky/', 'http://www.w3.org/2000/svg',
-                      'https://www.openstreetmap.org/', 'https://www.lightpollutionmap.info/', 'https://calendar.google.com/calendar/'];
-    for (const f of ['web/extras.js', 'web/beyond.js', 'web/home.js', 'web/stargazing.js']) {
+                      'https://www.openstreetmap.org/', 'https://www.lightpollutionmap.info/', 'https://calendar.google.com/calendar/',
+                      'https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html', 'https://eyes.nasa.gov/apps/asteroids/'];
+    for (const f of ['web/extras.js', 'web/beyond.js', 'web/home.js', 'web/stargazing.js', 'web/asteroids.js']) {
       const src = read(f);
       const urls = (src.match(/https?:\/\/[^\s'"`)]+/g) || []).filter(u => !LINKS_OK.some(ok => u.startsWith(ok)));
       if (urls.length) fails.push(f + ' may only link to the project, its page and ESASky; found: ' + urls.join(', '));
@@ -574,10 +575,80 @@ const CHECKS = {
     if (!ct || !/reviewed 3 TESS planet candidates/.test(ct.value)) fails.push('My lab must offer a shareable summary of what you did');
     report(20, 'Progress, celebration, big picture, path and sharing', fails);
   },
+  async 21() {
+    const fails = [], env = await boot();
+    const chip = env.$('header .sg-chip');
+    if (!chip || chip.closest('nav.tabs')) { fails.push('a "Set your location" chip must be in the header (not in the tabs)'); return report(21, 'Location everywhere, suggestions, news, live', fails); }
+    const sky0 = await env.tab('sky');
+    if (!sky0.querySelector('.sg-tonight .sg-setplace')) fails.push('without a place, Sky watch must invite people to set their location');
+    chip.click(); await sleep(5);
+    const m = env.$('#modal.on .sg-place');
+    if (!m) fails.push('the chip must open the place picker');
+    else { m.querySelector('.sg-zip').value = '12345'; m.querySelector('.sg-setzip').click(); await sleep(30); }
+    if (!/ZIP 12345/.test(env.$('header .sg-chip').textContent)) fails.push('after choosing, the chip must show the place');
+    const sky = await env.tab('sky');
+    const tn = sky.querySelector('.sg-tonight');
+    if (!tn || !/Tonight from ZIP 12345/.test(tn.textContent) || !/Sunset/.test(tn.textContent) || !/Planets you can see/.test(tn.textContent)) fails.push('Sky watch must show "Tonight from <place>" with sunset, darkness and planets');
+    if (!/Kp \d/.test(tn ? tn.textContent : '')) fails.push('tonight must say what Kp an aurora needs at that latitude');
+    const t = env.w.SpaceLabStargazing.tonight({ lat: 40.0, lon: -105.0 }, new Date(Date.UTC(2026, 10, 9, 22)));
+    const ss = new Date(t.night.sunset), dk = new Date(t.night.dark);
+    if (!(ss.getUTCHours() === 21 || ss.getUTCHours() === 22) || !(dk.getUTCHours() === 23 || dk.getUTCHours() === 22)) fails.push(`sunset/darkness for the test place on 9 Nov must be about 21:55 / 23:25 UTC (got ${ss.toISOString()} / ${dk.toISOString()})`);
+    if (!sky.querySelector('.bx-live img')) fails.push('Sky watch must show the live pictures');
+    const home = await env.tab('today');
+    if (!home.querySelector('.hm-you .hm-act')) fails.push('Home must start with "Your Space Lab" actions');
+    if (!/Tonight from ZIP 12345/.test(home.textContent)) fails.push('Home tonight card must use the place');
+    await sleep(5);
+    const weather = await env.tab('sky');
+    const sw = [...weather.querySelectorAll('.card')].find(c => /Space weather/.test((c.querySelector('h3') || {}).textContent || ''));
+    const sb = sw && sw.querySelector('.sl-sugbtn');
+    if (!sb || !/\(1\)/.test(sb.textContent)) fails.push('every box needs "Suggest an improvement", showing how many suggestions exist (Space weather has 1)');
+    else {
+      sb.click(); await sleep(2);
+      const form = sw.querySelector('.sl-sugform'), ta = form.querySelector('textarea');
+      ta.value = 'Show the Kp forecast'; ta.dispatchEvent(new env.w.Event('input'));
+      const u = new URL(form.querySelector('.sl-sugsend').href);
+      if (u.searchParams.get('template') !== 'suggestion.yml' || u.searchParams.get('section') !== 'Sky watch › Space weather' || u.searchParams.get('idea') !== 'Show the Kp forecast') fails.push('the GitHub link must prefill template, section and idea (got ' + u.search + ')');
+      if (!/Add a Kp alert/.test(form.textContent)) fails.push('show earlier suggestions for that box');
+    }
+    const tc = await env.tab('tess');
+    if (tc.querySelector('[data-tic] .sl-suggest')) fails.push('candidate cards have their own review: no suggest box there');
+    const b = await env.tab('brief');
+    const ex = b.querySelector('#paperNews .hm-news');
+    if (!ex) fails.push('Research in the news needs filters'); else {
+      const items = () => [...ex.querySelectorAll('.hm-nlist li')].map(li => li.textContent);
+      if (!/Black hole/.test(items()[0] || '')) fails.push('newest story first');
+      const topic = [...ex.querySelectorAll('.hm-nt')].find(x => x.dataset.t === 'Exoplanets'); topic.click(); await sleep(2);
+      if (items().length !== 1 || !/Water found/.test(items()[0])) fails.push('topic filter must work');
+      ex.querySelector('.hm-nset').value = 'all'; ex.querySelector('.hm-nset').dispatchEvent(new env.w.Event('change')); await sleep(2);
+      if (items().length !== 3) fails.push('"All space news" must include the other news (3 items)');
+      const q = ex.querySelector('.hm-nq'); q.value = 'rocket'; q.dispatchEvent(new env.w.Event('input')); await sleep(2);
+      if (items().length !== 1) fails.push('search must filter');
+    }
+    const be = await env.tab('beyond');
+    const fb = be.querySelector('.bx-findhab');
+    if (!fb || !/Aries/.test(be.textContent)) fails.push('habitable worlds must say where in the sky (constellation) with a find button');
+    else { fb.click(); await sleep(2); if (!/up in the|below your horizon/.test(fb.parentElement.textContent)) fails.push('"Where is it now?" must give a direction for the saved place'); }
+    report(21, 'Location everywhere, tonight, suggestions, news explorer, live pictures', fails);
+  },
+
+  async 22() {
+    const fails = [], env = await boot();
+    const a = await env.tab('asteroids');
+    const g = a.querySelector('.as-guide');
+    if (!g) { fails.push('Asteroids tab needs the guide'); return report(22, 'Asteroid guide', fails); }
+    const fl = g.querySelectorAll('.as-fly');
+    if (fl.length !== 2) fails.push('one picture per close approach (2 in the fixture)');
+    if (!/2026 VQ/.test(fl[0] ? fl[0].textContent : '') || !/across: the size of/.test(g.textContent) || !/km\/h/.test(g.textContent)) fails.push('closest first, with size comparison and speed');
+    if (!fl[0] || !fl[0].querySelector('svg.as-dist') || !fl[0].querySelector('a[href*="ssd.jpl.nasa.gov"]')) fails.push('each flyby needs a distance picture and an orbit link');
+    if (!fl[0] || !fl[0].querySelector('a[href*="wikipedia"]')) fails.push('link Wikipedia when there is an article');
+    const fam = g.querySelector('.as-famous');
+    if (!fam || !/Apophis/.test(fam.textContent) || !fam.querySelector('a[href^="https://doi.org/"]')) fails.push('famous asteroids need the summary and the papers (DOI links)');
+    report(22, 'Asteroid guide with sizes, speeds, orbits and citations', fails);
+  },
 };
 
 (async () => {
-  const order = ['G', '2', '3', '5', '6', '7', '8', '9', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20'];
+  const order = ['G', '2', '3', '5', '6', '7', '8', '9', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22'];
   for (const k of order) {
     if (ONLY && k !== ONLY && k !== 'G') continue;
     try { await CHECKS[k](); } catch (e) { report(k, 'check crashed', ['the check itself crashed (usually because an expected element is missing): ' + e.message]); }

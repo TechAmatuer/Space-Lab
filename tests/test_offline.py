@@ -529,7 +529,8 @@ def beyond_run_keeps_last_good_copy():
     fail = lambda *a, **k: None
     saved = {n: getattr(beyond, n) for n in ('space_weather', 'fireballs', 'comets', 'gravitational_waves', 'supernovae',
                                             'launches', 'habitable_worlds', 'sky_week', 'earth_images', 'iss_track', 'earthquakes',
-                                            'satellites', 'dark_sky_map', 'zip_index', 'community', 'backup_db', 'clean_and_measure')}
+                                            'satellites', 'dark_sky_map', 'zip_index', 'live_images', 'asteroid_wiki',
+                                            'community', 'backup_db', 'clean_and_measure')}
     try:
         for n in saved:
             setattr(beyond, n, fail)
@@ -794,6 +795,82 @@ def zip_codes_and_satellites():
         assert sat['active'] == 3 and sat['starlink'] == 1 and sat['oneweb'] == 1
     finally:
         net.fetch, net.fetch_json = old_f, old_j
+
+
+# ---------------------------------------------------------------- idle-time AI, live pictures, Wikipedia, suggestions
+@test
+def ai_runs_when_mac_is_idle():
+    from spacelab import server, idle, db
+    con = db.connect()
+    old = idle.user_idle_seconds
+    queued = []
+    old_enq = server.enqueue
+    try:
+        server.enqueue = lambda job, why: queued.append((job, why)) or True
+        idle.user_idle_seconds = lambda: 30.0
+        assert not server.ai_when_idle({'ai_when_idle': True, 'idle_minutes': 5}, con), 'someone is using the Mac'
+        idle.user_idle_seconds = lambda: 900.0
+        assert not server.ai_when_idle({'ai_when_idle': False}, con), 'switched off in Setup'
+        assert server.ai_when_idle({'ai_when_idle': True, 'idle_minutes': 5}, con) and queued[-1] == ('ai', 'Mac idle'), queued
+    finally:
+        idle.user_idle_seconds, server.enqueue = old, old_enq
+
+
+@test
+def live_pictures_keep_last_good_copy():
+    from spacelab import beyond, net, config
+    old = net.fetch
+    try:
+        net.fetch = lambda url, **k: b'\xff\xd8\xff' + b'0' * 30000
+        r = beyond.live_images(print)
+        assert r and {x['key'] for x in r} == {k for k, *_ in beyond.LIVE} and all((config.DATA / x['path']).is_file() for x in r)
+        for x in r:
+            x['t'] = 0                         # pretend they are old, then make every source fail
+        net.fetch = lambda url, **k: (_ for _ in ()).throw(RuntimeError('offline'))
+        r2 = beyond.live_images(print, r)
+        assert len(r2) == len(r), 'when a source is down, the last picture stays'
+    finally:
+        net.fetch = old
+
+
+@test
+def wikipedia_summary_and_citations():
+    from spacelab import beyond, net
+    html = ('<p>x</p><cite class="citation journal cs1">Smith, J. (2021). "The orbit of Apophis". <i>Icarus</i>. '
+            '<a href="https://doi.org/10.1016/j.icarus.2021.1">doi:10.1016</a></cite><cite class="citation web cs1">A web page</cite>'
+            '<cite class="citation arxiv cs1">Lee, K. (2024). "Spin of Apophis". <a href="https://arxiv.org/abs/2401.00001">arXiv</a></cite>')
+    old = net.fetch_json
+    try:
+        def fake(url, params=None, **k):
+            assert 'SpaceLab' in k['headers']['User-Agent']
+            if '/page/summary/' in url:
+                return {'title': '99942 Apophis', 'extract': 'Apophis is an asteroid.', 'content_urls': {'desktop': {'page': 'https://en.wikipedia.org/wiki/99942_Apophis'}}}
+            if params and params.get('list') == 'search':
+                return {'query': {'search': [{'title': '2024 YR4'}]}}
+            return {'parse': {'text': html}}
+        net.fetch_json = fake
+        pg = beyond.wiki_page('99942 Apophis', print)
+        assert [c['year'] for c in pg['citations']] == [2024, 2021] and pg['citations'][1]['url'].startswith('https://doi.org/'), pg
+        assert beyond.wiki_find('2024 YR4', print) == '2024 YR4' and beyond.wiki_find('2026 ZZ9', print) is None
+    finally:
+        net.fetch_json = old
+
+
+@test
+def suggestions_from_github():
+    from spacelab import beyond, net
+    issues = [{'title': 'Suggestion: Sky watch › Space weather', 'labels': [], 'user': {'login': 'a'}, 'html_url': 'https://github.com/x/y/issues/1',
+               'created_at': '2026-11-09', 'state': 'open', 'body': '### Which part of the page?\n\nSky watch › Space weather\n\n### Your suggestion\n\nAdd a Kp alert'},
+              {'title': 'TIC 123 review', 'labels': [], 'user': {'login': 'b'}, 'body': '### TIC number\n\n123\n\n### What do you think it is?\n\nPlanet-like'},
+              {'title': 'A pull request', 'pull_request': {}, 'labels': [], 'user': {'login': 'c'}, 'body': ''}]
+    old = net.fetch_json
+    try:
+        net.fetch_json = lambda url, params=None, **k: issues if params['page'] == 1 else []
+        c = beyond.community(print, 'example/repo')
+        assert c['suggestions']['Sky watch › Space weather'][0]['text'] == 'Add a Kp alert', c
+        assert c['tess'] == {'123': {'Planet-like': 1}} and c['leaderboard'] == [{'user': 'b', 'reviews': 1}], c
+    finally:
+        net.fetch_json = old
 
 
 import urllib.error  # noqa: E402
