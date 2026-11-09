@@ -529,6 +529,7 @@ def process(ctx, ds, llm):
     prev_path = prev / f'{ds["name"]}_field.png'
     stars = json.loads(ds['stars']) if ds.get('stars') else None
     if not stars:
+        gaia, xy = [], None
         try:
             xy, fl, pk = detect(img)
             gaia = gaia_field(planet['ra'], planet['dec'])
@@ -541,6 +542,12 @@ def process(ctx, ds, llm):
             stars['auto'] = True
             log(f'  stars found automatically: target {stars["target"]}, {len(stars["comps"])} comparisons, {stars["scale"]}"/px')
         except Exception as e:
+            try:      # keep what was tried, so the matcher can be improved from real data
+                (Path(folder) / 'match_debug.json').write_text(json.dumps({
+                    'error': str(e), 'shape': list(img.shape), 'planet': [planet['ra'], planet['dec']],
+                    'detected': [[float(a), float(b)] for a, b in (xy if xy is not None else [])][:400], 'gaia': gaia[:2000]}))
+            except Exception:
+                pass
             save_preview(img, prev_path)
             upd(status='needs_stars', preview=str(prev_path.relative_to(config.DATA)), error=f'automatic star finding failed: {e}')
             db.add_task(con, f'exo:stars:{ds["id"]}', 'exowatch', 'input',

@@ -16,7 +16,7 @@ JOBS = {
     'neocp': ('spacelab.neocp', 'NEO confirmation watch'),
     'targets': ('spacelab.ephem', 'Transit timing targets'),
     'publish': ('spacelab.publish', 'Shared page update'),
-    'library': ('spacelab.library', 'Paper library (20 years)'),
+    'library': ('spacelab.library', 'Paper library (50 years)'),
     'selftest': ('spacelab.selftest', 'Self-test'),
     'report': ('spacelab.reanalyze', 'Maintenance & coverage report'),
     'export': ('spacelab.export', 'Data export (JSON/CSV)'),

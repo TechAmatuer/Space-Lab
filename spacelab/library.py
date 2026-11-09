@@ -194,14 +194,16 @@ def oa_records(js):
 
 
 def harvest_openalex(con, log, deadline, y0=1976, y1=1991):
+    """Year by year, page by page (OpenAlex allows plain page numbers up to 10,000 results without an API key;
+    each year here has about 5,000 papers)."""
     if kv(con, 'oa_complete'):
         return 0, 0
-    cursor = kv(con, 'oa_cursor') or '*'
+    year, page = int(kv(con, 'oa_year') or y0), int(kv(con, 'oa_page') or 1)
     added = pages = 0
-    while time.time() < deadline:
-        params = {'filter': f'primary_topic.subfield.id:{OA_SUBFIELD},publication_year:{y0}-{y1},has_abstract:true',
+    while time.time() < deadline and year <= y1:
+        params = {'filter': f'primary_topic.subfield.id:{OA_SUBFIELD},publication_year:{year},has_abstract:true',
                   'select': 'id,doi,display_name,publication_year,publication_date,authorships,abstract_inverted_index,primary_topic',
-                  'per-page': 200, 'cursor': cursor}
+                  'per-page': 200, 'page': page, 'sort': 'publication_date:asc'}
         try:
             js = net.fetch_json(OPENALEX, params=params, timeout=120, min_gap=1.0)
         except urllib.error.HTTPError as e:
@@ -214,20 +216,26 @@ def harvest_openalex(con, log, deadline, y0=1976, y1=1991):
                 log('  OpenAlex paused (free daily budget or access limit); continuing next run')
                 break
             raise
-        recs, cursor, total = oa_records(js)
+        recs, _, total = oa_records(js)
         for r in recs:
             cur = con.execute('INSERT OR IGNORE INTO papers(id,title,authors,abstract,cats,year,created,doi) VALUES(?,?,?,?,?,?,?,?)',
                               (r['id'], r['title'], r['authors'], r['abstract'], r['cats'], r['year'], r['created'], r['doi']))
             added += cur.rowcount
         con.commit()
         pages += 1
-        if total:
-            kv(con, 'oa_total', int(total))
-        if not cursor or not js.get('results'):
-            kv(con, 'oa_complete', True)
-            log(f'  OpenAlex {y0}-{y1}: complete')
-            break
-        kv(con, 'oa_cursor', cursor)
+        counts = kv(con, 'oa_counts') or {}
+        counts[str(year)] = int(total or 0)
+        kv(con, 'oa_counts', counts)
+        kv(con, 'oa_total', sum(counts.values()) + 4800 * max(0, y1 - year))
+        if not js.get('results') or page * 200 >= min(int(total or 0), 10000):
+            year, page = year + 1, 1
+        else:
+            page += 1
+        kv(con, 'oa_year', year)
+        kv(con, 'oa_page', page)
+    if year > y1:
+        kv(con, 'oa_complete', True)
+        log(f'  OpenAlex {y0}-{y1}: complete')
     return added, pages
 
 
