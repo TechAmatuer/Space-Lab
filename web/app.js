@@ -181,7 +181,7 @@ function renderToday(st) {
     const sv = st.schedule[job];
     const sched = sv ? (String(sv).startsWith('every') ? esc(sv) : `daily at ${esc(sv)}`) : 'on demand';
     const running = st.running === job, queued = st.queue.includes(job);
-    return `<div class="card"><div class="row"><h3>${esc(st.jobs[job])}</h3><span class="spacer"></span>${running ? '<span class="chip warn">running now</span>' : queued ? '<span class="chip">queued</span>' : statusChip(r.status)}</div>
+    return `<div class="card jobcard"><div class="row"><h3>${esc(st.jobs[job])}</h3><span class="spacer"></span>${running ? '<span class="chip warn">running now</span>' : queued ? '<span class="chip">queued</span>' : statusChip(r.status)}</div>
       <div class="small muted">${sched} · last run ${r.started ? when(r.started) : 'never'}</div>
       <div style="margin:6px 0 10px">${esc(r.summary || '')}</div>
       <div class="row"><button class="b" data-run="${job}" ${running || queued ? 'disabled' : ''}>Run now</button><button class="b" data-log="${job}">Log</button></div></div>`;

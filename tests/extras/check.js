@@ -612,6 +612,8 @@ const CHECKS = {
     }
     const tc = await env.tab('tess');
     if (tc.querySelector('[data-tic] .sl-suggest')) fails.push('candidate cards have their own review: no suggest box there');
+    const hm = await env.tab('today');
+    if (hm.querySelector('.jobcard .sl-suggest')) fails.push('no suggest box on the job status cards (too many)');
     const b = await env.tab('brief');
     const ex = b.querySelector('#paperNews .hm-news');
     if (!ex) fails.push('Research in the news needs filters'); else {

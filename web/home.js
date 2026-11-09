@@ -258,7 +258,7 @@
   }
 
   // ------------------------------------------------------------------ "Suggest an improvement" on every box
-  const SKIP = '.task, [data-tic], [data-pc], .hm-you, .sl-cand';
+  const SKIP = '.task, .jobcard, #todayBody .card, [data-tic], [data-pc], .hm-you, .sl-cand';   // not on candidates, tasks or job status
   const tabTitle = tab => { const b = document.querySelector(`nav.tabs button[data-tab="${tab === 'brief' && !document.querySelector('nav.tabs button[data-tab="brief"]') ? 'arxiv' : tab}"]`); return b ? b.textContent.replace(/\d+$/, '').trim() : tab; };
   const clean = t => String(t || '').replace(/\p{Extended_Pictographic}|️/gu, '').replace(/\s+/g, ' ').trim();
   function addSuggest(tab, el) {

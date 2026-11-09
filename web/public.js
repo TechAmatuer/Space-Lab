@@ -78,7 +78,7 @@ function today() {
   const jobs = (t.jobs || []).map(j => {
     const sched = j.schedule ? (String(j.schedule).startsWith('every') ? esc(j.schedule) : 'daily at ' + esc(j.schedule)) : 'on demand';
     const chip = j.status === 'ok' ? '<span class="chip ok">ok</span>' : j.status === 'running' ? '<span class="chip warn">running now</span>' : j.status ? `<span class="chip">${esc(j.status)}</span>` : '';
-    return `<div class="card"><div class="row"><h3>${esc(j.label)}</h3><span class="spacer"></span>${chip}</div>
+    return `<div class="card jobcard"><div class="row"><h3>${esc(j.label)}</h3><span class="spacer"></span>${chip}</div>
       <div class="small muted">${sched} · last run ${ago(j.started)}</div><div style="margin-top:6px">${esc(j.summary || '')}</div></div>`;
   }).join('');
   $('#v-today').innerHTML = `<div class="card hero"><h2 class="hero-t">A home computer hunting for new worlds</h2>
