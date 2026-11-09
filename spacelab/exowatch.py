@@ -217,11 +217,32 @@ def gaia_field(ra, dec, radius_deg=0.75, gmax=14.5):
             break
         except Exception:
             continue
-    if not res:
+    if res:
+        t = res[0]
+        return [{'ra': float(r['RA_ICRS']), 'dec': float(r['DE_ICRS']), 'g': float(r['Gmag']),
+                 'var': str(r['VarFlag'] if 'VarFlag' in t.colnames else '')} for r in t]
+    return gaia_esa(ra, dec, radius_deg, gmax)
+
+
+def gaia_esa(ra, dec, radius_deg=0.75, gmax=14.5):
+    """Fallback when VizieR is down: ESA's own Gaia archive (TAP, CSV)."""
+    import csv
+    import io
+    q = (f'SELECT TOP 4000 ra, dec, phot_g_mean_mag, phot_variable_flag FROM gaiadr3.gaia_source '
+         f'WHERE 1=CONTAINS(POINT(ra, dec), CIRCLE({ra}, {dec}, {radius_deg})) AND phot_g_mean_mag < {gmax}')
+    try:
+        txt = net.fetch_text('https://gea.esac.esa.int/tap-server/tap/sync',
+                             params={'REQUEST': 'doQuery', 'LANG': 'ADQL', 'FORMAT': 'csv', 'QUERY': q}, timeout=120)
+    except Exception:
         return []
-    t = res[0]
-    return [{'ra': float(r['RA_ICRS']), 'dec': float(r['DE_ICRS']), 'g': float(r['Gmag']),
-             'var': str(r['VarFlag'] if 'VarFlag' in t.colnames else '')} for r in t]
+    out = []
+    for r in csv.DictReader(io.StringIO(txt)):
+        try:
+            out.append({'ra': float(r['ra']), 'dec': float(r['dec']), 'g': float(r['phot_g_mean_mag']),
+                        'var': str(r.get('phot_variable_flag') or '')})
+        except (KeyError, ValueError):
+            continue
+    return out
 
 
 def project(stars, ra0, dec0):
@@ -511,6 +532,11 @@ def process(ctx, ds, llm):
         try:
             xy, fl, pk = detect(img)
             gaia = gaia_field(planet['ra'], planet['dec'])
+            if not gaia:
+                save_preview(img, prev_path)
+                upd(status='new', preview=str(prev_path.relative_to(config.DATA)),
+                    error='the Gaia star catalog could not be reached (VizieR and ESA); it will try again on the next run')
+                return 'star catalog unreachable, will retry'
             stars = choose_stars(img, (planet['ra'], planet['dec']), gaia, xy, fl, pk)
             stars['auto'] = True
             log(f'  stars found automatically: target {stars["target"]}, {len(stars["comps"])} comparisons, {stars["scale"]}"/px')
