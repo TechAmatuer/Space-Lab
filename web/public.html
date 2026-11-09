@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Space Lab · citizen science from a home computer</title>
+<meta name="description" content="Planet candidates from NASA TESS, asteroid precovery and exoplanet transit timing, found on a home Mac with open data and a local AI.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>🔭 Space Lab</h1>
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-tab="tess" aria-selected="true">Planet candidates</button>
+    <button role="tab" data-tab="asteroids" aria-selected="false">Asteroids</button>
+    <button role="tab" data-tab="exowatch" aria-selected="false">Exoplanet Watch</button>
+    <button role="tab" data-tab="brief" aria-selected="false">Space brief</button>
+    <button role="tab" data-tab="about" aria-selected="false">About</button>
+  </nav>
+  <div class="status"><span id="updated">loading…</span></div>
+</header>
+<main>
+  <section class="view on" id="v-tess"></section>
+  <section class="view" id="v-asteroids"></section>
+  <section class="view" id="v-exowatch"></section>
+  <section class="view" id="v-brief"></section>
+  <section class="view" id="v-about"></section>
+</main>
+<div id="zoom"><img alt=""></div>
+<div id="modal"><div class="box"><button class="b x" id="modalClose">✕</button><div id="modalBody"></div></div></div>
+<script src="lcviewer.js"></script>
+<script src="orbit3d.js"></script>
+<script src="public.js"></script>
+</body>
+</html>

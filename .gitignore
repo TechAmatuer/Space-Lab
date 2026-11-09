@@ -1,0 +1,22 @@
+# Private and generated: never commit
+data/
+logs/
+inbox/
+.tools/
+.venv/
+.venv-exotic/
+__pycache__/
+*.pyc
+*.db
+*.db-*
+settings.json
+.DS_Store
+# old copies of the public page (it now lives on the gh-pages branch)
+/index.html
+/data.json
+/files/
+/public.js
+/lcviewer.js
+/orbit3d.js
+/style.css
+/.nojekyll

@@ -1,0 +1,375 @@
+"""Share safely: a read-only public copy of Space Lab on GitHub Pages, plus posts to a public Discord channel.
+
+What is shared: science results only (TESS signals under review or marked real, asteroid watch and precovery
+sightings, Exoplanet Watch light curves, timing targets, the space brief) and the public name you choose.
+What is never shared: your name/email/AAVSO code from Setup, webhooks, tokens, your telescope location and
+observing plan, tasks, logs, file paths. Every published text file is scanned for those before upload; if any
+is found, nothing is published.
+"""
+import base64
+import hashlib
+import json
+import shutil
+import time
+import urllib.error
+import urllib.request
+import uuid
+from pathlib import Path
+
+from . import classifier, config, db, net
+
+API = 'https://api.github.com'
+SITE = config.DATA / 'public'
+WEB = config.ROOT / 'web'
+SITE_FILES = ('public.html', 'public.js', 'style.css', 'lcviewer.js', 'orbit3d.js')
+
+
+def _j(x):
+    try:
+        return json.loads(x) if isinstance(x, str) else x
+    except Exception:
+        return None
+
+
+def public_name(cfg):
+    return ((cfg.get('share') or {}).get('public_name') or '').strip()[:60] or 'a Space Lab volunteer'
+
+
+# ------------------------------------------------------------------ the public data (whitelisted fields only)
+def build_data(con, cfg):
+    files = set()
+
+    def f(rel):
+        if rel and (config.DATA / rel).is_file():
+            files.add(rel)
+            return 'files/' + rel
+        return None
+
+    model = db.kv_get(con, 'clf')
+    tess = []
+    for c in db.rows(con, "SELECT * FROM tess_cands WHERE status IN ('new','real','unsure') ORDER BY created DESC LIMIT 120"):
+        ai, cen = _j(c.get('ai')) or {}, _j(c.get('centroid')) or {}
+        tess.append({'id': c['id'], 'tic': c['tic'], 'kind': c['kind'], 'period': c['period'], 't0': c['t0'], 'duration': c['duration'],
+                     'depth': c['depth'], 'snr': c['snr'], 'sde': c['sde'], 'ntr': c['ntr'], 'rp': c['rp'],
+                     'flags': _j(c['flags']) or [], 'known': c['known'], 'explain': c['explain'],
+                     'status': {'new': 'under review', 'real': 'looks like a planet', 'unsure': 'unsure'}[c['status']],
+                     'plot': f(c['plot']), 'lc': f(c.get('lc')), 'created': c['created'],
+                     'ai': {k: ai.get(k) for k in ('verdict', 'confidence', 'reasons')} if ai else None,
+                     'model_score': classifier.score(model, c),
+                     'centroid': ({k: cen.get(k) for k in ('verdict', 'offset_arcsec', 'signif', 'snr')} | {'png': f(cen.get('png'))}) if cen else None})
+    stats = {r['status']: r['n'] for r in db.rows(con, 'SELECT status, COUNT(*) AS n FROM tess_targets GROUP BY status')}
+    w = db.kv_get(con, 'neo_watch') or {}
+    pcs = []
+    for c in db.rows(con, "SELECT * FROM pc_cands WHERE status IN ('new','real','unsure') ORDER BY created DESC LIMIT 40"):
+        pcs.append({'id': c['id'], 'des': c['des'], 'night': c['night'], 'archive': c['archive'], 'offset': c['offset'],
+                    'obs': [{k: o.get(k) for k in ('obsTime', 'ra', 'dec', 'filter', 'snr')} for o in (_j(c['obs']) or [])],
+                    'gif': f(c['gif']), 'png': f(c['png']), 'status': c['status']})
+    from . import orbits
+
+    def orbit(des):
+        try:
+            return orbits.elements(con, des, max_age=7 * 86400)
+        except Exception:
+            return db.kv_get(con, f'orbit:{des}')
+    targets = [{k: t[k] for k in ('des', 'fullname', 'h', 'arc', 'ps', 'searched', 'nimg', 'ncand')} | {'orbit': orbit(t['des'])}
+               for t in db.rows(con, "SELECT * FROM pc_targets WHERE searched IS NOT NULL ORDER BY searched DESC LIMIT 30")]
+    for c in pcs:
+        if not any(t['des'] == c['des'] for t in targets):
+            targets.append({'des': c['des'], 'fullname': c['des'], 'h': None, 'arc': None, 'ps': None, 'searched': None,
+                            'nimg': None, 'ncand': None, 'orbit': orbit(c['des'])})
+    neocp = [{'name': r['name'], 'first': r['first'], **{k: (_j(r['data']) or {}).get(k) for k in ('neoScore', 'phaScore', 'H', 'nObs', 'arc', 'rating')}}
+             for r in db.rows(con, 'SELECT * FROM neocp WHERE gone IS NULL ORDER BY first DESC LIMIT 25')]
+    exo = []
+    for d in db.rows(con, "SELECT * FROM exo WHERE status IN ('done','uploaded') ORDER BY created DESC LIMIT 40"):
+        p, r = _j(d['planet']) or {}, _j(d['result']) or {}
+        exo.append({'id': d['id'], 'planet': p.get('pl_name') if isinstance(p, dict) else None, 'date': d['obs_date'],
+                    'telescope': 'own telescope' if d.get('source') == 'scope' else 'MicroObservatory',
+                    'tmid': r.get('tmid'), 'tmid_err': r.get('tmid_err'), 'depth_pct': r.get('depth_pct'),
+                    'scatter_pct': r.get('scatter_pct'), 'oc': r.get('oc'), 'plot': f(d['plot']), 'explain': d['explain'],
+                    'uploaded': d['status'] == 'uploaded'})
+    dates = [r['digest'] for r in db.rows(con, 'SELECT DISTINCT digest FROM arxiv WHERE digest IS NOT NULL ORDER BY digest DESC LIMIT 1')]
+    papers = db.rows(con, 'SELECT id,title,authors,url,published,summary,why,project,rank FROM arxiv WHERE digest=? ORDER BY rank',
+                     (dates[0],)) if dates else []
+    eph = db.kv_get(con, 'ephem') or {}
+    data = {'name': public_name(cfg), 'updated': time.time(),
+            'tess': {'stats': {k: stats.get(k, 0) for k in ('done', 'queued', 'nodata')}, 'cands': tess,
+                     'model': {k: (model or {}).get(k) for k in ('ready', 'n_user', 'n_auto', 'acc')}},
+            'asteroids': {'text': (db.kv_get(con, 'neo_watch_text') or {}).get('text'), 'cad': (w.get('cad') or [])[:15],
+                          'sentry': [{k: r.get(k) for k in ('des', 'fullname', 'ip', 'ps', 'ts_max', 'range', 'h', 'diameter')} for r in (w.get('sentry') or [])[:12]],
+                          'neocp': neocp, 'cands': pcs, 'targets': targets},
+            'exowatch': {'results': exo, 'stale': (eph.get('stale') or [])[:30]},
+            'brief': {'date': dates[0] if dates else None, 'papers': papers}}
+    return data, files
+
+
+def forbidden(cfg):
+    """Strings that must never appear in anything published."""
+    sh, sc = cfg.get('share') or {}, cfg.get('telescope') or {}
+    bad = {'your email': cfg.get('contact_email'), 'your private Discord webhook': cfg.get('discord_webhook'),
+           'the public Discord webhook': sh.get('discord_webhook'), 'your GitHub token': sh.get('github_token'),
+           'your Space Lab folder path': str(config.ROOT), 'your Mac home folder': str(Path.home())}
+    name = (cfg.get('observer_name') or '').strip()
+    if len(name) >= 3 and name.lower() != (sh.get('public_name') or '').strip().lower():
+        bad['your full name from Setup'] = name
+    for k in ('lat', 'lon'):
+        v = str(sc.get(k) or '').strip()
+        if len(v.replace('-', '').replace('+', '')) >= 5:
+            bad[f'your telescope {k}itude'] = v
+    return {k: v for k, v in bad.items() if v and len(str(v)) >= 3}
+
+
+def scan(folder, cfg):
+    bad = forbidden(cfg)
+    hits = []
+    for p in Path(folder).rglob('*'):
+        if '.git' in p.parts:
+            continue
+        if p.is_file() and p.suffix in ('.json', '.html', '.js', '.css', '.txt', '.md'):
+            text = p.read_text(errors='ignore')
+            for label, s in bad.items():
+                if str(s) in text:
+                    hits.append(f'{label} in {p.name}')
+    return hits
+
+
+def build_site(con, cfg):
+    data, files = build_data(con, cfg)
+    if SITE.exists():
+        shutil.rmtree(SITE)
+    SITE.mkdir(parents=True)
+    for name in SITE_FILES:
+        src = WEB / name
+        if src.is_file():
+            shutil.copy(src, SITE / ('index.html' if name == 'public.html' else name))
+    for rel in files:
+        dst = SITE / 'files' / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(config.DATA / rel, dst)
+    (SITE / 'data.json').write_text(json.dumps(data, default=str, separators=(',', ':')))
+    (SITE / '.nojekyll').write_text('')
+    hits = scan(SITE, cfg)
+    if hits:
+        shutil.rmtree(SITE, ignore_errors=True)
+        raise RuntimeError('stopped: private information would have been published (' + '; '.join(hits[:5]) + ')')
+    return data
+
+
+# ------------------------------------------------------------------ GitHub Pages
+def gh(method, path, token, body=None):
+    req = urllib.request.Request(API + path, data=json.dumps(body).encode() if body is not None else None, method=method,
+                                 headers={'Authorization': f'Bearer {token}', 'Accept': 'application/vnd.github+json',
+                                          'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': net.UA,
+                                          'Content-Type': 'application/json'})
+    try:
+        with urllib.request.urlopen(req, timeout=120, context=net.ssl_ctx()) as r:
+            raw = r.read()
+            return r.status, json.loads(raw) if raw else {}
+    except urllib.error.HTTPError as e:
+        try:
+            return e.code, json.loads(e.read() or b'{}')
+        except Exception:
+            return e.code, {}
+
+
+def blob_sha(data):
+    return hashlib.sha1(b'blob %d\0' % len(data) + data).hexdigest()
+
+
+PAGES_BRANCH = 'gh-pages'   # the shared page lives on its own branch; the code on "main" is never touched
+
+
+def git_push(folder, repo, log):
+    """Publish with the Mac's own GitHub login (git + Keychain), no token needed. Returns True on success."""
+    import os
+    import subprocess
+    git = shutil.which('git')
+    if not git:
+        return False
+    env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
+    run = lambda *a: subprocess.run([git, *a], cwd=str(folder), env=env, capture_output=True, text=True, timeout=600)
+    run('init', '-q')
+    run('checkout', '-q', '-B', PAGES_BRANCH)
+    run('config', 'user.name', 'Space Lab')
+    run('config', 'user.email', 'spacelab@users.noreply.github.com')
+    run('add', '-A')
+    run('commit', '-q', '-m', f'Space Lab results {time.strftime("%Y-%m-%d %H:%M")}')
+    url = repo if repo.startswith(('/', 'file:')) else f'https://github.com/{repo}.git'
+    p = run('push', '-q', '--force', url, f'HEAD:{PAGES_BRANCH}')
+    if p.returncode != 0:
+        log(f'git push did not work ({(p.stderr or "").strip()[:200]}); trying the token instead')
+        return False
+    log(f'published to the {PAGES_BRANCH} branch with your Mac\'s GitHub login')
+    return True
+
+
+def push(folder, repo, token, log):
+    """Upload through the GitHub API with a token, to the gh-pages branch."""
+    if not (repo and token and '/' in repo):
+        raise RuntimeError('could not publish: sign in to GitHub on this Mac (git) or add a token in Setup → Sharing')
+    code, info = gh('GET', f'/repos/{repo}', token)
+    if code != 200:
+        raise RuntimeError(f'GitHub repository {repo} not reachable with this token (HTTP {code}: {info.get("message", "")})')
+    entries = []
+    for p in sorted(Path(folder).rglob('*')):
+        if not p.is_file() or '.git' in p.relative_to(folder).parts:
+            continue
+        code, b = gh('POST', f'/repos/{repo}/git/blobs', token, {'content': base64.b64encode(p.read_bytes()).decode(), 'encoding': 'base64'})
+        if code not in (200, 201):
+            raise RuntimeError(f'upload of {p.name} failed (HTTP {code}: {b.get("message", "")})')
+        entries.append({'path': p.relative_to(folder).as_posix(), 'mode': '100644', 'type': 'blob', 'sha': b['sha']})
+    code, nt = gh('POST', f'/repos/{repo}/git/trees', token, {'tree': entries})
+    if code not in (200, 201):
+        raise RuntimeError(f'could not build the file tree (HTTP {code}: {nt.get("message", "")})')
+    code, nc = gh('POST', f'/repos/{repo}/git/commits', token,
+                  {'message': f'Space Lab results {time.strftime("%Y-%m-%d %H:%M")}', 'tree': nt['sha'], 'parents': []})
+    if code not in (200, 201):
+        raise RuntimeError(f'commit failed (HTTP {code}: {nc.get("message", "")})')
+    code, _ = gh('PATCH', f'/repos/{repo}/git/refs/heads/{PAGES_BRANCH}', token, {'sha': nc['sha'], 'force': True})
+    if code != 200:
+        code, r = gh('POST', f'/repos/{repo}/git/refs', token, {'ref': f'refs/heads/{PAGES_BRANCH}', 'sha': nc['sha']})
+        if code not in (200, 201):
+            raise RuntimeError(f'could not update {PAGES_BRANCH} (HTTP {code}: {r.get("message", "")})')
+    log(f'uploaded {len(entries)} files to {PAGES_BRANCH}')
+    return True
+
+
+def pages_url(repo, token=None):
+    owner, name = repo.split('/', 1)
+    url, note = f'https://{owner.lower()}.github.io/{name}/', None
+    if token:
+        code, pages = gh('GET', f'/repos/{repo}/pages', token)
+        want = {'source': {'branch': PAGES_BRANCH, 'path': '/'}}
+        if code == 404:
+            code, pages = gh('POST', f'/repos/{repo}/pages', token, want)
+        elif code == 200 and (pages.get('source') or {}).get('branch') != PAGES_BRANCH:
+            code, _ = gh('PUT', f'/repos/{repo}/pages', token, want)
+            pages = {'html_url': url} if code in (200, 204) else {}
+        if code not in (200, 201, 204):
+            note = None
+        url = (pages or {}).get('html_url') or url
+    return url, ('if the page is blank: repository Settings → Pages → Deploy from a branch → '
+                 f'"{PAGES_BRANCH}" / (root)') if not token else note
+
+
+# ------------------------------------------------------------------ Discord (public science channel)
+def discord_post(url, content, image=None, embeds=None):
+    payload = {'content': content[:1990], 'username': 'Space Lab', 'allowed_mentions': {'parse': []}}
+    if embeds:
+        payload['embeds'] = embeds
+    boundary = uuid.uuid4().hex
+    parts = [f'--{boundary}\r\nContent-Disposition: form-data; name="payload_json"\r\nContent-Type: application/json\r\n\r\n'.encode()
+             + json.dumps(payload).encode() + b'\r\n']
+    if image and Path(image).is_file():
+        p = Path(image)
+        ctype = 'image/gif' if p.suffix.lower() == '.gif' else 'image/png'
+        parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="files[0]"; filename="{p.name}"\r\nContent-Type: {ctype}\r\n\r\n'.encode()
+                     + p.read_bytes() + b'\r\n')
+    body = b''.join(parts) + f'--{boundary}--\r\n'.encode()
+    req = urllib.request.Request(url + ('&' if '?' in url else '?') + 'wait=true', data=body, method='POST',
+                                 headers={'Content-Type': f'multipart/form-data; boundary={boundary}', 'User-Agent': net.UA})
+    with urllib.request.urlopen(req, timeout=60, context=net.ssl_ctx()) as r:
+        r.read()
+
+
+def share_item(kind, oid, cfg=None):
+    """Post one finding to the public science channel. Returns (ok, message)."""
+    from . import notify
+    cfg = cfg or config.load()
+    sh = cfg.get('share') or {}
+    url = sh.get('discord_webhook') or ''
+    if not notify.valid(url):
+        return False, 'add the public science channel webhook in Setup → Sharing first'
+    if url == cfg.get('discord_webhook'):
+        return False, 'the science channel webhook is the same as your private alerts webhook; use a separate public channel'
+    con = db.connect()
+    page = (db.kv_get(con, 'publish') or {}).get('url')
+    who = public_name(cfg)
+    if kind == 'tess':
+        c = db.one(con, 'SELECT * FROM tess_cands WHERE id=?', (int(oid),))
+        if not c:
+            return False, 'not found'
+        ai, cen = _j(c.get('ai')) or {}, _j(c.get('centroid')) or {}
+        sc = classifier.score(db.kv_get(con, 'clf'), c)
+        per = f'repeating dip every **{c["period"]:.4f} d**' if c['period'] else 'a **single dip** (period unknown)'
+        lines = [f'🔭 **TESS signal on TIC {c["tic"]}**, found by {who}\'s Space Lab', f'{per}, depth {c["depth"] * 1e6:.0f} ppm, '
+                 f'{c["duration"] * 24:.1f} h, SNR {c["snr"]:.1f}; ~{(c["rp"] or 0):.1f}× Earth if it is a planet around this star.']
+        flags = _j(c['flags']) or []
+        lines.append('Checks: ' + ('; '.join(flags) if flags else 'passed odd/even, half-orbit and size checks'))
+        if cen:
+            lines.append(f'Centroid test: {cen.get("verdict")} (offset {cen.get("offset_arcsec")}″)')
+        if ai:
+            lines.append(f'AI first look ({ai.get("model", "local model")}): {ai.get("verdict")} ({ai.get("confidence")}): {"; ".join(ai.get("reasons") or [])}')
+        if sc is not None:
+            lines.append(f'My own model: {sc:.0%} planet-like')
+        lines.append(f'Status: {c["status"]}. ExoFOP: https://exofop.ipac.caltech.edu/tess/target.php?id={c["tic"]}')
+        lines.append('Thoughts welcome in the thread: real planet, eclipsing binary, or noise?')
+        img = config.DATA / c['plot']
+        table, key = 'tess_cands', c['id']
+    elif kind == 'pc':
+        c = db.one(con, 'SELECT * FROM pc_cands WHERE id=?', (int(oid),))
+        if not c:
+            return False, 'not found'
+        lines = [f'☄️ **Possible precovery of asteroid {c["des"]}** in {c["archive"]} images from {c["night"]}, found by {who}\'s Space Lab',
+                 f'A moving dot {c["offset"]:.0f}″ from where JPL\'s orbit predicts, seen in two images the same night and missing from the deep stack.',
+                 f'Status: {c["status"]}. Does the blink look like the same moving object to you?']
+        img = config.DATA / (c['gif'] or c['png'] or '')
+        table, key = 'pc_cands', c['id']
+    elif kind == 'exo':
+        d = db.one(con, 'SELECT * FROM exo WHERE id=?', (int(oid),))
+        if not d:
+            return False, 'not found'
+        p, r = _j(d['planet']) or {}, _j(d['result']) or {}
+        oc = r.get('oc') or {}
+        lines = [f'🪐 **Transit of {p.get("pl_name", "?")}** on {d["obs_date"]}, measured by {who} for NASA Exoplanet Watch',
+                 f'Mid-transit time ±{(r.get("tmid_err") or 0) * 1440:.1f} min; {oc.get("oc_min", "?")} min vs. the prediction '
+                 f'(prediction uncertain by ±{oc.get("pred_err_min", "?")} min). Depth {r.get("depth_pct")}%.']
+        img = config.DATA / (d['plot'] or '')
+        table, key = 'exo', d['id']
+    else:
+        return False, 'unknown kind'
+    if page:
+        lines.append(f'All results: {page}')
+    try:
+        discord_post(url, '\n'.join(lines), img if img.is_file() else None)
+    except Exception as e:
+        return False, f'{type(e).__name__}: {e}'
+    con.execute(f'UPDATE {table} SET shared=? WHERE id=?', (time.time(), key))
+    return True, 'posted'
+
+
+# ------------------------------------------------------------------ job
+def run(ctx):
+    con, cfg, log = ctx.con, ctx.cfg, ctx.log
+    sh = cfg.get('share') or {}
+    data = build_site(con, cfg)
+    n = len(data['tess']['cands']) + len(data['asteroids']['cands']) + len(data['exowatch']['results'])
+    log(f'public copy built: {n} results, scanned for private information: clean')
+    out = [f'public copy built ({n} results)']
+    url = None
+    repo = (sh.get('github_repo') or '').strip()
+    if repo and sh.get('publish', True):
+        if not git_push(SITE, repo, log):
+            push(SITE, repo, sh.get('github_token'), log)
+        url, note = pages_url(repo, sh.get('github_token'))
+        db.kv_set(con, 'publish', {'t': time.time(), 'url': url, 'note': note})
+        out.append(f'published to {url}')
+    else:
+        out.append('not uploaded: add your GitHub repository in Setup → Sharing')
+    from . import notify
+    if sh.get('post_summary') and notify.valid(sh.get('discord_webhook')) and sh.get('discord_webhook') != cfg.get('discord_webhook'):
+        last = db.kv_get(con, 'publish_summary_counts') or {}
+        st = data['tess']['stats']
+        msg = (f'🌌 **Space Lab nightly summary** ({public_name(cfg)})\n'
+               f'TESS: {st.get("done", 0)} stars checked so far, {sum(1 for c in data["tess"]["cands"] if c["status"] == "under review")} signals under review.\n'
+               f'Asteroids: {len(data["asteroids"]["neocp"])} objects on the NEO confirmation page; '
+               f'{len(data["asteroids"]["cands"])} possible precovery sightings.\n'
+               f'Exoplanet Watch: {len(data["exowatch"]["results"])} transits measured.' + (f'\n{url}' if url else ''))
+        counts = {'done': st.get('done', 0), 'c': len(data['tess']['cands']), 'p': len(data['asteroids']['cands']), 'e': len(data['exowatch']['results'])}
+        if counts != last:
+            try:
+                discord_post(sh['discord_webhook'], msg)
+                db.kv_set(con, 'publish_summary_counts', counts)
+                out.append('summary posted to the science channel')
+            except Exception as e:
+                out.append(f'Discord summary failed: {e}')
+    return '; '.join(out)

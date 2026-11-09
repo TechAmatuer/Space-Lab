@@ -1,0 +1,26 @@
+name: Review a planet candidate
+description: Give your opinion on a TESS signal from the results page
+title: "TIC ______ review"
+labels: ["candidate-review"]
+body:
+  - type: input
+    id: tic
+    attributes: {label: TIC number, placeholder: "e.g. 25799110"}
+    validations: {required: true}
+  - type: dropdown
+    id: verdict
+    attributes:
+      label: What do you think it is?
+      options: ["Planet-like", "Eclipsing binary (two stars)", "Comes from a nearby star", "Noise / instrument glitch", "Not sure"]
+    validations: {required: true}
+  - type: checkboxes
+    id: checked
+    attributes:
+      label: What did you check?
+      options:
+        - label: Interactive light curve (folded view, odd/even dips)
+        - label: ExoFOP page (known TOI? notes? nearby stars?)
+        - label: Centroid test image
+  - type: textarea
+    id: notes
+    attributes: {label: Why?, placeholder: "e.g. V-shaped dip, odd and even dips differ, already a known eclipsing binary in ExoFOP..."}

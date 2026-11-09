@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Space Lab</title>
+<link rel="stylesheet" href="web/style.css">
+</head>
+<body>
+<header>
+  <h1>🔭 Space Lab</h1>
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-tab="today" aria-selected="true">Today <span class="n" id="nTasks" hidden></span></button>
+    <button role="tab" data-tab="arxiv" aria-selected="false">Space brief</button>
+    <button role="tab" data-tab="exowatch" aria-selected="false">Exoplanet Watch</button>
+    <button role="tab" data-tab="tess" aria-selected="false">TESS hunter</button>
+    <button role="tab" data-tab="asteroids" aria-selected="false">Asteroids</button>
+    <button role="tab" data-tab="setup" aria-selected="false">Setup</button>
+  </nav>
+  <div class="status" id="status"><span class="dot"></span><span id="statusText">connecting…</span></div>
+</header>
+<main>
+  <section class="view on" id="v-today"></section>
+  <section class="view" id="v-arxiv"></section>
+  <section class="view" id="v-exowatch"></section>
+  <section class="view" id="v-tess"></section>
+  <section class="view" id="v-asteroids"></section>
+  <section class="view" id="v-setup"></section>
+</main>
+<div id="zoom"><img alt=""></div>
+<div id="modal"><div class="box"><button class="b x" id="modalClose">✕</button><div id="modalBody"></div></div></div>
+<script src="web/lcviewer.js"></script>
+<script src="web/orbit3d.js"></script>
+<script src="web/app.js"></script>
+</body>
+</html>

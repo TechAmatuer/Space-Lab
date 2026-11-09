@@ -1,0 +1,12 @@
+numpy>=1.26,<3
+scipy>=1.11
+astropy>=6.0
+astroquery>=0.4.7
+lightkurve>=2.4.2
+matplotlib>=3.8
+sep>=1.2.1
+astroalign>=2.5.1
+scikit-image>=0.22
+Pillow>=10.0
+certifi
+mlx>=0.20; sys_platform == "darwin" and platform_machine == "arm64"

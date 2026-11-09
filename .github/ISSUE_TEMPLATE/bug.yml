@@ -1,0 +1,11 @@
+name: Bug or improvement
+description: Something broken in the code or page, or an idea to make it better
+labels: ["code"]
+body:
+  - type: textarea
+    id: what
+    attributes: {label: What happened / what would you change?}
+    validations: {required: true}
+  - type: textarea
+    id: log
+    attributes: {label: Log lines (if any), render: text}
