@@ -139,7 +139,7 @@ def og_image(path, data, files_root):
     c = d.get('cand') or {}
     plot = Path(files_root) / c['plot'] if c.get('plot') else None
     if plot and plot.is_file():
-        ax = fig.add_axes([0.40, 0.08, 0.57, 0.84]); ax.axis('off')
+        ax = fig.add_axes([0.45, 0.08, 0.53, 0.84]); ax.axis('off')
         ax.imshow(plt.imread(str(plot)))
     t = fig.text
     t(0.04, 0.84, 'SPACE LAB', color='#4db3d3', fontsize=30, weight='bold')
@@ -149,7 +149,7 @@ def og_image(path, data, files_root):
         t(0.04, 0.46, f"TIC {c['tic']}", color='#f2b632', fontsize=30, weight='bold')
         t(0.04, 0.38, f"dips every {c['period']:.2f} days", color='#b3bfcb', fontsize=18)
         t(0.04, 0.32, f"~{(c.get('rp') or 0):.1f}× Earth if it is a planet", color='#b3bfcb', fontsize=18)
-        t(0.04, 0.16, 'Planet or not? Cast your vote.', color='#2fbf71', fontsize=20, weight='bold')
+        t(0.04, 0.16, 'Planet or not? Vote!', color='#2fbf71', fontsize=20, weight='bold')
     else:
         t(0.04, 0.6, 'Hunting planets and asteroids', color='#e1e8ee', fontsize=24)
         t(0.04, 0.52, 'with open NASA data', color='#e1e8ee', fontsize=24)

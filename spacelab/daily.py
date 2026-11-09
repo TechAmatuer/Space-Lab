@@ -38,14 +38,25 @@ def summary(con, tic):
             'star': {'teff': c.get('teff'), 'radius_sun': c.get('srad'), 'dist_pc': c.get('dist'), 'tmag': c.get('tmag')}}
 
 
+SEVERE = ('eclipsing binary', 'odd and even', 'secondary eclipse', 'off target', 'nearby star', 'known', 'two stars', 'too big')
+
+
+def interest(r):
+    """Prefer signals that still look like planets: the AI's first look, no serious warning flags, a clear signal."""
+    import json
+    ai = (json.loads(r['ai']) if r.get('ai') else {}).get('verdict') or ''
+    flags = ' '.join(json.loads(r['flags'] or '[]')).lower()
+    return (2 if 'planet' in ai.lower() else 0) - 2 * sum(s in flags for s in SEVERE) + min(r['snr'] or 0, 30) / 15
+
+
 def pick(con, date, recent_tics):
-    rows = db.rows(con, "SELECT tic, snr FROM tess_cands WHERE kind='periodic' AND status IN ('new','unsure') AND plot IS NOT NULL "
-                        "AND period IS NOT NULL ORDER BY snr DESC LIMIT 400")
-    rows = [r for r in rows if r['tic'] not in recent_tics]
+    rows = db.rows(con, "SELECT tic, snr, ai, flags FROM tess_cands WHERE kind='periodic' AND status IN ('new','unsure') "
+                        "AND plot IS NOT NULL AND period IS NOT NULL ORDER BY snr DESC LIMIT 600")
+    rows = sorted((r for r in rows if r['tic'] not in recent_tics), key=lambda r: -interest(r))
     if not rows:
         return None
     rng = random.Random(date)                      # same pick for the whole day, different every day
-    return rng.choice(rows[:30])['tic']
+    return rng.choice(rows[:15])['tic']
 
 
 def blurb(llm, c):
