@@ -633,6 +633,8 @@ def news_parse_tolerates_html_entities():
     xml = '<?xml version="1.0"?><rss><channel><item><title>Moon &amp; Mars&nbsp;news &mdash; today</title><link>https://example.com/x</link></item></channel></rss>'
     it = news.parse(xml, 'Example')
     assert it[0]['title'] == 'Moon & Mars news — today', it
+    it = news.parse('<rss><channel><item><title>Q&A with an astronaut</title><link>https://example.com/q</link></item></channel></rss>', 'Example')
+    assert it[0]['title'] == 'Q&A with an astronaut', it
 
 
 @test

@@ -12,9 +12,8 @@ FEEDS = [
     ('AAS Nova (research highlights)', 'https://aasnova.org/feed/'),
     ('Nature Astronomy', 'https://www.nature.com/natastron.rss'),
     ('NASA Science', 'https://science.nasa.gov/feed/'),
-    ('ESA Space Science', 'https://www.esa.int/rssfeed/Our_Activities/Space_Science'),
+    ('ESA', 'https://www.esa.int/rssfeed/TopNews'),
     ('NOIRLab news', 'https://noirlab.edu/public/news/feed/'),
-    ('Minor Planet Center (MPECs)', 'https://www.minorplanetcenter.net/mpec/RecentMPECs.xml'),
 ]
 
 
@@ -36,6 +35,7 @@ def _fix_entities(xml_text):
     """Some feeds use HTML entities (&nbsp; &mdash;) that XML does not know: turn them into numeric references."""
     from html.entities import name2codepoint
     known = {'amp', 'lt', 'gt', 'quot', 'apos'}
+    xml_text = re.sub(r'&(?!#\d+;|#x[0-9a-fA-F]+;|[A-Za-z][A-Za-z0-9]*;)', '&amp;', xml_text)    # a bare "&" (e.g. "Q&A")
     return re.sub(r'&([A-Za-z][A-Za-z0-9]*);', lambda m: m.group(0) if m.group(1) in known or m.group(1) not in name2codepoint
                   else f'&#{name2codepoint[m.group(1)]};', xml_text)
 
@@ -87,12 +87,10 @@ def refresh(con, log, days=7):
 POP_FEEDS = [
     ('Space.com', 'https://www.space.com/feeds/all'),
     ('Universe Today', 'https://www.universetoday.com/feed/'),
-    ('Sky & Telescope', 'https://skyandtelescope.org/feed/'),
     ('Astronomy Magazine', 'https://www.astronomy.com/feed/'),
     ('Phys.org', 'https://phys.org/rss-feed/space-news/'),
     ('ScienceAlert', 'https://www.sciencealert.com/space/feed'),
     ('New Scientist', 'https://www.newscientist.com/subject/space/feed/'),
-    ('Live Science', 'https://www.livescience.com/feeds/space'),
     ('EarthSky', 'https://earthsky.org/feed/'),
     ('Quanta Magazine', 'https://api.quantamagazine.org/feed/'),
     ('The Conversation', 'https://theconversation.com/us/technology/articles.atom'),

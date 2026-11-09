@@ -13,20 +13,17 @@ import time
 from . import db, net, news
 
 # (name, feed URL). Feeds that fail are skipped and listed in the Meridian Space brief so they can be fixed.
+# Sites that refuse automated readers (JPL, Astrobites, SpaceNews, Sky & Telescope) are left out on purpose.
 SOURCES = [
     ('NASA', 'https://www.nasa.gov/news-release/feed/'),
     ('NASA Science', 'https://science.nasa.gov/feed/'),
-    ('NASA JPL', 'https://www.jpl.nasa.gov/feeds/news/'),
-    ('ESA', 'https://www.esa.int/rssfeed/Our_Activities/Space_Science'),
     ('ESA', 'https://www.esa.int/rssfeed/TopNews'),
     ('ESO', 'https://www.eso.org/public/news/feed/'),
     ('NOIRLab', 'https://noirlab.edu/public/news/feed/'),
     ('AAS Nova', 'https://aasnova.org/feed/'),
-    ('Astrobites', 'https://astrobites.org/feed/'),
     ('Nature Astronomy', 'https://www.nature.com/natastron.rss'),
     ("The Astronomer's Telegram", 'https://www.astronomerstelegram.org/?rss'),
     ('Planetary Society', 'https://www.planetary.org/rss/articles'),
-    ('SpaceNews', 'https://spacenews.com/feed/'),
     ('Spaceflight Now', 'https://spaceflightnow.com/feed/'),
     ('NASASpaceflight', 'https://www.nasaspaceflight.com/feed/'),
 ] + [(n, u) for n, u in news.POP_FEEDS]
@@ -104,8 +101,10 @@ def keyword_score(it):
 
 
 PROMPT = """You are the science editor of a public astronomy website. Rate each news item below.
-For each item return: "id"; "score" 0-10 (10 = major discovery or event that space fans everywhere should hear about,
-7 = interesting new result, 4 = routine news, 1 = not space science, advertising or opinion); "topic" (one of: {topics});
+For each item return: "id"; "score" 0-10 (10 = once-a-year discovery or event, e.g. the first image of a black hole;
+8 = important new result that will be widely reported; 6 = solid new result; 4 = routine news, mission updates, previews;
+2 = not really space science; 0 = advertising, deals or opinion). Be strict: most items are 3-6, and at most one item in a
+batch should get 9 or 10; "topic" (one of: {topics});
 "summary" (two plain-English sentences a 12-year-old could follow, no hype, keep numbers accurate);
 "why" (one sentence on why it matters). Use only the information given; do not invent details.
 Reply as JSON: {{"items": [{{"id": "...", "score": 0, "topic": "...", "summary": "...", "why": "..."}}]}}
