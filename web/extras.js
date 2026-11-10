@@ -119,10 +119,12 @@
            `Still a candidate: it needs checking. Help review it: ${site()}c/${c.tic}.html`;
   }
   function consensusHTML(tic) {
-    const v = ((D().community || {}).tess || {})[String(tic)];
-    if (!v) return '';
-    const parts = Object.entries(v).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${n}× ${esc(k)}`);
-    return `<div class="sl-consensus note"><b>Community reviews</b> (from GitHub): ${parts.join(' · ')}</div>`;
+    const v = ((D().community || {}).tess || {})[String(tic)], sl = ((((D().community || {}).second_look || {}).tess || {})[String(tic)]);
+    if (!v && !(sl && sl.n)) return '';
+    const parts = v ? Object.entries(v).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${n}× ${esc(k)}`) : [];
+    const tot = sl ? Object.values(sl.w || {}).reduce((a, b) => a + b, 0) : 0;
+    const look = tot ? Object.entries(sl.w).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${Math.round(n / tot * 100)}% ${esc(LABEL[k] || k)}`).join(' · ') : '';
+    return `<div class="sl-consensus note">${parts.length ? `<b>Community reviews</b> (from GitHub): ${parts.join(' · ')}` : ''}${parts.length && look ? '<br>' : ''}${look ? `<b>Second look</b>: ${sl.n} answer${sl.n === 1 ? '' : 's'} in "Planet or not?", weighted by each person's score on practice cases: ${look}. <span class="muted">A hint, not a decision.</span>` : ''}</div>`;
   }
   function decorateTess(el) {
     const favs = LS.get('sl_favs', []).map(String), seen = LS.get('sl_seen_at', 0);
@@ -249,21 +251,56 @@
       <table class="compact sl-summary"><tr><th>What the local AI thought</th><th>candidates</th></tr>${Object.entries(ai).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<tr><td>${esc(k)}</td><td class="mono">${n}</td></tr>`).join('')}</table>
       <p class="small">${flagged} of them carry a warning from the automatic checks. ${agree.n ? `You agreed with the AI on <b>${agree.yes}</b> of ${agree.n}.` : ''} New candidates appear as the search runs: come back for more.</p>`;
   }
+  // Second look with known-answer scoring (ideas 51-52): practice cases whose answer is known (fake planets the search found,
+  // signals proved to be two stars) are mixed into the review. Your score on them sets how much your votes on real candidates
+  // weigh (x1, x2, x3); each vote is counted as an anonymous GoatCounter event look-<tic>-<answer>-w<weight>. The weight is
+  // worked out here in your browser, so the project treats the tally as a hint, never as a decision.
+  const SLUG = { 'Planet-like': 'planet-like', 'Eclipsing binary (two stars)': 'eclipsing-binary', 'Comes from a nearby star': 'nearby-star', 'Noise / instrument glitch': 'noise', 'Not sure': 'not-sure' };
+  const LABEL = Object.fromEntries(Object.entries(SLUG).map(([a, b]) => [b, a]));
+  const keyCases = () => ((D().tess || {}).answer_key || []).filter(k => k && k.key && k.plot && LABEL[k.answer]);
+  function practice() {
+    const p = LS.get('sl_practice', []), n = p.length, ok = p.filter(x => x.ok).length;
+    return { n, ok, w: n >= 5 && ok / n >= 0.8 ? 3 : n >= 3 && ok / n >= 0.6 ? 2 : 1 };
+  }
+  const lookN = tic => ((((D().community || {}).second_look || {}).tess || {})[String(tic)] || {}).n || 0;
+  function practiceLine() {
+    const p = practice();
+    return p.n ? `<div class="small sl-practice">Practice cases: <b>${p.ok} of ${p.n}</b> right · your votes count <b>×${p.w}</b>${p.w < 3 ? ` (×3 needs 5 or more practice cases, 80% right)` : ''}</div>`
+      : (keyCases().length ? '<div class="small muted sl-practice">Some cases have a known answer: they are mixed in to measure how much weight each volunteer\'s votes deserve.</div>' : '');
+  }
   function reviewSection(rev) {
-    const done = LS.get('sl_reviews', []).map(r => String(r.tic));
-    const c = cands().find(x => !done.includes(String(x.tic)));
-    if (!c) { rev.innerHTML = cands().length ? allDone() + progressBar() + badgeHTML() : `<h3>Planet or not?</h3><p>No candidates to review yet. They appear as the planet search runs.</p>${badgeHTML()}`; return; }
+    const done = LS.get('sl_reviews', []).map(r => String(r.tic)), seen = new Set(LS.get('sl_practice', []).map(x => x.key));
+    const todo = cands().filter(x => !done.includes(String(x.tic))).sort((a, b) => (lookN(a.tic) >= 10) - (lookN(b.tic) >= 10));   // under ten answers first
+    const known = keyCases().filter(k => !seen.has(k.key)), turn = LS.get('sl_rev_turn', 0);
+    const k = known.length && (!todo.length || turn % 3 === 2) ? known[turn % known.length] : null;
+    const c = k ? null : todo[0];
+    if (!c && !k) { rev.innerHTML = cands().length ? allDone() + progressBar() + practiceLine() + badgeHTML() : `<h3>Planet or not?</h3><p>No candidates to review yet. They appear as the planet search runs.</p>${badgeHTML()}`; return; }
+    const it = c || k;
     const intro = LS.get('sl_rev_intro', 0) ? '' : `<div class="note small">How to judge a plot: <b>1.</b> top left, a dip under every red line? <b>2.</b> bottom left, a flat-bottomed U (planet) or a sharp V (often two stars)? <b>3.</b> bottom right, odd and even dips equally deep?</div>`;
     LS.set('sl_rev_intro', 1);
-    rev.innerHTML = `<h3>Planet or not?</h3>${progressBar()}${intro}<div class="sl-cand" data-tic="${esc(c.tic)}"><div class="small muted">TIC ${esc(c.tic)} · ${c.period ? 'dips every ' + num(c.period, 3) + ' days' : 'one lone dip'} · ${Math.round(c.depth * 1e6)} ppm deep</div>
-      <img class="plot" src="${esc(c.plot || '')}" alt="light-curve plots for TIC ${esc(c.tic)}"></div><div class="row">${ANS.map(a => `<button type="button" class="b sl-answer">${esc(a)}</button>`).join('')}</div>`;
+    rev.innerHTML = `<h3>Planet or not?</h3>${progressBar()}${practiceLine()}${intro}<div class="sl-cand" ${c ? `data-tic="${esc(c.tic)}"` : `data-case="${esc(k.key)}"`}><div class="small muted">TIC ${esc(it.tic)} · ${it.period ? 'dips every ' + num(it.period, 3) + ' days' : 'one lone dip'} · ${Math.round((it.depth || 0) * 1e6)} ppm deep</div>
+      <img class="plot" src="${esc(it.plot || '')}" alt="light-curve plots for TIC ${esc(it.tic)}"></div><div class="row">${ANS.map(a => `<button type="button" class="b sl-answer">${esc(a)}</button>`).join('')}</div>`;
     rev.querySelectorAll('.sl-answer').forEach(b => b.addEventListener('click', () => {
-      const r = LS.get('sl_reviews', []); r.push({ tic: c.tic, answer: b.textContent, t: Date.now() }); LS.set('sl_reviews', r);
-      const said = [c.ai ? `the local AI said <b>${esc(c.ai.verdict)}</b>` : 'the AI has not looked yet',
-                    (c.flags || []).length ? 'automatic checks flagged: ' + c.flags.map(esc).join(', ') : 'no automatic check raised a flag',
-                    c.fpp ? 'statistical test: ' + esc(c.fpp.verdict) : ''].filter(Boolean).join('; ');
-      rev.innerHTML = `<h3>Planet or not?</h3><div class="sl-cand" data-tic="${esc(c.tic)}"><p>You said <b>${esc(b.textContent)}</b>. For comparison, ${said}.</p></div>
-        <p><a class="b sl-send" target="_blank" rel="noopener" href="${esc(reviewLink(c.tic, b.textContent))}">Send my review to the project</a> <span class="small muted">(opens GitHub; needs a free GitHub account)</span></p>
+      LS.set('sl_rev_turn', turn + 1);
+      const said = b.textContent;
+      if (k) {
+        const ok = SLUG[said] === k.answer, pr = LS.get('sl_practice', []);
+        pr.push({ key: k.key, ok, t: Date.now() }); LS.set('sl_practice', pr);
+        const p = practice();
+        rev.innerHTML = `<h3>Planet or not?</h3><div class="sl-cand sl-known" data-case="${esc(k.key)}"><p>${ok ? '✅ <b>Right.</b>' : `<b>Not quite:</b> this one is <b>${esc(LABEL[k.answer])}</b>.`} ${esc(k.why || '')}</p>
+          <p class="small">This was a practice case with a known answer. Your score so far: <b>${p.ok} of ${p.n}</b>, so your votes on real candidates count <b>×${p.w}</b>.</p></div>
+          <button type="button" class="b primary sl-next">Next</button>${badgeHTML()}`;
+        rev.querySelector('.sl-next').addEventListener('click', () => reviewSection(rev));
+        return;
+      }
+      const r = LS.get('sl_reviews', []); r.push({ tic: c.tic, answer: said, t: Date.now() }); LS.set('sl_reviews', r);
+      const w = practice().w;
+      if (S.track && SLUG[said]) S.track(`look-${c.tic}-${SLUG[said]}-w${w}`, true);
+      const why = [c.ai ? `the local AI said <b>${esc(c.ai.verdict)}</b>` : 'the AI has not looked yet',
+                   (c.flags || []).length ? 'automatic checks flagged: ' + c.flags.map(esc).join(', ') : 'no automatic check raised a flag',
+                   c.fpp ? 'statistical test: ' + esc(c.fpp.verdict) : ''].filter(Boolean).join('; ');
+      rev.innerHTML = `<h3>Planet or not?</h3><div class="sl-cand" data-tic="${esc(c.tic)}"><p>You said <b>${esc(said)}</b> (counted anonymously, ×${w}). For comparison, ${why}.</p></div>
+        <p><a class="b sl-send" target="_blank" rel="noopener" href="${esc(reviewLink(c.tic, said))}">Send my review to the project</a> <span class="small muted">(opens GitHub; needs a free GitHub account)</span></p>
         <button type="button" class="b primary sl-next">Next candidate</button>${badgeHTML()}`;
       rev.querySelector('.sl-next').addEventListener('click', () => reviewSection(rev));
       rev.querySelector('.sl-send').addEventListener('click', () => bump('sl_sent'));
@@ -622,7 +659,8 @@
   function falsifyTests(c) {
     const fl = (c.flags || []).join(' | '), has = re => re.test(fl), periodic = c.kind !== 'single' && !!c.period;
     const cen = c.centroid, fpp = c.fpp, ai = c.ai, v = (D().community || {}).tess || {}, votes = v[c.tic] || v[String(c.tic)] || null;
-    const nVotes = votes ? Object.values(votes).reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0) : 0;
+    const nVotes = (votes ? Object.values(votes).reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0) : 0)
+      + (((((D().community || {}).second_look || {}).tess || {})[String(c.tic)] || {}).n || 0);
     const ran = (flag, ok) => flag ? 'fail' : ok ? 'pass' : 'none';
     return [
       ['Odd and even dips are the same depth', ran(has(/odd and even/i), periodic), 'If every second dip is deeper, it is two stars eclipsing each other, not a planet.'],

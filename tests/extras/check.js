@@ -1118,6 +1118,46 @@ const CHECKS = {
     if (!s2.querySelector('.ul-card .ul-setplace')) fails.push('without a place, the card invites people to set their location');
     report(28, 'Useful science tonight: transits, own candidates, confirmation page, by telescope', fails);
   },
+  async 29() {
+    const fails = [];
+    const d = JSON.parse(JSON.stringify(FIXTURE));
+    d.tess.answer_key = [{ key: 'a1b2c3d4e5', tic: 444444, period: 2.5, depth: 0.003, plot: 'files/plots/injection/cases/x.png', answer: 'planet-like', why: 'A fake planet hidden in this star\'s real light curve.' },
+                         { key: 'f6e5d4c3b2', tic: 555555, period: 1.1, depth: 0.02, plot: 'files/plots/tess/y.png', answer: 'eclipsing-binary', why: 'Two stars: odd and even dips differ (6.0σ).' }];
+    d.community.second_look = { tess: { 111111: { n: 12, w: { 'planet-like': 21, 'noise': 7 } } }, t: 1794200000 };
+    let env = await boot({ data: d });
+    const calls = [];
+    env.w.SpaceLab.track = p => calls.push(p);
+    let rev = (await env.tab('play')).querySelector('.sl-rev');
+    const shown = () => { const x = rev.querySelector('.sl-cand'); return x ? (x.dataset.tic || 'case:' + x.dataset.case) : null; };
+    const answer = async a => { [...rev.querySelectorAll('.sl-answer')].find(b => b.textContent === a).click(); await sleep(2); };
+    const next = async () => { rev.querySelector('.sl-next').click(); await sleep(2); };
+    const order = [];
+    order.push(shown()); await answer('Planet-like'); await next();
+    order.push(shown()); await answer('Not sure'); await next();
+    order.push(shown());
+    if (order[0] === '111111' || order[1] === '111111') fails.push('candidates with ten or more answers come after the others: ' + order.join(', '));
+    if (!/^case:/.test(order[2] || '')) fails.push('every third item is a practice case with a known answer: ' + order.join(', '));
+    if (calls.length !== 2 || !/^look-\d+-planet-like-w1$/.test(calls[0]) || !/^look-\d+-not-sure-w1$/.test(calls[1])) fails.push('each answer on a real candidate is counted as look-<tic>-<answer>-w<weight>: ' + calls.join(', '));
+    const kase = d.tess.answer_key.find(k => 'case:' + k.key === order[2]);
+    if (kase) {
+      await answer(kase.answer === 'planet-like' ? 'Eclipsing binary (two stars)' : 'Planet-like');
+      if (!/Not quite/.test(rev.textContent) || !/practice case with a known answer/.test(rev.textContent) || !/0 of 1/.test(rev.textContent)) fails.push('a wrong answer on a practice case says so, explains, and shows the score: ' + norm(rev.textContent).slice(0, 200));
+      if (calls.length !== 2) fails.push('answers on practice cases are not counted as votes');
+      if (rev.querySelector('[data-tic="' + kase.tic + '"]')) fails.push('a practice case is not shown as a candidate card');
+    }
+    const good = Array.from({ length: 5 }, (_, i) => ({ key: 'k' + i, ok: true, t: 1 }));
+    env = await boot({ data: d, storage: { sl_practice: JSON.stringify(good), sl_rev_turn: '0' } });
+    const calls2 = [];
+    env.w.SpaceLab.track = p => calls2.push(p);
+    rev = (await env.tab('play')).querySelector('.sl-rev');
+    if (!/5 of 5/.test(rev.textContent) || !/×3/.test(rev.textContent)) fails.push('the review shows the practice score and the weight it gives: ' + norm(rev.textContent).slice(0, 160));
+    [...rev.querySelectorAll('.sl-answer')].find(b => b.textContent === 'Planet-like').click(); await sleep(2);
+    if (!/-w3$/.test(calls2[0] || '')) fails.push('5 of 5 practice cases right: votes count ×3 (' + calls2.join(', ') + ')');
+    const t = await env.tab('tess');
+    const cons = t.querySelector('#tic-111111 .sl-consensus') || t.querySelector('[data-tic="111111"] .sl-consensus');
+    if (!cons || !/Second look/.test(cons.textContent) || !/12 answers/.test(cons.textContent) || !/75% Planet-like/.test(cons.textContent)) fails.push('candidate cards show the second-look tally, weighted: ' + (cons ? norm(cons.textContent) : 'none'));
+    report(29, 'Second look: practice cases with known answers, weighted votes', fails);
+  },
   async 26() {
     const fails = [];
     const many = JSON.parse(JSON.stringify(FIXTURE));
@@ -1175,7 +1215,7 @@ const CHECKS = {
 };
 
 (async () => {
-  const order = ['G', '2', '3', '5', '6', '7', '8', '9', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23', '24', '25', '26', '27', '28'];
+  const order = ['G', '2', '3', '5', '6', '7', '8', '9', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23', '24', '25', '26', '27', '28', '29'];
   for (const k of order) {
     if (ONLY && k !== ONLY && k !== 'G') continue;
     try { await CHECKS[k](); } catch (e) { report(k, 'check crashed', ['the check itself crashed (usually because an expected element is missing): ' + e.message]); }

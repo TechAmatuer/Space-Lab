@@ -2361,6 +2361,58 @@ def confirmation_page_positions_for_useful_tonight():
     finally:
         con.execute("DELETE FROM neocp WHERE name='P21test'")
 
+
+@test
+def second_look_practice_cases_and_weighted_votes():
+    """Ideas 51-52: practice cases with a known answer (found fake planets; signals proved to be two stars) for the
+    "Planet or not?" review, and the weighted tally of visitors' answers from GoatCounter."""
+    from spacelab import injection as I, db, publish, daily, config as cfgm
+    con = db.connect()
+    I.ensure(con)
+    rng = np.random.default_rng(5)
+    t = np.arange(1000.0, 1027.0, 30 / 1440)
+    f = 1200.0 * (1 + rng.normal(0, 6e-4, t.size))
+    star = {'rad': 0.4, 'mass': 0.4}
+    r = I.trial(t, f, star, 3.1, 0.01, 1000.7, dict(cfgm.DEFAULTS['tess']), keep=True)
+    assert r['found'] == 1 and r['_lc'][2].get('bls') is not None
+    cur = con.execute('INSERT INTO injections (tic, quiet, period, depth, duration, t0, found, alias, at) VALUES (?,?,?,?,?,?,?,?,?)',
+                      (424242, 1, 3.1, 0.01, r['duration'], 1000.7, 1, 0, time.time()))
+    pth = I.case_plot(cur.lastrowid, 424242, star, r['_lc'])                # drawn exactly like a real candidate
+    assert pth and pth.startswith('plots/injection/cases/') and 'inj' not in Path(pth).name and (cfgm.DATA / pth).stat().st_size > 20000
+    con.execute('UPDATE injections SET plot=? WHERE id=?', (pth, cur.lastrowid))
+    (cfgm.PLOTS / 'tess').mkdir(parents=True, exist_ok=True)
+    for name, flags in (('eb.png', ['odd and even dips differ (6.2σ): likely two stars eclipsing']), ('big.png', ['too big for a planet (~25× Earth)'])):
+        (cfgm.PLOTS / 'tess' / name).write_bytes(b'png')
+        con.execute("INSERT INTO tess_cands (tic, kind, period, t0, depth, duration, flags, status, plot, created) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (515151 if name == 'eb.png' else 515152, 'periodic', 1.1, 3000.0, 0.02, 0.1, json.dumps(flags), 'auto-rejected', f'plots/tess/{name}', time.time()))
+    try:
+        ak = I.answer_key(con)
+        by = {x['tic']: x for x in ak}
+        assert by[424242]['answer'] == 'planet-like' and by[515151]['answer'] == 'eclipsing-binary' and 515152 not in by, ak
+        assert all(len(x['key']) == 10 and not x['key'].startswith(('inj', 'eb')) for x in ak) and 'odd and even' in by[515151]['why']
+        db.kv_set(con, 'second_look', {'tess': {'111': {'n': 3, 'w': {'planet-like': 5}}}, 't': time.time()})
+        data, files = publish.build_data(con, {})
+        pub = {x['tic']: x for x in data['tess']['answer_key']}
+        assert pub[424242]['plot'] == 'files/' + pth and pth in files and data['community']['second_look']['tess']['111']['n'] == 3
+        assert not publish.validate(data)
+    finally:
+        con.execute("DELETE FROM tess_cands WHERE tic IN (515151, 515152)"); con.execute('DELETE FROM injections WHERE tic=424242')
+        db.kv_set(con, 'second_look', {})
+    # the tally: two pages from GoatCounter; odd paths and unknown answers are ignored; weights multiply
+    pages = [{'hits': [{'path': '/look-111-planet-like-w3', 'count': 2, 'path_id': 1}, {'path': 'look-111-noise-w1', 'count': 1, 'path_id': 2},
+                       {'path': 'vote-2026-11-10-noise', 'count': 9, 'path_id': 3}], 'more': True},
+             {'hits': [{'path': 'look-222-eclipsing-binary-w2', 'count': 4, 'path_id': 4}, {'path': 'look-222-banana-w2', 'count': 4, 'path_id': 5},
+                       {'path': 'look-333-planet-like-w9', 'count': 1, 'path_id': 6}], 'more': False}]
+    asked = []
+    def fetch(p):
+        asked.append(dict(p))
+        return pages[len(asked) - 1]
+    cfg = {'share': {'goatcounter': 'example', 'goatcounter_token': 'x'}}
+    out = daily.second_look(cfg, lambda *a: None, fetch=fetch)
+    assert out['tess'] == {'111': {'n': 3, 'w': {'planet-like': 6, 'noise': 1}}, '222': {'n': 4, 'w': {'eclipsing-binary': 8}}}, out
+    assert 'exclude_paths' not in asked[0] and asked[1]['exclude_paths'] == [1, 2, 3]
+    assert daily.second_look({}, lambda *a: None) is None
+
 import urllib.error  # noqa: E402
 
 if __name__ == '__main__':

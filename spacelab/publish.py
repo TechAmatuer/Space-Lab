@@ -258,6 +258,11 @@ def build_data(con, cfg):
     if inj.get('n'):                                   # what the planet search can find (spacelab/injection.py)
         data['tess']['injection'] = {k: inj.get(k) for k in ('n', 'found', 'alias', 'n_quiet', 'quiet', 'variable', 'headline_quiet', 'headline_variable', 'note', 't')}
         data['tess']['injection']['plot'] = f(inj.get('plot'))
+    from . import injection as inj_mod                  # practice cases with a known answer, mixed into "Planet or not?" (ideas 51-52)
+    data['tess']['answer_key'] = [dict(x, plot=f(x['plot'])) for x in inj_mod.answer_key(con) if f(x['plot'])]
+    sl = db.kv_get(con, 'second_look') or {}
+    if sl.get('tess'):
+        data['community'] = dict(data['community'], second_look=sl)
     return data, files
 
 

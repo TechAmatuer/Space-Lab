@@ -102,6 +102,48 @@ def quick_votes(cfg, date, log):
     return out
 
 
+LOOK_RE = re.compile(r'^look-(\d{1,12})-([a-z-]+)-w([123])$')
+
+
+def second_look(cfg, log, days=60, fetch=None):
+    """Answers from the "Planet or not?" review (GoatCounter events look-<tic>-<answer>-w<weight>), per candidate: how many
+    people answered, and the answers weighted by each person's score on the practice cases with a known answer (1 = new or
+    often wrong, 3 = at least 5 practice cases and 80% right). The weight is worked out in the visitor's browser, so it is a
+    hint, never a decision. None when GoatCounter is not set up."""
+    sh = cfg.get('share') or {}
+    code, token = str(sh.get('goatcounter') or '').strip().lower(), str(sh.get('goatcounter_token') or '').strip()
+    if not code or not token or not CODE_RE.match(code):
+        return None
+    start = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
+    hits, after = [], None
+    try:
+        for _page in range(10):                              # GoatCounter pages its path list (100 a page)
+            params = {'start': start, 'limit': 100}
+            if after:
+                params['exclude_paths'] = after
+            js = (fetch or (lambda p: net.fetch_json(f'https://{code}.goatcounter.com/api/v0/stats/hits', params=p, timeout=40,
+                                                       headers={'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'})))(params)
+            page = js.get('hits') or []
+            hits += page
+            if not js.get('more') or not page:
+                break
+            after = [h.get('path_id') for h in hits if h.get('path_id') is not None]
+    except Exception as e:
+        log(f'  second-look answers not read: {e}')
+        if not hits:
+            return None
+    out = {}
+    for h in hits:
+        m = LOOK_RE.match(str(h.get('path') or '').lstrip('/'))
+        if not m or m.group(2) not in ANSWERS:
+            continue
+        n = int(h.get('count') or 0)
+        x = out.setdefault(m.group(1), {'n': 0, 'w': {}})
+        x['n'] += n
+        x['w'][m.group(2)] = x['w'].get(m.group(2), 0) + n * int(m.group(3))
+    return {'tess': out, 't': time.time(), 'days': days}
+
+
 def visitors(cfg, log, days=7):
     """Total visits in the last week from GoatCounter, for your own Today tab (never published)."""
     sh = cfg.get('share') or {}
@@ -146,6 +188,9 @@ def ensure(con, cfg, log, llm=None):
     vis = visitors(cfg, log)
     if vis:
         db.kv_set(con, 'visitors', vis)
+    sl = second_look(cfg, log)
+    if sl is not None:
+        db.kv_set(con, 'second_look', sl)
     db.kv_set(con, 'daily', d)
     return d
 

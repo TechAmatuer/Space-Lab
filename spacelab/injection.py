@@ -26,9 +26,15 @@ D_BINS = [200, 500, 1000, 2000, 5000, 20000]    # ppm (1000 ppm = 0.1%: an Earth
 MATCH = 0.01                                    # found if the period is within 1% (or half / double: counted apart)
 
 
+CASES = config.PLOTS / 'injection' / 'cases'      # practice cases for the "Planet or not?" review (known answer: planet-like)
+N_CASES = 24
+
+
 def ensure(con):
     con.execute('CREATE TABLE IF NOT EXISTS injections (id INTEGER PRIMARY KEY, tic INTEGER, quiet INTEGER, period REAL, depth REAL, '
                 'duration REAL, t0 REAL, found INTEGER, alias INTEGER, p_found REAL, sde REAL, snr REAL, at REAL)')
+    if 'plot' not in {r[1] for r in con.execute('PRAGMA table_info(injections)')}:
+        con.execute('ALTER TABLE injections ADD COLUMN plot TEXT')
 
 
 def keep_curve(tic, t, f):
@@ -84,8 +90,9 @@ def flatten(t, f):
     return clean(np.asarray(flat.time.value, float), np.asarray(flat.flux.value, float), np.asarray(flat.flux_err.value, float))
 
 
-def trial(t, f, star, period, depth, t0, tc, engine='astropy', search=None):
-    """Hide one planet, search as the hunter does, and say whether it was found. Returns a dict."""
+def trial(t, f, star, period, depth, t0, tc, engine='astropy', search=None, keep=False):
+    """Hide one planet, search as the hunter does, and say whether it was found. Returns a dict (keep=True: plus the
+    searched light curve and search result, to draw a practice case)."""
     from .tess_hunter import best_window, bin_lc, bls_search, expected_duration
     dur = max(0.03, expected_duration(period, star.get('rad'), star.get('mass')) * 0.85)   # a typical, not a central, crossing
     fi = f * transit_shape(t, period, t0, dur, depth)
@@ -97,6 +104,8 @@ def trial(t, f, star, period, depth, t0, tc, engine='astropy', search=None):
     if not s:
         return res
     res.update(p_found=s['period'], sde=round(s['sde'], 2), snr=round(s['snr'], 2))
+    if keep:
+        res['_lc'] = (ts, ys, s)
     if s['sde'] >= tc['sde_min'] and s['snr'] >= tc['snr_min']:
         r = s['period'] / period
         if abs(r - 1) < MATCH:
@@ -161,6 +170,53 @@ def plot(rows, path=PLOT):
     return path
 
 
+def case_plot(row_id, tic, star, lc):
+    """A found fake planet drawn exactly like a real candidate: a practice case with a known answer for volunteers.
+    Only cases the automatic checks would have passed are kept (those are the ones volunteers see among real candidates)."""
+    from .tess_hunter import plot_periodic, vet
+    ts, ys, s = lc
+    if 'bls' not in s:
+        return None
+    v = vet(s, star, ts, None)
+    if v['severe']:
+        return None
+    CASES.mkdir(parents=True, exist_ok=True)
+    import hashlib
+    path = CASES / (hashlib.sha1(f'case-{row_id}-{tic}'.encode()).hexdigest()[:12] + '.png')
+    plot_periodic(path, tic, ts, ys, s, v, 'TESS')
+    return str(path.relative_to(config.DATA))
+
+
+def answer_key(con, n=N_CASES // 2):
+    """Cases whose answer is known, mixed into the volunteers' "Planet or not?" review: fake planets the search found
+    (planet-like) and signals the automatic checks proved to be two stars (odd/even dips or a second dip: eclipsing binary)."""
+    import hashlib
+    ensure(con)
+    key = lambda kind, i: hashlib.sha1(f'{kind}-{i}'.encode()).hexdigest()[:10]
+    out = []
+    for r in db.rows(con, 'SELECT id, tic, period, depth, plot FROM injections WHERE plot IS NOT NULL ORDER BY id DESC LIMIT ?', (n,)):
+        if (config.DATA / r['plot']).exists():
+            out.append({'key': key('inj', r['id']), 'tic': r['tic'], 'period': r['period'], 'depth': r['depth'], 'plot': r['plot'],
+                        'answer': 'planet-like', 'why': f"A fake planet hidden in this star's real TESS light curve to test the search and "
+                                                       f"volunteers: {round(r['depth'] * 1e6)} ppm deep, every {r['period']:.3f} days."})
+    try:
+        rows = db.rows(con, "SELECT id, tic, period, depth, plot, flags FROM tess_cands WHERE status='auto-rejected' AND kind='periodic' "
+                            'AND plot IS NOT NULL ORDER BY id DESC LIMIT 200')
+    except Exception:
+        rows = []
+    neg = 0
+    for r in rows:
+        fl = [x for x in (json.loads(r['flags'] or '[]') or []) if 'odd and even dips differ' in x or 'second dip halfway' in x]
+        if not fl or not (config.DATA / r['plot']).exists():
+            continue
+        out.append({'key': key('eb', r['id']), 'tic': r['tic'], 'period': r['period'], 'depth': r['depth'], 'plot': r['plot'],
+                    'answer': 'eclipsing-binary', 'why': 'Two stars eclipsing each other: ' + '; '.join(fl) + '.'})
+        neg += 1
+        if neg >= n:
+            break
+    return out
+
+
 def summary(con):
     ensure(con)
     rows = db.rows(con, 'SELECT quiet, period, depth, found, alias FROM injections')
@@ -192,6 +248,7 @@ def run(ctx, search=None, rng=None):
             engine = 'astropy'
     n_max = int(ic.get('trials_per_run', 400))
     done = 0
+    cases = con.execute('SELECT COUNT(*) FROM injections WHERE plot IS NOT NULL').fetchone()[0]
     log(f'  {len(pool)} light curves to hide fake planets in ({sum(1 for x in pool if x[2])} of quiet stars)')
     while done < n_max and ctx.time_left() > 90:
         tic, path, quiet, star = pool[int(rng.integers(len(pool)))]
@@ -203,13 +260,22 @@ def run(ctx, search=None, rng=None):
         period = float(np.exp(rng.uniform(math.log(P_BINS[0]), math.log(P_BINS[-1]))))
         depth = float(np.exp(rng.uniform(math.log(D_BINS[0]), math.log(D_BINS[-1])))) / 1e6
         t0 = float(t[0] + rng.uniform(0, period))
+        want = cases < N_CASES and quiet
         try:
-            r = trial(t, f, star, period, depth, t0, tc, engine, search)
+            r = trial(t, f, star, period, depth, t0, tc, engine, search, keep=want)
         except Exception as e:
             log(f'  TIC {tic}: trial failed ({type(e).__name__}: {str(e)[:80]})')
             continue
-        con.execute('INSERT INTO injections (tic, quiet, period, depth, duration, t0, found, alias, p_found, sde, snr, at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-                    (tic, quiet, r['period'], r['depth'], r['duration'], r['t0'], r['found'], r['alias'], r['p_found'], r['sde'], r['snr'], time.time()))
+        cur = con.execute('INSERT INTO injections (tic, quiet, period, depth, duration, t0, found, alias, p_found, sde, snr, at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+                          (tic, quiet, r['period'], r['depth'], r['duration'], r['t0'], r['found'], r['alias'], r['p_found'], r['sde'], r['snr'], time.time()))
+        if want and r['found'] and r.get('_lc'):
+            try:
+                pth = case_plot(cur.lastrowid, tic, star, r['_lc'])
+                if pth:
+                    con.execute('UPDATE injections SET plot=? WHERE id=?', (pth, cur.lastrowid))
+                    cases += 1
+            except Exception as e:
+                log(f'  practice case for TIC {tic} not drawn ({type(e).__name__}: {str(e)[:80]})')
         done += 1
         if done % 25 == 0:
             con.commit()
