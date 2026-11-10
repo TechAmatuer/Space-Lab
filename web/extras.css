@@ -261,3 +261,8 @@ button.b.at-mode.on,button.b.at-layer.on,button.b.at-alt.on{background:var(--acc
 
 /* What we got wrong (About tab) */
 .corr{padding-left:18px;margin:6px 0 0}.corr li{margin:0 0 12px}.corr .small{margin-top:3px;color:var(--ink-2)}
+/* useful science tonight (web/useful.js) */
+.ul-card .ul-scope{margin-left:6px}
+.ul-item{border-left:3px solid var(--line);padding:6px 0 4px 10px;margin:10px 0}
+.ul-item.ul-pick{border-left-color:var(--accent);background:var(--accent-soft);border-radius:0 8px 8px 0}
+.ul-item p{margin:4px 0}

@@ -2342,6 +2342,25 @@ def variable_star_observatory_plans_measures_and_makes_aavso_files():
         config.replace_user('vstars', {})
     assert not config.load()['vstars']['enabled']
 
+
+@test
+def confirmation_page_positions_for_useful_tonight():
+    from spacelab import publish
+    r = publish._scout_sky({'ra': '16:54', 'dec': '-19', 'Vmag': '20.5', 'rate': '2.2', 'unc': '59', 'uncP1': '76', 'elong': '45'})
+    assert r == {'ra_deg': 253.5, 'dec_deg': -19.0, 'v': 20.5, 'rate': 2.2, 'unc': 59.0, 'unc1': 76.0, 'elong': 45.0}, r
+    assert publish._scout_sky({'ra': None, 'dec': 'n/a'}) == {'ra_deg': None, 'dec_deg': None, 'v': None, 'rate': None, 'unc': None, 'unc1': None, 'elong': None}
+    assert 'useful.js' in publish.SITE_FILES and publish.SITE_FILES.index('useful.js') > publish.SITE_FILES.index('stargazing.js')
+    from spacelab import db
+    con = db.connect()
+    con.execute('INSERT OR REPLACE INTO neocp(name, first, last, data) VALUES(?,?,?,?)', ('P21test', time.time(), time.time(),
+                json.dumps({'objectName': 'P21test', 'neoScore': 99, 'ra': '01:30', 'dec': '+12', 'Vmag': '19.1', 'rate': '1.5', 'unc': '4'})))
+    try:
+        data, _files = publish.build_data(con, {})
+        o = next(x for x in data['asteroids']['neocp'] if x['name'] == 'P21test')
+        assert o['ra_deg'] == 22.5 and o['dec_deg'] == 12.0 and o['v'] == 19.1 and o['neoScore'] == 99 and not publish.validate(data), o
+    finally:
+        con.execute("DELETE FROM neocp WHERE name='P21test'")
+
 import urllib.error  # noqa: E402
 
 if __name__ == '__main__':

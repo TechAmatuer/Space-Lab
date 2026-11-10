@@ -9,6 +9,8 @@ is found, nothing is published.
 import base64
 import hashlib
 import json
+import math
+import re
 import shutil
 import time
 import urllib.error
@@ -21,7 +23,7 @@ from . import classifier, config, db, net
 API = 'https://api.github.com'
 SITE = config.DATA / 'public'
 WEB = config.ROOT / 'web'
-SITE_FILES = ('public.html', 'public.js', 'style.css', 'lcviewer.js', 'orbit3d.js', 'extras.js', 'extras.css', 'beyond.js', 'home.js', 'stargazing.js', 'asteroids.js', 'atlas.js', 'atlas-frame.html', 'universe.js', 'solar.js', 'earthview.js')
+SITE_FILES = ('public.html', 'public.js', 'style.css', 'lcviewer.js', 'orbit3d.js', 'extras.js', 'extras.css', 'beyond.js', 'home.js', 'stargazing.js', 'useful.js', 'asteroids.js', 'atlas.js', 'atlas-frame.html', 'universe.js', 'solar.js', 'earthview.js')
 TITLE = 'Space Lab: hunting planets and asteroids with open NASA data'
 
 
@@ -87,6 +89,24 @@ def public_name(cfg):
 
 
 # ------------------------------------------------------------------ the public data (whitelisted fields only)
+def _scout_sky(r):
+    """Where a confirmation-page object is and how hard it is to catch (JPL Scout: RA hh:mm, Dec degrees, V, rate in
+    arcsec/min, 1-sigma position uncertainty now and tomorrow in arcmin), for the "useful science tonight" card."""
+    def num(x):
+        try:
+            v = float(x)
+            return v if math.isfinite(v) else None
+        except (TypeError, ValueError):
+            return None
+    ra = None
+    m = re.match(r'^\s*(\d{1,2}):(\d{2})', str(r.get('ra') or ''))
+    if m:
+        ra = round((int(m.group(1)) + int(m.group(2)) / 60) * 15, 2)
+    out = {'ra_deg': ra, 'dec_deg': num(r.get('dec')), 'v': num(r.get('Vmag')), 'rate': num(r.get('rate')), 'unc': num(r.get('unc')),
+           'unc1': num(r.get('uncP1')), 'elong': num(r.get('elong'))}
+    return out
+
+
 def build_data(con, cfg):
     files = set()
 
@@ -164,7 +184,8 @@ def build_data(con, cfg):
         if not any(t['des'] == c['des'] for t in targets):
             targets.append({'des': c['des'], 'fullname': c['des'], 'h': None, 'arc': None, 'ps': None, 'searched': None,
                             'nimg': None, 'ncand': None, 'orbit': orbit(c['des'])})
-    neocp = [{'name': r['name'], 'first': r['first'], **{k: (_j(r['data']) or {}).get(k) for k in ('neoScore', 'phaScore', 'H', 'nObs', 'arc', 'rating')}}
+    neocp = [{'name': r['name'], 'first': r['first'], **{k: (_j(r['data']) or {}).get(k) for k in ('neoScore', 'phaScore', 'H', 'nObs', 'arc', 'rating')},
+              **_scout_sky(_j(r['data']) or {})}
              for r in db.rows(con, 'SELECT * FROM neocp WHERE gone IS NULL ORDER BY first DESC LIMIT 25')]
     exo = []
     for d in db.rows(con, "SELECT * FROM exo WHERE status IN ('done','uploaded') ORDER BY created DESC LIMIT 40"):

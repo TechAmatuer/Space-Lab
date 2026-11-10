@@ -152,7 +152,7 @@ async function boot({ extras = true, storage = {}, data = FIXTURE, hash = '', se
     return /zip\.txt$/.test(String(u)) ? { ok: true, text: async () => ZIPS } : /images-api\.nasa\.gov/.test(String(u)) ? { ok: true, json: async () => NASA } : { ok: true, json: async () => json, text: async () => JSON.stringify(json) }; };
   w.eval(read('web/public.js'));
   if (extras) {
-    for (const f of ['web/beyond.js', 'web/extras.js', 'web/home.js', 'web/stargazing.js', 'web/asteroids.js', 'web/atlas.js', 'web/universe.js', 'web/earthview.js', 'web/solar.js']) {
+    for (const f of ['web/beyond.js', 'web/extras.js', 'web/home.js', 'web/stargazing.js', 'web/useful.js', 'web/asteroids.js', 'web/atlas.js', 'web/universe.js', 'web/earthview.js', 'web/solar.js']) {
       try { w.eval(read(f)); } catch (e) { rec.errors.push(f + ' crashed while loading: ' + e.message); }
     }
   }
@@ -1083,6 +1083,41 @@ const CHECKS = {
     }
     report(27, 'Solar system: live positions, cards, time, full screen', fails);
   },
+  async 28() {
+    const fails = [];
+    // 40N 105W, the night of 9-10 Nov 2026: a star at RA 34.4° is due south around 06:00 UTC, with the Sun far below
+    const d = JSON.parse(JSON.stringify(FIXTURE)), JD = 2461354.75, RA = 34.4;
+    d.exowatch.stale = [{ name: 'TEST-1 b', host: 'TEST-1', vmag: 12.5, depth_ppt: 8, period: 1.5, sigma_min: 40, next_jd: JD - 15, ra: RA, dec: 40, dur_h: 3 },
+                        { name: 'LOW-1 b', vmag: 10, depth_ppt: 20, period: 2, sigma_min: 90, next_jd: JD - 20, ra: RA, dec: -70, dur_h: 2 }];
+    d.tess.cands.push({ id: 99, tic: 777001, kind: 'periodic', period: 2.0, t0: JD + 0.05 - 2457000 - 100, duration: 0.08, depth: 0.01, snr: 15, status: 'under review',
+                        star: { tmag: 11, ra: RA + 5, dec: 40 }, flags: [] });
+    d.asteroids.neocp = [{ name: 'P21abcd', v: 19.0, ra_deg: RA + 30, dec_deg: 20, neoScore: 95, nObs: 4, arc: 1.2, rate: 2.5, unc: 3 },
+                         { name: 'P21nope', v: 19.0, ra_deg: null, dec_deg: 20 }];
+    const env = await boot({ data: d, storage: { sl_place: JSON.stringify({ lat: 40, lon: -105, label: 'Testville' }) } });
+    const U = env.w.SpaceLabUseful, when = new Date(Date.UTC(2026, 10, 10, 3));
+    if (!U) { fails.push('web/useful.js must provide window.SpaceLabUseful'); return report(28, 'Useful science tonight', fails); }
+    const big = U.items({ lat: 40, lon: -105 }, 'big', when), mid = U.items({ lat: 40, lon: -105 }, 'mid', when), small = U.items({ lat: 40, lon: -105 }, 'smart', when);
+    const names = l => l.map(x => x.kind + ':' + x.name).join(', ');
+    if (!big.length || big[0].kind !== 'neo' || big[0].name !== 'P21abcd') fails.push('with a big telescope the confirmation-page object comes first (time-critical): ' + names(big));
+    if (!big.some(x => x.name === 'TEST-1 b') || !big.some(x => x.name === 'TIC 777001')) fails.push('the drifted planet and the TESS candidate are on the big-telescope list: ' + names(big));
+    if (big.some(x => /LOW-1|P21nope/.test(x.name))) fails.push('a star that never rises high enough, and an object without a position, are left out: ' + names(big));
+    if (mid.some(x => x.kind === 'neo') || !mid.length || mid[0].name !== 'TIC 777001') fails.push('a V 19 asteroid is too faint for 6-8 inch; the TESS candidate is the pick there: ' + names(mid));
+    if (small.length) fails.push('nothing on these lists suits a smart telescope (V 12.5 and 11+1 are too faint): ' + names(small));
+    const tr = big.find(x => x.name === 'TEST-1 b');
+    if (tr && (Math.abs(tr.mid - Date.UTC(2026, 10, 10, 6)) > 6e4 || Math.abs(tr.to - tr.from - 5 * 36e5) > 6e4)) fails.push('the transit window is the predicted middle ± (half the duration + 1 hour): ' + new Date(tr.mid).toISOString());
+    const sky = await env.tab('sky');
+    const box = sky.querySelector('.ul-card');
+    if (!box || !/Useful science tonight from Testville/.test(box.textContent) || !box.querySelector('select.ul-scope')) fails.push('Sky watch shows "Useful science tonight from <place>" with a telescope choice');
+    else {
+      if (!box.querySelector('.ul-pick') && !/Nothing on the lists fits tonight/.test(box.textContent)) fails.push('the card shows a pick, or says plainly that nothing fits tonight');
+      const sel = box.querySelector('select.ul-scope'); sel.value = 'big'; sel.dispatchEvent(new env.w.Event('change')); await sleep(5);
+      if (env.w.localStorage.getItem('sl_scope') !== '"big"' || sky.querySelector('.ul-scope').value !== 'big') fails.push('the telescope choice is remembered in this browser');
+    }
+    const env2 = await boot({ data: d });
+    const s2 = await env2.tab('sky');
+    if (!s2.querySelector('.ul-card .ul-setplace')) fails.push('without a place, the card invites people to set their location');
+    report(28, 'Useful science tonight: transits, own candidates, confirmation page, by telescope', fails);
+  },
   async 26() {
     const fails = [];
     const many = JSON.parse(JSON.stringify(FIXTURE));
@@ -1140,7 +1175,7 @@ const CHECKS = {
 };
 
 (async () => {
-  const order = ['G', '2', '3', '5', '6', '7', '8', '9', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23', '24', '25', '26', '27'];
+  const order = ['G', '2', '3', '5', '6', '7', '8', '9', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23', '24', '25', '26', '27', '28'];
   for (const k of order) {
     if (ONLY && k !== ONLY && k !== 'G') continue;
     try { await CHECKS[k](); } catch (e) { report(k, 'check crashed', ['the check itself crashed (usually because an expected element is missing): ' + e.message]); }
