@@ -403,6 +403,20 @@ def ai_look(llm, png, r):
 
 
 # ------------------------------------------------------------------ the job
+def twins(con, star, period, radius_arcsec=180.0, tol=0.005):
+    """Other stars of this lab within a few TESS pixels that show the same period: the same light seen twice, so at most
+    one of them is the variable star. Returns [{tic, sep, tmag}]."""
+    out = []
+    for o in db.rows(con, "SELECT v.tic, v.period, t.ra, t.dec, t.tmag FROM tess_var v JOIN tess_targets t ON t.tic = v.tic "
+                          "WHERE v.tic != ? AND v.period IS NOT NULL AND v.status NOT IN ('quiet','nodata')", (star['tic'],)):
+        if o['ra'] is None or abs(o['period'] - period) > tol * period:
+            continue
+        sep = math.hypot((o['ra'] - star['ra']) * math.cos(math.radians(star['dec'])), o['dec'] - star['dec']) * 3600
+        if sep <= radius_arcsec:
+            out.append({'tic': o['tic'], 'sep': round(sep, 1), 'tmag': o['tmag']})
+    return out
+
+
 def _star(con, tic):
     return db.one(con, 'SELECT tic, ra, dec, tmag, teff, sectors FROM tess_targets WHERE tic=?', (tic,)) or {'tic': tic}
 
@@ -453,6 +467,9 @@ def check_one(con, cfg, log, llm, row, gaia_fn=None, lookups=None):
     else:
         status = 'candidate'
     r = json.loads(row['info'] or '{}')
+    tw = twins(con, star, row['period'] or r.get('period') or 0)
+    if tw:
+        checks['twins'] = tw
     if status == 'candidate':
         try:
             from .plates import gaia_cone, propagate

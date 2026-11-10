@@ -1421,6 +1421,13 @@ def variable_stars_found_checked_and_prepared_for_vsx():
         variables.known = _k
     assert db.one(con, 'SELECT status FROM tess_var WHERE tic=999003')['status'] == 'known'
     assert db.one(con, 'SELECT status FROM tess_var WHERE tic=999001')['status'] == 'candidate'          # checked by this code: kept
+    # the same period in a star 60" away: TESS sees one star's light in both
+    con.execute('INSERT OR REPLACE INTO tess_targets(tic, ra, dec, tmag, status) VALUES(?,?,?,?,?)', (999004, 150.0 + 60 / 3600 / math.cos(math.radians(10)), 10.0, 12.5, 'done'))
+    variables.record(con, 999004, dict(rr))
+    tw = variables.twins(con, variables._star(con, 999001), rr['period'])
+    assert len(tw) == 1 and tw[0]['tic'] == 999004 and abs(tw[0]['sep'] - 60) < 0.5, tw
+    assert not variables.twins(con, variables._star(con, 999001), rr['period'] * 1.02)
+    con.execute('DELETE FROM tess_var WHERE tic=999004')
     s = variables.summary(con)
     assert s['candidates'] == 1 and s['known'] == 1 and s['clear'] == 2 and s['searched'] == 2, s
     # public page: nothing until you look; then counts and the star you called real
