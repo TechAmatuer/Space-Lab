@@ -33,7 +33,7 @@ Space Lab runs on a home Mac. It works through public data from NASA and other o
 ## Run your own copy (macOS or Linux)
 
 On a Mac, double-click **Start Space Lab.command** in the folder. The first start sets everything up (a few minutes), then
-opens http://localhost:8790. Keep its window open; closing it stops Space Lab. The first time, macOS may block it:
+opens http://localhost:8790 and your public page (once Sharing is set up). Keep its window open; closing it stops Space Lab. The first time, macOS may block it:
 right-click it, choose **Open**, then **Open** again.
 
 From a terminal (macOS or Linux):

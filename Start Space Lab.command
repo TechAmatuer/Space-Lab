@@ -1,5 +1,5 @@
 #!/bin/bash
-# Double-click to start Space Lab. It opens http://localhost:8790 in your browser.
+# Double-click to start Space Lab. It opens your Space Lab (http://localhost:8790) and your public page in the browser.
 # Keep this window open while you use it. Closing it (or Ctrl+C) stops Space Lab and any job it is running.
 cd "$(dirname "$0")" || exit 1
 PORT=8790
@@ -8,6 +8,8 @@ PORT=8790
 if curl -s --max-time 2 "http://127.0.0.1:$PORT/api/ping" | grep -q spacelab; then
   echo "Space Lab is already running."
   open "http://localhost:$PORT"
+  SITE="$(.venv/bin/python -c 'from spacelab import config, publish; print(publish.site_url(config.load()))' 2>/dev/null)"
+  [ -n "$SITE" ] && open "$SITE"
   exit 0
 fi
 pkill -f "spacelab[.]server" 2>/dev/null; pkill -f "spacelab[.]jobs" 2>/dev/null   # leftovers from a window that was force-closed
@@ -41,8 +43,11 @@ if ! curl -s --max-time 2 "http://127.0.0.1:$PORT/api/ping" | grep -q spacelab; 
   exit 1
 fi
 open "http://localhost:$PORT"
+SITE="$(.venv/bin/python -c 'from spacelab import config, publish; print(publish.site_url(config.load()))' 2>/dev/null)"
+[ -n "$SITE" ] && open "$SITE"
 echo
 echo "Space Lab is running at http://localhost:$PORT"
+[ -n "$SITE" ] && echo "Your public page: $SITE"
 echo "Keep this window open. Close it (or press Ctrl+C) to stop Space Lab."
 echo
 tail -n 0 -f logs/server.log
