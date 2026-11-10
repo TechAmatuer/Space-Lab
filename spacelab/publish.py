@@ -238,10 +238,11 @@ def _variables_public(con, f):
     from . import variables
     s = variables.summary(con)
     stars = []
-    for r in db.rows(con, "SELECT v.tic, v.period, v.amp, v.kind, v.vsx_type, v.plot, v.status, t.ra, t.dec, t.tmag FROM tess_var v "
+    for r in db.rows(con, "SELECT v.tic, v.period, v.amp, v.kind, v.vsx_type, v.plot, v.status, v.checks, t.ra, t.dec, t.tmag FROM tess_var v "
                           "LEFT JOIN tess_targets t ON t.tic = v.tic WHERE v.status IN ('real','submitted') ORDER BY v.updated DESC LIMIT 60"):
         stars.append({'tic': r['tic'], 'period': r['period'], 'amp': r['amp'], 'kind': r['kind'], 'type': r['vsx_type'],
-                      'status': r['status'], 'ra': r['ra'], 'dec': r['dec'], 'tmag': r['tmag'], 'plot': f(r['plot'])})
+                      'status': r['status'], 'ra': r['ra'], 'dec': r['dec'], 'tmag': r['tmag'], 'plot': f(r['plot']),
+                      'ztf': ((json.loads(r['checks'] or '{}').get('ztf') or {}).get('ok'))})      # True: a second telescope sees it too
     return {k: s.get(k) for k in ('searched', 'clear', 'known', 'candidates', 'real', 'submitted')} | {'stars': stars}
 
 

@@ -29,6 +29,7 @@ SERVICES = [
     ('Minor Planet Center', 'https://minorplanetcenter.net/iau/NEO/toconfirm_tabular.html', 'reach', ['neocp', 'precovery']),
     ('AAVSO VSX', 'https://www.aavso.org/vsx/index.php?view=api.object&ident=RR+Lyr&format=json', 'reach', ['variables']),
     ('arXiv', 'https://export.arxiv.org/api/query?search_query=cat:astro-ph.EP&max_results=1', 'reach', ['arxiv', 'library', 'radar']),
+    ('ZTF light curves (IRSA)', 'https://irsa.ipac.caltech.edu/cgi-bin/ZTF/nph_light_curves?POS=CIRCLE%20150.0%2020.0%200.0014&BANDNAME=r&FORMAT=csv', 'csv', ['variables']),
 ]
 DISK_LOW_GB = 20
 SITE_STALE_H = 12
@@ -60,6 +61,10 @@ def probe(fetch=None):
                 t = (fetch or (lambda u: net.fetch_text(u, timeout=40, retries=1)))(url)
                 ok = answered(t, 'I/355/gaiadr3')
                 msg = f'answered in {time.time() - t0:.1f} s' if ok else 'reachable, but its database sent no table'
+            elif how == 'csv':                      # the service answers with a table, not an error message
+                t = (fetch or (lambda u: net.fetch_text(u, timeout=60, retries=1)))(url)
+                ok = t.lstrip().startswith('oid')
+                msg = f'answered in {time.time() - t0:.1f} s' if ok else 'reachable, but it sent an error instead of measurements'
             else:
                 ok, msg = (fetch_reach(fetch, url) if fetch else net.reachable(url, timeout=30))
         except Exception as e:

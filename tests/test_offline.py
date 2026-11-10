@@ -1393,7 +1393,8 @@ def variable_stars_found_checked_and_prepared_for_vsx():
     assert row['status'] == 'new'
     st = variables.check_one(con, {'observer_name': 'A. Tester'}, lambda *a: None, None, row,
                              gaia_fn=lambda ra, dec: {'ra': g['ra'][[0, 2]], 'dec': g['dec'][[0, 2]], 'pmra': np.zeros(2), 'pmdec': np.zeros(2), 'g': g['g'][[0, 2]]},
-                             lookups={'VSX': lambda: [], 'Gaia DR3 variability': lambda: [], 'ASAS-SN variables': lambda: []})
+                             lookups={'VSX': lambda: [], 'Gaia DR3 variability': lambda: [], 'ASAS-SN variables': lambda: []},
+                             ztf_fn=lambda ra, dec, p, amp: {'ok': True, 'verdict': 'ZTF sees the same period (test)'})
     row = db.one(con, 'SELECT * FROM tess_var WHERE tic=999001')
     ch = json.loads(row['checks'])
     fields = dict(ch['vsx'])
@@ -1959,7 +1960,7 @@ def health_check_finds_problems_and_alerts_once():
     table = '#Name: I/355\n#Table\tI_355_gaiadr3:\nSource\n\n--\n1\n'
     fake = lambda u: (table if 'idia' in u else '#RESOURCE=\n#Name:\n' if 'cfa' in u else 'Content-Type: text/html\n****\n' if 'vizier' in u else 'ok')
     sv = {s['name']: s for s in health.probe(fake)}
-    assert sv['VizieR, South Africa mirror']['ok'] and not sv['VizieR, Harvard mirror']['ok'] and not sv['VizieR, Strasbourg (CDS)']['ok'] and sv['arXiv']['ok']
+    assert sv['VizieR, South Africa mirror']['ok'] and not sv['VizieR, Harvard mirror']['ok'] and not sv['VizieR, Strasbourg (CDS)']['ok'] and sv['arXiv']['ok'] and not sv['ZTF light curves (IRSA)']['ok']
     down = {'VizieR, Harvard mirror': now - 7 * 3600, 'VizieR, Strasbourg (CDS)': now - 9 * 3600, 'VizieR, India mirror': now - 3600, 'arXiv': now - 7 * 3600}
     arx = dict(sv['arXiv'], ok=False, msg='HTTP 503')
     probs = health.problems(list(jobs.values()), [x for x in sv.values() if x['name'] != 'arXiv'] + [arx], {'free_gb': 12.0}, 20.0, down, now)
@@ -1996,6 +1997,41 @@ def health_check_finds_problems_and_alerts_once():
     from spacelab import jobs as _jobs
     assert 'health' in _jobs.JOBS and cfgm.DEFAULTS['schedule']['health'] == 'every 1h' and cfgm.DEFAULTS['alerts'] == {'mac': True, 'ntfy_topic': ''}
     con.execute("DELETE FROM runs"); con.execute("DELETE FROM kv WHERE k IN ('health_alerts','health_services')"); con.commit()
+
+
+@test
+def ztf_second_opinion_on_variable_stars():
+    from spacelab import variables as V
+    rng = np.random.default_rng(7)
+    def csv_of(period, amp_mag, base=15.0, n=320, err=0.01, band='zr', flagged=0):
+        mjd = np.sort(58300 + rng.uniform(0, 5 * 365, n) + np.round(rng.uniform(0, 1, n)) * 0)  # nightly sampling, as from the ground
+        mjd = np.floor(mjd) + 0.25 + rng.normal(0, 0.03, n)
+        mag = base + (amp_mag / 2 * np.sin(2 * np.pi * mjd / period) if period else 0) + rng.normal(0, err, n)
+        rows = ['oid,expid,hjd,mjd,mag,magerr,catflags,filtercode,ra,dec']
+        rows += [f'1,{i},{m + 2400000.5:.5f},{m:.6f},{g:.4f},{err},{32768 if i < flagged else 0},{band},150.0,20.0' for i, (m, g) in enumerate(zip(mjd, mag))]
+        return '\n'.join(rows) + '\n'
+    r = V.ztf_check(150.0, 20.0, 2.3, 30.0, fetch=lambda p: csv_of(2.3, 0.03))
+    assert r['ok'] is True and 'the same period' in r['verdict'] and abs(r['p_best'] - 2.3) < 0.01 and r['band'] == 'r' and r['n'] == 320, r
+    r = V.ztf_check(150.0, 20.0, 0.62, 200.0, fetch=lambda p: csv_of(0.31, 0.15))          # an eclipsing star often shows half its period
+    assert r['ok'] is True and 'half the period' in r['verdict'], r
+    r = V.ztf_check(150.0, 20.0, 2.3, 30.0, fetch=lambda p: csv_of(None, 0))                # should be plain to see, and is not there
+    assert r['ok'] is False and 'neighbouring star' in r['verdict'] and r['expect_snr'] >= 7, r
+    r = V.ztf_check(150.0, 20.0, 2.3, 0.6, fetch=lambda p: csv_of(None, 0))                 # too small a change to tell either way
+    assert r['ok'] is None and 'too faint' in r['verdict'], r
+    r = V.ztf_check(150.0, 20.0, 2.3, 30.0, fetch=lambda p: csv_of(2.3, 0.03, base=11.0))
+    assert r['ok'] is None and 'too bright' in r['verdict'], r
+    r = V.ztf_check(150.0, 20.0, 2.3, 30.0, fetch=lambda p: csv_of(2.3, 0.03, n=60, flagged=30))   # flagged points are left out
+    assert r['ok'] is None and 'too few clean measurements here (30)' in r['verdict'], r
+    asked = []
+    r = V.ztf_check(150.0, -45.0, 2.3, 30.0, fetch=lambda p: asked.append(p) or '')
+    assert r['ok'] is None and 'south' in r['verdict'] and not asked
+    err = ('<VOTABLE><RESOURCE type="results"><INFO name="QUERY_STATUS" value="ERROR">UsageFault: Unable to fetch url: '
+           'https://irsa-shadow.ipac.caltech.edu/TAP/sync</INFO></RESOURCE></VOTABLE>')                      # what IRSA sent on 10 Nov 2026
+    r = V.ztf_check(150.0, 20.0, 2.3, 30.0, fetch=lambda p: err)
+    assert r['ok'] is None and r['verdict'].startswith('not checked yet') and 'Unable to fetch url' in r['error'], r
+    got = []
+    V.ztf_check(150.0, 20.0, 2.3, 30.0, fetch=lambda p: got.append(p) or csv_of(2.3, 0.03))
+    assert got[0]['POS'] == 'CIRCLE 150.000000 20.000000 0.0014' and got[0]['FORMAT'] == 'csv'
 
 import urllib.error  # noqa: E402
 

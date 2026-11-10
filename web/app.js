@@ -415,14 +415,15 @@ function renderVars(v) {
   if (!v || !v.summary) return;
   const s = v.summary, cs = v.cands || [];
   const card = c => {
-    const i = c.info || {}, ch = c.checks || {}, bl = ch.blend || {}, ai = c.ai, vsx = ch.vsx || [];
+    const i = c.info || {}, ch = c.checks || {}, bl = ch.blend || {}, ai = c.ai, vsx = ch.vsx || [], zt = ch.ztf || null;
     const cat = Object.entries(ch.catalogues || {}).map(([k, m]) => `${esc(k)}: ${m === null ? 'could not be asked' : m.length ? m.map(x => esc(x.name)).join(', ') : 'nothing within 30″ ✓'}`).join(' · ');
     const text = vsx.map(([k, val]) => `${k}: ${val}`).join('\n');
     return `<div class="card" id="var-${c.tic}"><div class="row"><h3>TIC ${c.tic}</h3><span class="chip">${esc(c.vsx_type || '')}</span>
-        ${bl.suspects && bl.suspects.length ? '<span class="chip warn">neighbour could cause it</span>' : ''}${(ch.twins || []).length ? '<span class="chip warn">same signal in a nearby star</span>' : ''}<span class="spacer"></span><span class="chip ${c.status === 'real' || c.status === 'submitted' ? 'ok' : 'warn'}">${esc(c.status)}</span></div>
+        ${zt && zt.ok === true ? '<span class="chip ok">ZTF confirms</span>' : zt && zt.ok === false ? '<span class="chip bad">ZTF does not see it</span>' : ''}${bl.suspects && bl.suspects.length ? '<span class="chip warn">neighbour could cause it</span>' : ''}${(ch.twins || []).length ? '<span class="chip warn">same signal in a nearby star</span>' : ''}<span class="spacer"></span><span class="chip ${c.status === 'real' || c.status === 'submitted' ? 'ok' : 'warn'}">${esc(c.status)}</span></div>
       ${c.plot ? `<img class="plot" src="${fileUrl(c.plot)}" alt="TESS light curve, periodogram and folded light curve" loading="lazy">` : ''}
       <ul class="small"><li><b>${esc(i.kind || '')}</b>, every <b>${num(c.period, 5)} days</b>, amplitude ${num(c.amp, 1)} ppt (noise ${num(i.noise, 2)} ppt per half hour), ${num(i.cycles, 0)} cycles seen${i.flares ? `, ${i.flares} flares` : ''}</li>
         <li>catalogues of known variable stars: ${cat || 'not checked yet'}</li>
+        <li>a second telescope (ZTF, from the ground): <span class="${zt && zt.ok === true ? 'ok-t' : zt && zt.ok === false ? 'bad-t' : ''}">${esc(zt ? zt.verdict : 'not checked yet')}</span></li>
         <li>neighbours within two TESS pixels: ${esc(bl.verdict || 'not checked')}${(bl.suspects || []).slice(0, 2).map(x => ` (G ${num(x.g, 1)} star ${num(x.sep, 0)}″ away would need ${num(x.needed * 100, 0)}%)`).join('')}</li>
         ${(ch.twins || []).length ? `<li class="warn-t">the same ${num(c.period, 4)}-day signal is in ${ch.twins.map(x => `TIC ${x.tic} (${num(x.sep, 0)}″ away, T ${num(x.tmag, 1)})`).join(', ')}: TESS sees one star's light in both. At most one of them is the variable, usually the one where the change is biggest compared with its brightness.</li>` : ''}
         ${ai ? `<li>local AI's first look: <b>${esc(ai.verdict)}</b>${ai.type ? ', ' + esc(ai.type) : ''}${ai.reasons && ai.reasons.length ? ' (' + ai.reasons.map(esc).join('; ') + ')' : ''}</li>` : ''}</ul>

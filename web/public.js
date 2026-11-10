@@ -100,7 +100,7 @@ function today() {
 function varCard(v) {
   if (!v || !v.searched) return '';
   const rows = (v.stars || []).map(s => `<tr><td><a href="https://exofop.ipac.caltech.edu/tess/target.php?id=${s.tic}" target="_blank" rel="noopener">TIC ${s.tic}</a></td><td>${esc(s.type || '')}</td>
-    <td class="mono">${num(s.period, 4)} d</td><td class="mono">${num(s.amp, 1)} ppt</td><td>${s.status === 'submitted' ? 'sent to VSX' : 'checked by a person'}</td></tr>`).join('');
+    <td class="mono">${num(s.period, 4)} d</td><td class="mono">${num(s.amp, 1)} ppt</td><td>${s.status === 'submitted' ? 'sent to VSX' : 'checked by a person'}${s.ztf === true ? ' · seen by ZTF too' : ''}</td></tr>`).join('');
   return `<h2>Variable stars in the same light curves</h2><div class="card"><p class="small">Every light curve is also searched for stars whose brightness changes in a repeating way: spotted stars turning, pairs of stars eclipsing each other, flares.
     So far <b>${Number(v.searched).toLocaleString()}</b> light curves searched, <b>${Number(v.clear || 0).toLocaleString()}</b> with a clear repeating signal, <b>${Number(v.known || 0).toLocaleString()}</b> of them already in catalogues of variable stars.
     ${v.candidates ? `${v.candidates} possible new variable star(s) wait for a person's look.` : ''}</p>

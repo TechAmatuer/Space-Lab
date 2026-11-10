@@ -20,7 +20,7 @@ import time
 
 import numpy as np
 
-from . import config, db
+from . import config, db, net
 
 VAR_DIR = config.DATA / 'lc' / 'var'
 PLOTS = config.PLOTS / 'variables'
@@ -307,6 +307,90 @@ def _try(a, b):
         return b()
 
 
+# ------------------------------------------------------------------ a second telescope (idea 1): does ZTF see the same period?
+# TESS pixels are 21 arcsec wide; ZTF (Palomar, since 2018) sees 1-2 arcsec detail and has years of measurements of the
+# northern sky. If ZTF shows the same period at this exact position, the star is varying, not a neighbour or the spacecraft.
+ZTF_LC = 'https://irsa.ipac.caltech.edu/cgi-bin/ZTF/nph_light_curves'
+ZTF_SOUTH = -31.0          # ZTF's sky ends near this declination
+ZTF_BRIGHT = 12.5          # brighter stars saturate its camera
+ZTF_MIN_N = 40
+
+
+def ztf_curve(ra, dec, fetch=None):
+    """ZTF measurements within 5 arcsec: {filter: (mjd, mag, err)} with only clean points. Raises when the service fails."""
+    import csv
+    import io
+    params = {'POS': f'CIRCLE {ra:.6f} {dec:.6f} 0.0014', 'BAD_CATFLAGS_MASK': '32768', 'FORMAT': 'csv'}
+    t = (fetch or (lambda p: net.fetch_text(ZTF_LC, params=p, timeout=120, retries=2)))(params)
+    if 'QUERY_STATUS' in t[:3000] and 'ERROR' in t[:3000] or not t.lstrip().startswith('oid'):
+        import re
+        why = re.search(r'value="ERROR">([^<]{0,160})', t)
+        raise ConnectionError('ZTF light-curve service: ' + (why.group(1) if why else 'unexpected answer'))
+    by = {}
+    for r in csv.DictReader(io.StringIO(t)):
+        if (r.get('catflags') or '0').strip() not in ('0', ''):
+            continue
+        try:
+            m, e, d = float(r['mag']), float(r['magerr']), float(r['mjd'])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if math.isfinite(m) and math.isfinite(e) and e > 0:
+            by.setdefault(r.get('filtercode', '?'), []).append((d, m, e))
+    return {k: tuple(np.array(c) for c in zip(*sorted(v))) for k, v in by.items()}
+
+
+def ztf_check(ra, dec, period, amp_ppt, fetch=None):
+    """Compare ZTF's light curve with the TESS period. Returns {'ok': True | False | None, 'verdict': plain words, ...}."""
+    if dec < ZTF_SOUTH:
+        return {'ok': None, 'verdict': 'south of what ZTF can see'}
+    try:
+        data = ztf_curve(ra, dec, fetch)
+    except Exception as e:
+        return {'ok': None, 'verdict': 'not checked yet (the ZTF light-curve service did not answer; tried again next run)', 'error': str(e)[:160]}
+    band = max(data, key=lambda k: len(data[k][0]), default=None)
+    if not band or len(data[band][0]) < ZTF_MIN_N:
+        return {'ok': None, 'verdict': 'ZTF has too few clean measurements here' + (f' ({len(data[band][0])})' if band else '')}
+    mjd, mag, err = data[band]
+    med = float(np.median(mag))
+    out = {'band': band.replace('z', ''), 'n': int(len(mjd)), 'mag': round(med, 2), 'years': round(float(mjd.max() - mjd.min()) / 365.25, 1)}
+    if med < ZTF_BRIGHT:
+        return dict(out, ok=None, verdict=f'too bright for ZTF (median {out["band"]} = {med:.1f} mag; its camera saturates near {ZTF_BRIGHT})')
+    from astropy.timeseries import LombScargle
+    span = float(mjd.max() - mjd.min())
+    ls = LombScargle(mjd, mag, err)
+    fmin, fmax = 1 / 30.0, 1 / 0.04
+    freq, power = ls.autopower(minimum_frequency=fmin, maximum_frequency=fmax, samples_per_peak=8, method='fast')
+    fbest = float(freq[np.argmax(power)])
+    f0 = 1.0 / period
+    tol = max(0.004 * f0, 1.5 / max(span, 1.0))
+    match = None
+    for m, what in ((1, 'the same period'), (2, 'half the period'), (0.5, 'twice the period')):   # an eclipsing star shows P or P/2
+        for alias in (0, 1, -1, 2, -2):
+            if abs(fbest - (f0 * m + alias)) < tol:
+                match = what + ('' if not alias else f' (seen through the {abs(alias)}-day alias of a ground telescope)')
+                break
+        if match:
+            break
+    # the signal at the TESS period itself, even if ZTF's strongest peak is elsewhere
+    near = np.linspace(f0 * (1 - 0.003), f0 * (1 + 0.003), 61)
+    p_at = float(np.max(ls.power(near)))
+    fap_at = float(ls.false_alarm_probability(p_at, minimum_frequency=fmin, maximum_frequency=fmax, method='baluev'))
+    amp_ztf = float(np.percentile(mag, 95) - np.percentile(mag, 5))
+    noise = float(np.median(err))
+    expect_snr = (1.0857 * amp_ppt / 1e3 / 2) / max(noise, 1e-4) * math.sqrt(len(mjd) / 2)
+    out.update({'p_best': round(1 / fbest, 5), 'fap_at_tess': float(f'{fap_at:.2g}'), 'expect_snr': round(expect_snr, 1),
+                'spread': round(amp_ztf, 3), 'noise': round(noise, 3)})
+    where = f"{out['n']} ZTF measurements in {out['band']} over {out['years']} years"
+    if match:
+        return dict(out, ok=True, verdict=f'ZTF sees {match}: its strongest period is {1 / fbest:.5f} d ({where}). A second telescope confirms the star varies.')
+    if fap_at < 1e-3:
+        return dict(out, ok=True, verdict=f'ZTF shows the TESS period too (chance {fap_at:.0e}), though another period is stronger in its data ({1 / fbest:.4f} d; {where}).')
+    if expect_snr >= 7:
+        return dict(out, ok=False, verdict=f'ZTF should have seen a {amp_ppt:.0f} ppt change at this position (expected signal-to-noise {expect_snr:.0f}) but does not ({where}). '
+                    'The TESS signal may come from a neighbouring star.')
+    return dict(out, ok=None, verdict=f'too faint a change for ZTF to tell (expected signal-to-noise {expect_snr:.1f}; {where})')
+
+
 # ------------------------------------------------------------------ is it this star?
 def blend_check(ra, dec, amp_ppt, gaia):
     """Neighbours within two TESS pixels that could produce the signal by themselves. gaia: dict of arrays ra, dec, g
@@ -464,7 +548,7 @@ def backfill(ctx, minutes):
     return n
 
 
-def check_one(con, cfg, log, llm, row, gaia_fn=None, lookups=None):
+def check_one(con, cfg, log, llm, row, gaia_fn=None, lookups=None, ztf_fn=None):
     """Catalogues, neighbours, picture, type, report for one star with a clear signal. Returns its new status."""
     star = _star(con, row['tic'])
     if star.get('ra') is None:
@@ -491,6 +575,7 @@ def check_one(con, cfg, log, llm, row, gaia_fn=None, lookups=None):
             checks['blend'] = blend_check(star['ra'], star['dec'], r.get('amp') or 0, {'ra': ra2, 'dec': de2, 'g': g['g']})
         except Exception:
             checks['blend'] = {'verdict': 'not checked yet (the Gaia star catalogue did not answer; tried again next run)', 'suspects': []}
+        checks['ztf'] = (ztf_fn or ztf_check)(star['ra'], star['dec'], r.get('period') or row['period'], r.get('amp') or row['amp'] or 0)
         try:
             d = np.load(config.DATA / row['npz'])
             t, f = d['t'], d['f'].astype(float)
@@ -534,8 +619,10 @@ def run(ctx):
         if (json.loads(c['checks'] or '{}')).get('cat_v') != CAT_V:
             con.execute("UPDATE tess_var SET status='new' WHERE tic=?", (c['tic'],))
             db.close_task(con, f"var:{c['tic']}", 'dismissed')
-    redo = [c['tic'] for c in db.rows(con, "SELECT tic, checks FROM tess_var WHERE status='candidate'")
-            if str((json.loads(c['checks'] or '{}').get('blend') or {}).get('verdict', '')).startswith('not checked')]
+    def unfinished(ch):                                  # a check that could not be done last time (or did not exist yet)
+        return (str((ch.get('blend') or {}).get('verdict', '')).startswith('not checked')
+                or 'ztf' not in ch or str((ch.get('ztf') or {}).get('verdict', '')).startswith('not checked'))
+    redo = [c['tic'] for c in db.rows(con, "SELECT tic, checks FROM tess_var WHERE status='candidate'") if unfinished(json.loads(c['checks'] or '{}'))]
     rows = db.rows(con, "SELECT * FROM tess_var WHERE status='new' ORDER BY snr DESC LIMIT ?", (int(vc.get('checks_per_run', 40)),))
     rows += [r for r in db.rows(con, "SELECT * FROM tess_var WHERE status='candidate'") if r['tic'] in redo]   # neighbours not yet weighed
     got = {}
