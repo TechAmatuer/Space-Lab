@@ -29,6 +29,8 @@ from . import config, db, net
 SBDB_Q = 'https://ssd-api.jpl.nasa.gov/sbdb_query.api'
 GAIA_TAP = 'https://gea.esac.esa.int/tap-server/tap/sync'
 IRSA_TAP = 'https://irsa.ipac.caltech.edu/TAP/sync'
+DATE_FIX = 1.0                                 # days SpaceRockSuite adds to SuperCOSMOS dates (they are usually one day early)
+SIDEREAL_LAG = 1.0 - 0.99726957                # days: a sidereal day is 3 min 56 s shorter than a day
 SKYBOT = 'https://ssp.imcce.fr/webservices/skybot/api/conesearch.php'
 MPC_OBS = 'https://data.minorplanetcenter.net/api/get-obs'
 ARCSEC = 206264.80624709636
@@ -669,14 +671,25 @@ def choose_date(trials):
     return 0.0
 
 
+def plate_jd(mid_jd, extra_days=0.0, date_fix=DATE_FIX):
+    """Mid-exposure time (JD, UTC) of a SuperCOSMOS plate. mid_jd: the archive's time with the usual date fix already added
+    (SpaceRockSuite); extra_days: whole days moved on top of that.
+
+    The archive works the clock time out from the sidereal (star) time written on the plate, and from a date that is often
+    one day early. The star time is right, so each day the date is moved forward is one sidereal day, 23 h 56 min 4 s, not
+    24 h. Checked on four plates of 2026 ED138 that others measured too (Palomar 1954, ESO 1982 and 1984, UK Schmidt
+    1991): with plain days the times here were 236, 236, 237 and 236 s later than those at the MPC."""
+    return mid_jd + extra_days - (date_fix + extra_days) * SIDEREAL_LAG
+
+
 def asteroid_timing(img, wcs, ra, dec, radius_deg, jd, site, limit, fwhm_px, log):
     """Known asteroids on this cutout, looked for at the plate date and one day either side: the date where they appear
-    tells whether the archive date (after the usual +1 day) is right."""
+    tells whether the archive date (after the usual +1 day) is right. jd: the archive's time with the date fix added."""
     from spacerocksuite.imaging.cleanup import background
     bk = background(np.nan_to_num(img, nan=float(np.nanmedian(img))), 41)
     trials = {}
     for d in (-1.0, 0.0, 1.0):
-        rows = skybot(ra, dec, radius_deg, jd + d, site, log)
+        rows = skybot(ra, dec, radius_deg, plate_jd(jd, d), site, log)
         if rows is None:
             return {'text': 'SkyBoT (known-asteroid service) did not answer'}
         for r in rows:
@@ -902,21 +915,21 @@ def search_object(ctx, llm, t, mpc, plates_cfg):
                 continue
             scale = pixel_scale(wcs)
             half_diag = math.hypot(*img.shape) / 2 * scale / 3600
-            preds = {d: horizons_predict(des, site, [h.mid_jd + d - 2400000.5])[0] for d in (0.0, -1.0, 1.0)}
+            preds = {d: horizons_predict(des, site, [plate_jd(h.mid_jd, d) - 2400000.5])[0] for d in (0.0, -1.0, 1.0)}
             gaia = gaia_cone(preds[0.0]['ra'], preds[0.0]['dec'], min(0.3, half_diag), log=log)
             # the archive date, checked: the object's own signal at the corrected date and one day either side
             trials = {}
             for d, pr in preds.items():
                 pred = {'ra': pr['ra'], 'dec': pr['dec'], 'a': max(pr['smaa'] or 1, 1.0), 'b': max(pr['smia'] or 1, 1.0), 'pa': pr['theta'] or 0.0}
                 rate = (pr['ra_rate'] or 0.0, pr['dec_rate'] or 0.0)            # arcsec/hour (RA rate includes cos dec)
-                m = measure_plate(img, wcs, gaia, h.mid_jd + d, pred, h.exptime_s, rate, scale=scale,
+                m = measure_plate(img, wcs, gaia, plate_jd(h.mid_jd, d), pred, h.exptime_s, rate, scale=scale,
                                   avoid_mag=(h.vmag_pred or 20) + 3, log=lambda *a: log('   ', *a))
                 m['date_offset'], m['pred'] = d, pred
                 trials[d] = m
                 if d == 0.0 and m.get('found') and m['snr'] >= 8 and m['in_ellipse'] <= 1:
                     break                                            # clear at the corrected date: no need to try others
             m = trials[choose_date(trials)]
-            jd = h.mid_jd + m['date_offset']
+            jd = plate_jd(h.mid_jd, m['date_offset'])
             pred = m['pred']
             rec['date_probe'] = {f'{d:+g}': (t.get('snr') if t.get('found') else None) for d, t in trials.items()}
             rec['timing'] = asteroid_timing(img, wcs, preds[0.0]['ra'], preds[0.0]['dec'], half_diag * 0.7, h.mid_jd, site,
@@ -955,7 +968,7 @@ def search_object(ctx, llm, t, mpc, plates_cfg):
             review_png(png, f'{des} on {label}: {v}', m, cmp_img, cmp_label, scale=scale, pred=m.get('pred'))
             rec['png'] = str(png.relative_to(config.DATA))
             tm = rec['timing']
-            date_note = ('SSA plate date +1 d (SuperCOSMOS dates are often one day early)' +
+            date_note = ('SSA plate date +1 sidereal day (SuperCOSMOS dates are often one day early; its times come from the sidereal time on the plate)' +
                          (f'; the object is seen at a further {m["date_offset"]:+g} d' if m['date_offset'] else '') +
                          (f'; date confirmed by {tm["n"]} known asteroid(s)' if tm.get('offset') == m['date_offset'] else '') + '.')
             if done and m.get('found'):

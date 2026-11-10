@@ -391,7 +391,7 @@ function renderNeo(x) {
         : control >= 3 ? `noise check: the strongest blob at a wrong-date position has S/N ${num(control, 1)}, well below this one ✓`
         : others.length ? 'noise check: nothing where the object would be on a wrong date ✓' : '',
       cm ? `another date (${esc(cm.plate || 'other plate')}): ${cm.absent ? 'nothing at that spot ✓' : `<span class="bad-t">something is there too (S/N ${num(cm.snr, 1)})</span>`}` : 'no plate from another date could be checked',
-      `plate date: SuperCOSMOS date +1 day${o.date_offset ? `, then ${o.date_offset > 0 ? '+' : ''}${o.date_offset} more day (the object is seen there)` : ''}. ${esc(tm.text || '')}`,
+      `plate date: SuperCOSMOS date +1 day by the stars (23 h 56 min; the archive's date is often a day early)${o.date_offset ? `, then ${o.date_offset > 0 ? '+' : ''}${o.date_offset} more day (the object is seen there)` : ''}. ${esc(tm.text || '')}`,
       ai ? `local AI's first look: <b>${esc(ai.verdict)}</b>${ai.reasons && ai.reasons.length ? ' (' + ai.reasons.map(esc).join('; ') + ')' : ''}` : ''].filter(Boolean);
     const tested = mp.test, sent = mp.sent;
     const canSend = real && x.sarc_verified && x.email_set && tested && tested.ok && !sent;

@@ -1089,6 +1089,10 @@ def plates_astrometry_on_a_synthetic_1954_plate():
     assert plates.verdict(weak, c) == 'detected' and plates.verdict(weak, c, control=4.2) == 'marginal' and plates.verdict(dict(m, snr=11.1), c, control=4.2) == 'detected'
     assert plates.control_snr({0.0: {'found': True, 'snr': 5.0}, -1.0: {'found': True, 'snr': 4.2}, 1.0: {'found': False}}, 0.0) == 4.2
     assert plates.control_snr({0.0: {'found': True, 'snr': 11.1}}, 0.0) == 0.0
+    # plate times: moving the archive's date forward by a day is one sidereal day (236 s less than 24 h); its own date needs no shift
+    J = 2445047.7716
+    assert abs((plates.plate_jd(J) - J) * 86400 + 235.909) < 0.01 and abs((plates.plate_jd(J, 1.0) - (J + 1)) * 86400 + 2 * 235.909) < 0.02
+    assert abs(plates.plate_jd(J, -1.0) - (J - 1)) < 1e-9
 
 
 @test
