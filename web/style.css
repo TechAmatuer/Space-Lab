@@ -67,7 +67,8 @@ pre.log{max-height:420px;overflow:auto;background:var(--panel-2);border:1px soli
 .clickwrap .mk{position:absolute;width:18px;height:18px;margin:-9px 0 0 -9px;border-radius:50%;border:2px solid #4db3d3;pointer-events:none}
 .clickwrap .mk.t{border-color:#ff5a36}
 .banner{border-left:4px solid var(--warn)}
-.ok-t{color:var(--ok)} .bad-t{color:var(--bad)} .warn-t{color:var(--warn)}
+.ok-t,.good-t{color:var(--ok)} .bad-t{color:var(--bad)} .warn-t{color:var(--warn)}
+.chip.good{border-color:var(--ok);color:var(--ok)} .hl-probs{margin:6px 0;padding-left:18px} .hl-t{width:100%;border-collapse:collapse;margin:8px 0} .hl-t th,.hl-t td{text-align:left;padding:3px 6px;border-bottom:1px solid var(--line);vertical-align:top}
 #zoom{position:fixed;inset:0;background:rgba(0,0,0,.85);display:none;align-items:center;justify-content:center;z-index:20;cursor:zoom-out}
 #zoom img{max-width:96vw;max-height:94vh;background:#fff;border-radius:6px}
 .embed header h1{display:none}

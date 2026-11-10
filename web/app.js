@@ -177,6 +177,34 @@ function tickStatus() {
   }
 }
 
+// ---- System health (spacelab/health.py): outside services, jobs that keep failing, website, disk
+async function loadHealth(force) {
+  if (!force && S.health && Date.now() - S.healthAt < 60000) return renderHealth();
+  try { S.health = await api('api/health'); S.healthAt = Date.now(); } catch (e) { S.health = null; }
+  renderHealth();
+}
+function renderHealth() {
+  const box = $('#healthBox'), h = S.health;
+  if (!box) return;
+  if (!h) { box.innerHTML = '<h3>🩺 System health</h3><p class="small muted">Could not read the health report.</p>'; return; }
+  const probs = h.problems || [], down = (h.services || []).filter(s => !s.ok), lvl = probs.some(p => p.level === 'bad') ? 'bad' : probs.length ? 'warn' : 'good';
+  const word = { bad: 'needs attention', warn: 'a warning', good: 'all good' }[lvl];
+  const hrs = x => x == null ? 'never' : x < 1 ? `${Math.max(1, Math.round(x * 60))} min ago` : x < 48 ? `${Math.round(x)} h ago` : `${Math.round(x / 24)} days ago`;
+  const jobs = (h.jobs || []).filter(j => j.every_h || j.last);
+  const cat = h.catalogs && h.catalogs.tables ? Object.entries(h.catalogs.tables) : [];
+  box.innerHTML = `<div class="row"><h3>🩺 System health</h3><span class="spacer"></span><span class="chip ${lvl === 'good' ? 'good' : 'warn'}">${word}</span></div>
+    ${probs.length ? `<ul class="small hl-probs">${probs.map(p => `<li class="${p.level === 'bad' ? 'bad-t' : 'warn-t'}">${esc(p.text)}</li>`).join('')}</ul>`
+      : `<p class="small muted" style="margin:4px 0">No job is failing, the website is current, and ${(h.services || []).length - down.length} of ${(h.services || []).length} outside services answer.</p>`}
+    <details class="small hl-d"${S.healthOpen ? ' open' : ''}><summary>Details: services, jobs, disk${cat.length ? ', catalogue copies' : ''}</summary>
+      <p class="muted">Services last checked ${h.checked ? when(h.checked) : 'not yet (the hourly check has not run)'}. Alerts go to ${h.alerts && h.alerts.mac ? 'this Mac\'s notifications' : 'nowhere yet'}${h.alerts && h.alerts.phone ? ' and your phone (ntfy)' : ' (a phone push can be added in settings: alerts → ntfy_topic)'}.</p>
+      <table class="hl-t"><tr><th>Outside service</th><th></th><th>Used by</th></tr>${(h.services || []).map(s => `<tr><td>${esc(s.name)}</td><td class="${s.ok ? 'good-t' : 'bad-t'}">${s.ok ? '✓' : '✕'} ${esc(s.msg)}</td><td class="muted">${esc((s.used_by || []).join(', '))}</td></tr>`).join('')}</table>
+      <table class="hl-t"><tr><th>Job</th><th>Last success</th><th>Schedule</th></tr>${jobs.map(j => `<tr><td>${esc(j.label)}</td><td class="${j.fails_in_a_row >= 2 ? 'bad-t' : j.overdue ? 'warn-t' : ''}">${hrs(j.ok_age_h)}${j.fails_in_a_row ? ` · ${j.fails_in_a_row} failed since` : ''}</td><td class="muted">${j.every_h ? 'every ' + (j.every_h >= 24 ? Math.round(j.every_h / 24) + ' d' : j.every_h + ' h') : 'by hand'}</td></tr>`).join('')}</table>
+      <p>Disk: <b>${h.disk.free_gb} GB free</b> of ${h.disk.total_gb} GB (${h.disk.used_pct}% used). Public website last updated ${hrs(h.site_age_h)}.</p>
+      ${cat.length ? `<p>Catalogue copies on this Mac: ${cat.map(([k, v]) => `${esc(k)} ${v.rows ? Number(v.rows).toLocaleString() + ' rows' : 'none'}${v.error ? ' (' + esc(v.error) + ')' : ''}`).join(' · ')}; ${Number(h.catalogs.answers || 0).toLocaleString()} saved answers.</p>` : ''}
+      <div class="row"><button class="b" data-run="health">Check now</button></div></details>`;
+  box.querySelector('.hl-d').addEventListener('toggle', e => { S.healthOpen = e.target.open; });   // stays open when the page refreshes
+}
+
 async function refreshState() {
   try {
     const st = await api('api/state');
@@ -234,7 +262,8 @@ function renderToday(st) {
   const house = `<div class="grid g2"><div class="card"><h3>📊 Your contributions</h3><div class="kv"><b>Stars searched</b><span>${co.stars_searched ?? '—'}</span><b>Candidates you reviewed</b><span>${co.tess_reviewed ?? '—'} (${co.tess_planet_like ?? 0} planet-like)</span><b>Asteroid sightings checked</b><span>${co.asteroid_sightings_checked ?? '—'}</span><b>Exoplanet Watch light curves</b><span>${co.exowatch_reduced ?? '—'}</span><b>Results submitted</b><span>${co.uploads_done ?? '—'}</span></div></div>
     ${st.visitors ? `<div class="card"><h3>👀 Website visitors</h3><p><b>${st.visitors.visitors ?? '—'}</b> visitors in the last ${st.visitors.days} days${st.visitors.events ? `, ${st.visitors.events} votes and clicks` : ''}.</p><a class="b" href="${esc(st.visitors.url)}" target="_blank" rel="noopener">Open your visitor stats ↗</a></div>` : ''}
     <div class="card"><h3>💾 Storage</h3>${dk ? `<div class="kv"><b>Space Lab data</b><span>${dk.total_gb} GB</span><b>Free on this Mac</b><span>${dk.free_gb} GB</span><b>Largest parts</b><span>${(dk.largest || []).map(x => esc(x[0]) + ' ' + x[1] + ' GB').join(', ')}</span></div><p class="small muted">Temporary downloads older than 60 days are cleaned up and the database is backed up every night (7 copies kept in data/backups).</p>` : '<p class="small muted">Measured after the next Sky watch run.</p>'}</div></div>`;
-  $('#todayBody').innerHTML = `<div class="card" id="nowRunning" hidden></div>${brief}<h2>Your tasks (${st.tasks.length})</h2>${tasks}<h2>What your computer does</h2><div class="grid g3">${runs}</div>${house}`;
+  $('#todayBody').innerHTML = `<div class="card" id="nowRunning" hidden></div><div class="card" id="healthBox"></div>${brief}<h2>Your tasks (${st.tasks.length})</h2>${tasks}<h2>What your computer does</h2><div class="grid g3">${runs}</div>${house}`;
+  loadHealth();
 }
 
 // ------------------------------------------------------------------ arXiv

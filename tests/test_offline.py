@@ -1938,6 +1938,57 @@ def catalogue_copies_survive_outages():
     from spacelab import config as _cfg, jobs as _jobs
     assert 'catalogs' in _jobs.JOBS and _cfg.DEFAULTS['schedule']['catalogs'] == 'every 168h'
 
+
+@test
+def health_check_finds_problems_and_alerts_once():
+    from spacelab import health, db, config as cfgm
+    con = db.connect()
+    con.execute("DELETE FROM runs")
+    now = time.time()
+    add = lambda job, ago_h, st, summ='': con.execute('INSERT INTO runs (job, started, finished, status, summary, trigger) VALUES (?,?,?,?,?,?)',
+                                                     (job, now - ago_h * 3600, now - ago_h * 3600 + 60, st, summ, 'schedule'))
+    add('variables', 30, 'ok'); add('variables', 20, 'error', 'no VizieR mirror answered'); add('variables', 8, 'error', 'no VizieR mirror answered')
+    add('publish', 20, 'ok'); add('solar', 2, 'ok'); add('universe', 2000, 'ok')
+    con.commit()
+    cfg = cfgm.load()
+    assert health._hours('every 3h') == 3 and health._hours('01:30') == 24 and health._hours(None) is None
+    jobs = {j['job']: j for j in health.job_report(con, cfg, now)}
+    assert jobs['variables']['fails_in_a_row'] == 2 and not jobs['solar']['overdue'] and jobs['publish']['overdue'] and jobs['universe']['overdue']
+    assert jobs['selftest']['every_h'] is None and not jobs['selftest']['overdue']          # run by hand: never "overdue"
+    # services: a mirror that answers with an error page or an empty header is down; one that sends a table is up
+    table = '#Name: I/355\n#Table\tI_355_gaiadr3:\nSource\n\n--\n1\n'
+    fake = lambda u: (table if 'idia' in u else '#RESOURCE=\n#Name:\n' if 'cfa' in u else 'Content-Type: text/html\n****\n' if 'vizier' in u else 'ok')
+    sv = {s['name']: s for s in health.probe(fake)}
+    assert sv['VizieR, South Africa mirror']['ok'] and not sv['VizieR, Harvard mirror']['ok'] and not sv['VizieR, Strasbourg (CDS)']['ok'] and sv['arXiv']['ok']
+    probs = health.problems(list(jobs.values()), list(sv.values()), {'free_gb': 12.0}, 20.0, {'VizieR, Harvard mirror': now - 7 * 3600, 'VizieR, India mirror': now - 3600}, now)
+    keys = {p['key'] for p in probs}
+    assert {'job:variables:failing', 'job:publish:overdue', 'site:stale', 'disk:low', 'service:VizieR, Harvard mirror'} <= keys, keys
+    assert 'service:VizieR, India mirror' not in keys and 'job:solar:overdue' not in keys                 # down for an hour only; on time
+    assert any('failed 2 times in a row' in p['text'] and 'no VizieR mirror answered' in p['text'] for p in probs)
+    # alerts: each problem once, not again within a day, again after a day, and a "back to normal" when solved
+    sink = []
+    con.execute("DELETE FROM kv WHERE k='health_alerts'")
+    assert len(health.alert(con, cfg, probs, now, sink)) == len(probs) and len(sink) == len(probs)
+    sink.clear()
+    assert health.alert(con, cfg, probs, now + 3600, sink) == [] and not sink
+    assert len(health.alert(con, cfg, probs, now + 25 * 3600, sink)) == len(probs)
+    sink.clear()
+    left = [p for p in probs if p['key'] != 'disk:low']
+    sent = health.alert(con, cfg, left, now + 26 * 3600, sink)
+    assert sent == ['ok:disk:low'] and sink[0][0] == 'Space Lab: back to normal' and 'Only 12.0 GB free' in sink[0][1], (sent, sink)
+    # the hourly job: probes, remembers since when a service is down, reports, alerts through the sink
+    class C:
+        pass
+    c = C(); c.con = con; c.logs = []; c.log = c.logs.append
+    summ = health.run(c, fetch=fake, sink=[])
+    st = db.kv_get(con, 'health_services')
+    assert 'VizieR, Harvard mirror' in st['down_since'] and 'VizieR, South Africa mirror' not in st['down_since'] and 'outside services answering' in summ
+    rep = health.report(con, cfg)
+    assert rep['disk']['free_gb'] > 0 and rep['checked'] and len(rep['services']) == len(health.SERVICES) and 'problems' in rep
+    from spacelab import jobs as _jobs
+    assert 'health' in _jobs.JOBS and cfgm.DEFAULTS['schedule']['health'] == 'every 1h' and cfgm.DEFAULTS['alerts'] == {'mac': True, 'ntfy_topic': ''}
+    con.execute("DELETE FROM runs"); con.execute("DELETE FROM kv WHERE k IN ('health_alerts','health_services')"); con.commit()
+
 import urllib.error  # noqa: E402
 
 if __name__ == '__main__':

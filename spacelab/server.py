@@ -740,6 +740,9 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, api_arxiv(q))
             if p == '/api/var':
                 return self.send(200, api_var())
+            if p == '/api/health':
+                from . import health
+                return self.send(200, health.report(db.connect(), config.load()))
             if p == '/api/tess':
                 return self.send(200, api_tess())
             if p == '/api/exo':

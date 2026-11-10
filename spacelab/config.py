@@ -23,6 +23,8 @@ DEFAULTS = {
     'contact_email': '',          # used only in the MPC report header you send yourself
     'sarc_verified': False,       # set True once the MPC's archival committee has verified you
     'discord_webhook': '',        # optional: alerts to a Discord channel
+    'alerts': {'mac': True, 'ntfy_topic': ''},   # problems found by the hourly health check: a Mac notification, and a phone push if you
+                                  # install the ntfy app and put a long, hard-to-guess topic name here (anyone who knows it can read it)
     'discord_alerts': {'tasks': True, 'brief': True, 'errors': True},
     'llm': {
         'host': 'http://127.0.0.1:11434',
@@ -53,6 +55,7 @@ DEFAULTS = {
         'solar': 'every 24h',      # where the planets and spacecraft are (JPL Horizons), for the live solar system map
         'variables': 'every 12h',  # variable stars in the TESS light curves: catalogue checks, back-fill of earlier stars
         'catalogs': 'every 168h',  # local copies of the catalogues the jobs depend on (spacelab/localcat.py)
+        'health': 'every 1h',      # are the outside services answering, has a job failed twice, is the website current
     },
     'arxiv': {
         'categories': ['astro-ph.EP', 'astro-ph.SR', 'astro-ph.IM', 'astro-ph.GA', 'astro-ph.HE', 'astro-ph.CO'],
