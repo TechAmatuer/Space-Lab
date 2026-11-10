@@ -85,7 +85,10 @@ def check(text, cand=None, cfg=None, online=True):
     if not out or all(o['level'] != 'error' for o in out):
         add('ok', 'format: header and columns look complete')
     good = [t for t in times if t]
-    if len(good) < 2:
+    plates = bool(rows) and all(r.get('mode') == 'PHO' for r in rows)
+    if plates and len(good) == 1:
+        add('ok', 'one position from one photographic plate: normal for archival plates of a known object (the MPC\'s SARC reviews these)')
+    elif len(good) < 2:
         add('error', 'only one position: the MPC needs at least two positions from the same night (a tracklet)')
     else:
         span_h = (max(good) - min(good)).total_seconds() / 3600
@@ -118,11 +121,14 @@ def check(text, cand=None, cfg=None, online=True):
         add('error', 'not yet SARC-verified: the MPC will not accept archival (precovery) data until its committee verifies you (see the task on Today)')
     if online:
         try:
-            dup = duplicates(rows)
+            tol = 1.6 * 86400 if plates else 60
+            dup = duplicates(rows, tol)
             if dup is None:
                 add('warn', 'could not ask the MPC about duplicates right now')
             elif dup:
-                add('error', f'the MPC already has {dup} observation(s) from {code or "this station"} within a minute of yours: likely already reported')
+                add('error', f'the MPC already has {dup} observation(s) from {code or "this station"} ' +
+                    ('within a day and a half of this plate: someone has probably measured the same plate already' if plates
+                     else 'within a minute of yours: likely already reported'))
             else:
                 add('ok', 'the MPC has no observations from this station at these times: looks new')
         except Exception as e:
@@ -130,7 +136,7 @@ def check(text, cand=None, cfg=None, online=True):
     return out
 
 
-def duplicates(rows):
+def duplicates(rows, tol_s=60):
     des = rows[0].get('permID') or rows[0].get('provID')
     stn = rows[0].get('stn')
     if not des:
@@ -158,6 +164,6 @@ def duplicates(rows):
             t = datetime(y, mo, day) + timedelta(days=d - day)
         except ValueError:
             continue
-        if any(abs((t - m).total_seconds()) < 60 for m in mine):
+        if any(abs((t - m).total_seconds()) < tol_s for m in mine):
             n += 1
     return n

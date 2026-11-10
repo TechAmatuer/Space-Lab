@@ -1000,6 +1000,211 @@ def cheops_job_end_to_end_offline():
     assert 'cheops' in jobs.JOBS
 
 
+def _synthetic_plate(seed=7, with_target=True, target_offset=(4.0, 1.5), shift_archive=(1.2, -0.8)):
+    """A 1954-like scanned plate: stars at their 1954 positions (Gaia 2016 positions moved back with proper motions), a
+    slightly distorted true projection, an archive WCS that is off by about a pixel, noise, and a faint object 3" from
+    a brighter star. Returns (image, archive wcs, gaia catalogue, truth)."""
+    from astropy.wcs import WCS
+    from spacelab import plates
+    rng = np.random.default_rng(seed)
+    ra0, dec0, scale, n = 150.0, -30.0, 0.67, 520
+    jd = 2434836.5                                                   # 1954-04-03
+    m = 900
+    ra16 = ra0 + rng.uniform(-0.09, 0.09, m) / math.cos(math.radians(dec0))
+    dec16 = dec0 + rng.uniform(-0.09, 0.09, m)
+    pmra = rng.normal(0, 25, m); pmdec = rng.normal(0, 25, m)
+    pmra[:40] = rng.normal(0, 150, 40)                               # some fast stars: 9" in 62 years
+    g = rng.uniform(12.5, 20.3, m)
+    ra54, dec54 = plates.propagate(ra16, dec16, pmra, pmdec, jd)
+    th = math.radians(0.7)
+
+    def true_xy(ra, dec):                                            # the plate's real geometry (rotated, slightly curved)
+        xi, eta = plates.tangent(ra, dec, ra0, dec0)
+        u, v = (math.cos(th) * xi - math.sin(th) * eta) / scale, (math.sin(th) * xi + math.cos(th) * eta) / scale
+        return n / 2 - u + 2e-4 * u * u / 10, n / 2 + v + 1.5e-4 * u * v / 10
+    yy, xx = np.mgrid[:n, :n]
+    img = rng.normal(100.0, 2.0, (n, n))
+    s = 3.0 / 2.3548
+
+    def add(x, y, flux, sx=s, sy=s):
+        x0, y0 = int(round(x)), int(round(y))
+        a, b = max(0, y0 - 12), max(0, x0 - 12)
+        sl = (slice(a, y0 + 13), slice(b, x0 + 13))
+        img[sl] += flux / (2 * math.pi * sx * sy) * np.exp(-0.5 * (((xx[sl] - x) / sx) ** 2 + ((yy[sl] - y) / sy) ** 2))
+    X, Y = true_xy(ra54, dec54)
+    for x, y, gg in zip(X, Y, g):
+        add(x, y, 4000 * 10 ** (-0.4 * (gg - 15)))
+    # a brighter star near the middle, and the faint object 3" from it (the 1991 UK Schmidt situation)
+    bra, bdec = plates.untangent(np.array([0.0]), np.array([0.0]), ra0, dec0)
+    ra16 = np.append(ra16, bra); dec16 = np.append(dec16, bdec); pmra = np.append(pmra, 0); pmdec = np.append(pmdec, 0); g = np.append(g, 15.2)
+    bx, by = true_xy(bra, bdec)
+    add(float(bx[0]), float(by[0]), 4000 * 10 ** (-0.4 * 0.2))
+    tra, tdec = plates.untangent(np.array([target_offset[0] * 0.67]), np.array([target_offset[1] * 0.67]), ra0, dec0)
+    tx, ty = true_xy(tra, tdec)
+    if with_target:
+        add(float(tx[0]), float(ty[0]), 4000 * 10 ** (-0.4 * (18.6 - 15)), sx=s * 1.25, sy=s)      # slightly trailed along x
+    w = WCS(naxis=2)
+    w.wcs.ctype = ['RA---TAN', 'DEC--TAN']
+    w.wcs.crval = [ra0, dec0]
+    w.wcs.crpix = [n / 2 + 1 + shift_archive[0], n / 2 + 1 + shift_archive[1]]
+    w.wcs.cdelt = [-scale / 3600, scale / 3600]
+    gaia = {'ra': ra16, 'dec': dec16, 'pmra': pmra, 'pmdec': pmdec, 'g': g}
+    return img, w, gaia, {'jd': jd, 'ra': float(tra[0]), 'dec': float(tdec[0]), 'x': float(tx[0]), 'y': float(ty[0])}
+
+
+@test
+def plates_astrometry_on_a_synthetic_1954_plate():
+    from spacelab import plates
+    img, w, gaia, truth = _synthetic_plate()
+    # the prediction is 2.6" off, with a 3-sigma area of 30"; the object moves 2"/hour mostly east
+    pdx, pdy = 2.0, -1.66
+    pra, pdec = plates.untangent(np.array([plates.tangent(truth['ra'], truth['dec'], 150.0, -30.0)[0] + pdx]),
+                                 np.array([plates.tangent(truth['ra'], truth['dec'], 150.0, -30.0)[1] + pdy]), 150.0, -30.0)
+    pred = {'ra': float(pra[0]), 'dec': float(pdec[0]), 'a': 30.0, 'b': 12.0, 'pa': 80.0}
+    m = plates.measure_plate(img, w, gaia, truth['jd'], pred, 3000, (2.0, 0.3), scale=0.67, avoid_mag=21.5, log=lambda *a: None)
+    assert m['found'], m.get('why')
+    err = math.hypot(*plates.tangent(m['ra'], m['dec'], truth['ra'], truth['dec']))
+    assert err < 0.2, (err, m['plate'])                                   # true position recovered to better than 0.2"
+    assert m['plate']['n'] >= 60 and m['plate']['rms_ra'] < 0.12 and m['plate']['order'] >= 2, m['plate']
+    assert m['snr'] >= 8 and m['n_removed'] >= 1, (m['snr'], m['n_removed'])
+    assert abs(m['off'] - 2.6) < 0.3 and m['in_ellipse'] < 1, (m['off'], m['in_ellipse'])
+    assert 0.25 <= m['sigma'] < 0.4, m['sigma']                          # floor + small centroid and plate terms
+    assert m['shape']['trail_px'] > 1 and m['shape']['verdict'] == 'stretched along the direction of motion', m['shape']
+    # without moving Gaia stars to 1954 the plate solution is visibly worse
+    g0 = dict(gaia, pmra=np.zeros_like(gaia['pmra']), pmdec=np.zeros_like(gaia['pmdec']))
+    m0 = plates.measure_plate(img, w, g0, truth['jd'], pred, 3000, (2.0, 0.3), scale=0.67, avoid_mag=21.5, log=lambda *a: None)
+    assert m0['plate']['n'] < m['plate']['n'] or m0['plate']['rms_ra'] > 1.5 * m['plate']['rms_ra'], (m0['plate'], m['plate'])
+    # no object on the plate: nothing is claimed
+    img2, w2, gaia2, truth2 = _synthetic_plate(with_target=False)
+    m2 = plates.measure_plate(img2, w2, gaia2, truth2['jd'], pred, 3000, (2.0, 0.3), scale=0.67, avoid_mag=21.5, log=lambda *a: None)
+    assert plates.verdict(m2) in ('not found', 'marginal'), (plates.verdict(m2), m2.get('snr'))
+    # the comparison plate: empty at the object's spot on another date, but a static star there is noticed
+    c = plates.absent_elsewhere(img2, w2, truth['ra'], truth['dec'], 3.0, gaia2, truth2['jd'], log=lambda *a: None)
+    assert c and c['absent'], c                                          # the bright star 3" away is not mistaken for it
+    c2 = plates.absent_elsewhere(img, w, truth['ra'], truth['dec'], 3.0, gaia, truth['jd'], log=lambda *a: None)
+    assert c2 and not c2['absent'] and plates.verdict(m, c2).startswith('static'), c2
+    assert plates.verdict(m, c) == 'detected'
+
+
+@test
+def plates_pure_helpers():
+    from spacelab import plates
+    # tangent plane round trip
+    xi, eta = plates.tangent(10.5, -40.2, 10.0, -40.0)
+    ra, dec = plates.untangent(xi, eta, 10.0, -40.0)
+    assert abs(ra - 10.5) < 1e-9 and abs(dec + 40.2) < 1e-9
+    # proper motion: 100 mas/yr east for 62 years at dec -60 is 6.2" on the sky
+    r2, d2 = plates.propagate([20.0], [-60.0], [100.0], [0.0], plates.J2016 - 62 * 365.25)
+    assert abs(plates.tangent(r2[0], d2[0], 20.0, -60.0)[0] + 6.2) < 0.01
+    # ellipse distance: on the major axis edge = 1
+    assert abs(plates.ellipse_distance(math.sin(math.radians(30)) * 10, math.cos(math.radians(30)) * 10, 10, 2, 30) - 1) < 1e-9
+    assert plates.ellipse_distance(2.1, 0, 10, 2, 0) > 1
+    # date choice: keep the corrected date unless another is clearly better
+    f = lambda snr, e=0.5: {'found': True, 'snr': snr, 'in_ellipse': e}
+    assert plates.choose_date({0.0: f(9), -1.0: f(4)}) == 0.0
+    assert plates.choose_date({0.0: {'found': False}, -1.0: f(3), 1.0: f(12)}) == 1.0                 # the Eris POSS-I case: +2 d in total
+    assert plates.choose_date({0.0: f(4), 1.0: f(6)}) == 0.0                                       # not twice as strong: keep
+    assert plates.choose_date({0.0: {'found': False}, 1.0: f(12, e=1.4)}) == 0.0                    # outside the area: no
+    off, votes, text = plates.timing_consensus({'(433) Eros': {-1: 0.4, 0: 0.9, 1: 14.0}, '(1) Ceres': {-1: 1.0, 0: 0.2, 1: 30.0}, 'faint': {0: 2, 1: 3}})
+    assert off == 1 and len(votes[1]) == 2 and '2 known asteroid' in text, (off, votes, text)
+    off, votes, text = plates.timing_consensus({'a': {0: 9, 1: 1}, 'b': {0: 0.5, 1: 9}})
+    assert off is None and 'disagree' in text
+    assert plates.timing_consensus({})[0] is None
+    # SkyBoT text and MPC 80-column lines
+    sk = ('# Flag: 1\n# Num | Name | RA(h) | DE(deg) | Class | Mv | Err(arcsec) | d(arcsec) | dRA(arcsec/h) | dDEC(arcsec/h)\n'
+          '433 | Eros | 10 00 00.000 | -30 00 00.00 | NEA>Amor | 13.5 | 0.010 | 12.3 | 60 | -5\n')
+    r = plates.parse_skybot(sk)
+    assert len(r) == 1 and r[0]['name'] == 'Eros' and abs(r[0]['ra'] - 150) < 1e-6 and r[0]['v'] == 13.5, r
+    line = '     K26E38D  A1954 04 03.34537 09 59 12.34 -29 57 01.2          18.9 R      675'
+    line = line.ljust(80)[:77] + '675'
+    o = plates.parse_obs80([line])
+    assert len(o) == 1 and o[0]['stn'] == '675' and abs(o[0]['ra'] - (9 + 59 / 60 + 12.34 / 3600) * 15) < 1e-6 and o[0]['dec'] < -29.9, o
+    assert plates.already_reported(o, '675', o[0]['jd'] + 1.0) and not plates.already_reported(o, '809', o[0]['jd'])
+    assert not plates.already_reported(o, '675', o[0]['jd'] + 3.0)
+    # targets: bright distant objects first seen recently; manual ones first; done ones skipped
+    rows = [{'pdes': '2026 ED138', 'full_name': '2026 ED138', 'H': '2.85', 'q': '36.9', 'a': '43.2', 'first_obs': '2016-02-25'},
+            {'pdes': '2020 XX1', 'H': '9.5', 'q': '35', 'first_obs': '2020-01-01'},           # far too faint for plates
+            {'pdes': '1999 OLD', 'H': '4', 'q': '35', 'first_obs': '1990-01-01'},             # already seen before the plates ended
+            {'pdes': '2024 CEN', 'H': '7.0', 'q': '9.0', 'a': '14.0', 'first_obs': '2024-05-01'}]
+    t = plates.pick_targets(rows, {'2026 ED138'}, 2026, want=3, manual=['136199'])
+    assert [x['des'] for x in t] == ['136199', '2024 CEN'], t
+    assert [x['des'] for x in plates.pick_targets(rows, set(), 2026)] == ['2024 CEN', '2026 ED138']      # newer first, both bright enough
+
+
+@test
+def plates_report_passes_the_checker():
+    from spacelab import mpccheck, plates
+    meas = {'obsTime': '1954-04-03T08:16:52.5Z', 'ra': 149.80514, 'dec': -29.950333, 'sigma': 0.31,
+            'plate': {'order': 2, 'n': 140, 'rms_ra': 0.12, 'rms_dec': 0.11}}
+    txt = plates.ades_plate('2026 ED138', meas, {'observer_name': 'A. Tester', 'sarc_verified': True}, '675', 'POSS-I E (S) 1029 (1954-04-03)',
+                            'SSA plate date +1 d.')
+    assert '|PHO |675 |1954-04-03T08:16:52.5Z |149.8051400 |-29.9503330 |0.310 |0.310 |Gaia3' in txt.replace(' |', '|').replace('|', ' |') or \
+        'PHO' in txt and 'Gaia3' in txt, txt
+    assert '! detector PHO' in txt and '! mpcCode 675' in txt and 'proper motions' in txt
+    res = mpccheck.check(txt, None, {'sarc_verified': True}, online=False)
+    errs = [r['msg'] for r in res if r['level'] == 'error']
+    assert not errs, res
+    assert any('photographic plate' in r['msg'] for r in res), res
+
+
+@test
+def mpc_send_needs_review_test_email_sarc_and_confirmation():
+    from spacelab import mpcsubmit, plates, server, db
+    meas = {'obsTime': '1991-03-24T15:02:11.0Z', 'ra': 210.1, 'dec': -28.2, 'sigma': 0.3, 'plate': {'order': 2, 'n': 90, 'rms_ra': 0.1, 'rms_dec': 0.1}}
+    cfg = {'observer_name': 'A. Tester', 'contact_email': '', 'sarc_verified': False}
+    ades = plates.ades_plate('2099 AB1', meas, cfg, '260', 'SERC-R/AAO-R 14248', 'SSA plate date +1 d.')
+    con = db.connect()
+    cid = con.execute('INSERT INTO pc_cands(des,night,archive,obs,offset,mdist,score,gif,png,ades,status,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
+                      ('2099 AB1', '1991-03-24', 'SuperCOSMOS SERC-R/AAO-R 14248', json.dumps([{'objtype': 'tno', 'mode': 'PHO'}]),
+                       1.0, 0.1, 12, None, None, ades, 'new', time.time())).lastrowid
+    sent = []
+    old_post, old_check, old_load = mpcsubmit.post, mpcsubmit.mpccheck.check, server.config.load
+    mpcsubmit.post = lambda url, fields, timeout=120: (sent.append((url, fields)) or
+                                                       ('Submission format valid.' if url.endswith('_test') else 'Submission ID is 2026-11-10T01:02:03.456_0000AbCd'))
+    mpcsubmit.mpccheck.check = lambda text, c, cfg, online=True: old_check(text, c, cfg, online=False)
+    try:
+        server.config.load = lambda: cfg
+        code, out = server.post_action(f'/api/pc/{cid}/submit', {'test': True})
+        assert code == 409 and any('mark the sighting as real' in b for b in out['blocked']) and any('email' in b for b in out['blocked']), out
+        con.execute("UPDATE pc_cands SET status='real' WHERE id=?", (cid,))
+        cfg['contact_email'] = 'tester@example.com'
+        code, out = server.post_action(f'/api/pc/{cid}/submit', {'test': True})
+        assert code == 200 and out['ok'] and sent[-1][0].endswith('/submit_psv_test'), out
+        f = sent[-1][1]
+        assert f['ac2'] == 'tester@example.com' and f['obj_type'] == 'tno' and f['source'] == ades and '2099 AB1' in f['ack'], f
+        code, out = server.post_action(f'/api/pc/{cid}/submit', {'test': False})
+        assert code == 400 and 'confirmation' in out['error'], out              # the page must ask you first
+        code, out = server.post_action(f'/api/pc/{cid}/submit', {'test': False, 'confirm': True})
+        assert code == 409 and any('SARC' in b for b in out['blocked']), out
+        cfg['sarc_verified'] = True
+        con.execute('UPDATE pc_cands SET ades=? WHERE id=?', (ades.replace('0.300', '0.310'), cid))      # changed after the test
+        code, out = server.post_action(f'/api/pc/{cid}/submit', {'test': False, 'confirm': True})
+        assert code == 409 and any('exact file' in b for b in out['blocked']), out
+        con.execute('UPDATE pc_cands SET ades=? WHERE id=?', (ades, cid))
+        n = len(sent)
+        code, out = server.post_action(f'/api/pc/{cid}/submit', {'test': False, 'confirm': True})
+        assert code == 200 and out['ok'] and out['id'] == '2026-11-10T01:02:03.456_0000AbCd' and len(sent) == n + 1 and sent[-1][0].endswith('/submit_psv'), out
+        code, out = server.post_action(f'/api/pc/{cid}/submit', {'test': False, 'confirm': True})
+        assert code == 409 and any('already sent' in b for b in out['blocked']), out                     # never twice
+        st = json.loads(db.one(con, 'SELECT mpc FROM pc_cands WHERE id=?', (cid,))['mpc'])
+        assert st['test']['ok'] and st['sent']['id'], st
+        r = db.one(con, "SELECT * FROM results WHERE key=?", (f'mpc:{cid}',))
+        assert r and r['status'] == 'submitted' and '0000AbCd' in r['note'] and not r['public'], r
+    finally:
+        mpcsubmit.post, mpcsubmit.mpccheck.check, server.config.load = old_post, old_check, old_load
+    body, ctype = mpcsubmit.multipart({'ack': 'x', 'source': 'a|b\nc'})
+    assert ctype.startswith('multipart/form-data; boundary=') and b'name="source"\r\n\r\na|b\nc\r\n' in body
+    assert mpcsubmit.test_passed('Submission format valid.') and not mpcsubmit.test_passed('XML schema validation error: wrong ades version')
+    # the public page never shows an old-plate position before it has been sent
+    from spacelab import publish
+    pid = con.execute('INSERT INTO pc_cands(des,night,archive,obs,offset,mdist,score,gif,png,ades,status,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
+                      ('2099 AB2', '1982-03-19', 'SuperCOSMOS ESO-R 4699', json.dumps([{'obsTime': '1982-03-19T03:00:00.0Z', 'ra': 12.3456, 'dec': -45.6789, 'filter': 'E', 'snr': 9}]),
+                       1.0, 0.1, 9, None, None, ades, 'new', time.time())).lastrowid
+    data, _ = publish.build_data(con, {})
+    pub = {c['id']: c for c in data['asteroids']['cands']}
+    assert 'ra' not in pub[pid]['obs'][0] and pub[pid]['obs'][0]['snr'] == 9 and '12.3456' not in json.dumps(data), pub[pid]
+
+
 import urllib.error  # noqa: E402
 
 if __name__ == '__main__':

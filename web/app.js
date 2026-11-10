@@ -372,7 +372,41 @@ function renderNeo(x) {
   }).join('');
   const sc = (w.scout || []).slice().sort((a, b) => (+b.neoScore || 0) - (+a.neoScore || 0)).slice(0, 10).map(r =>
     `<tr><td class="mono">${esc(r.objectName)}</td><td class="mono">${esc(r.neoScore)}</td><td class="mono">${esc(r.H)}</td><td class="mono">${esc(r.arc)} d</td><td class="mono">${esc(r.nObs)}</td></tr>`).join('');
+  // old photographic plates: one position per plate, measured against Gaia; send to the MPC only after your own look
+  const plateCard = c => {
+    const o = (c.obs || [])[0] || {}, sol = o.solution || {}, tm = o.timing || {}, cm = o.comparison, ai = o.ai, mp = c.mpc || {}, real = c.status === 'real';
+    const facts = [
+      `<b>S/N ${num(o.snr, 1)}</b>, ${num(o.off, 1)}″ from JPL's prediction (${num(o.in_ellipse, 2)} of the way to the edge of the 3-sigma area)`,
+      `plate solution: ${esc(sol.n)} Gaia DR3 stars moved to the plate's date, order-${esc(sol.order)} fit, scatter ${num(sol.rms_ra, 2)}″ / ${num(sol.rms_dec, 2)}″; position uncertainty <b>±${num(o.sigma, 2)}″</b>`,
+      `${esc(o.n_removed || 0)} nearby catalogued star(s) modelled and removed`,
+      `shape: ${esc((o.shape || {}).verdict || 'not measured')}`,
+      cm ? `another date (${esc(cm.plate || 'other plate')}): ${cm.absent ? 'nothing at that spot ✓' : `<span class="bad-t">something is there too (S/N ${num(cm.snr, 1)})</span>`}` : 'no plate from another date could be checked',
+      `plate date: SuperCOSMOS date +1 day${o.date_offset ? `, then ${o.date_offset > 0 ? '+' : ''}${o.date_offset} more day (the object is seen there)` : ''}. ${esc(tm.text || '')}`,
+      ai ? `local AI's first look: <b>${esc(ai.verdict)}</b>${ai.reasons && ai.reasons.length ? ' (' + ai.reasons.map(esc).join('; ') + ')' : ''}` : ''].filter(Boolean);
+    const tested = mp.test, sent = mp.sent;
+    const canSend = real && x.sarc_verified && x.email_set && tested && tested.ok && !sent;
+    return `<div class="card" id="item-asteroids-${c.id}" data-pc="${c.id}"><div class="row"><h3>${esc(c.des)} · ${esc(c.night)}</h3><span class="chip">${esc(c.archive)}</span><span class="spacer"></span><span class="chip ${real ? 'ok' : c.status === 'new' ? 'warn' : ''}">${esc(sent ? 'sent to the MPC' : c.status)}</span></div>
+      <p class="small">A possible sighting on an old photographic plate. Look at the picture: is there a real round dot in the red circle, near the blue cross, that is gone on the other date?</p>
+      <img class="plot" src="${fileUrl(c.png)}" alt="plate cutout, the same with stars removed, and another date">
+      <ul class="small">${facts.map(f => `<li>${f}</li>`).join('')}</ul>
+      <table><tr><th>time (UTC, mid-exposure)</th><th>RA°</th><th>Dec°</th><th>±″</th><th>S/N</th></tr><tr><td class="mono">${esc(o.obsTime)}</td><td class="mono">${num(o.ra, 6)}</td><td class="mono">${num(o.dec, 6)}</td><td class="mono">${num(o.sigma, 2)}</td><td class="mono">${num(o.snr, 1)}</td></tr></table>
+      <div class="row" style="margin-top:10px"><button class="b good" data-pv="${c.id}" data-v="real">Yes, a real dot, gone on the other date</button><button class="b bad" data-pv="${c.id}" data-v="fake">No / plate flaw / star</button><button class="b" data-pv="${c.id}" data-v="unsure">Unsure</button><span class="spacer"></span>
+        <button class="b" data-orbit="${esc(c.des)}">3D orbit</button></div>
+      ${real ? `<div class="row" style="margin-top:8px"><button class="b" data-check="${c.id}">Check the report</button><a class="b" href="api/pc/${c.id}/ades">Download the report</a>
+        <button class="b" data-mpctest="${c.id}" ${sent ? 'disabled' : ''}>Test with the MPC (sends nothing)</button>
+        <button class="b primary" data-mpcsend="${c.id}" ${canSend ? '' : 'disabled'}>Send to the MPC…</button></div>
+        <p class="small ${canSend || sent ? 'muted' : 'warn-t'}">${sent ? `Sent ${ago(sent.t)}. MPC submission ID: <span class="mono">${esc(sent.id || 'see the acknowledgement email')}</span>. It now appears in Results; mark it accepted there when the MPC publishes it.`
+          : !x.email_set ? 'Add your email in Setup: the MPC sends its acknowledgement there.'
+          : !tested ? 'First press "Test with the MPC": its validator checks the file and stores nothing.'
+          : !tested.ok ? `The MPC test did not pass (${ago(tested.t)}): ${esc((tested.text || '').slice(0, 200))}`
+          : !x.sarc_verified ? 'The test passed. Sending waits for the MPC\'s one-time SARC verification (tick it in Setup once they confirm).'
+          : `The test passed ${ago(tested.t)}. You can send it.`}</p>` : ''}</div>`;
+  };
+  const plateList = ((x.plates || {}).objects || []).map(o => `<tr><td><b>${esc(o.name || o.des)}</b><br><span class="small muted">${esc(o.why || '')}</span></td>
+    <td class="small">${(o.plates || []).map(p => `${esc(p.plate)} (${p.jd ? new Date((p.jd - 2440587.5) * 864e5).getUTCFullYear() : '?'}): <b>${esc(p.result || 'queued')}</b>${p.validation ? ` · ${num(p.validation.diff_arcsec, 2)}″ from the MPC's position` : p.snr ? ` · S/N ${num(p.snr, 1)}` : ''}`).join('<br>') || esc(o.note || 'no plates')}</td><td>${ago(o.t)}</td></tr>`).join('');
+  const acc = (x.plates || {}).accuracy || {};
   const cands = x.cands.map(c => {
+    if (/^SuperCOSMOS/.test(c.archive || '')) return plateCard(c);
     const obs = (c.obs || []).map(o => `<tr><td class="mono">${esc(o.obsTime)}</td><td class="mono">${num(o.ra, 5)}</td><td class="mono">${num(o.dec, 5)}</td><td>${esc(o.filter)}</td><td class="mono">${num(o.snr, 1)}</td></tr>`).join('');
     const real = c.status === 'real';
     return `<div class="card" id="item-asteroids-${c.id}" data-pc="${c.id}"><div class="row"><h3>${esc(c.des)} · ${esc(c.night)}</h3><span class="chip">${esc(c.archive)}</span><span class="spacer"></span><span class="chip ${real ? 'ok' : c.status === 'new' ? 'warn' : ''}">${esc(c.status)}</span></div>
@@ -402,6 +436,10 @@ function renderNeo(x) {
     <h2>Precovery hunter: sightings to verify</h2>
     ${x.sarc_verified ? '' : `<div class="card banner"><b>One-time step before sending any report:</b> the Minor Planet Center requires archival submitters to be verified by its SARC committee. Space Lab still searches and lets you verify sightings in the meantime.</div>`}
     ${cands || '<div class="card empty">No possible sightings yet. Most searches find nothing; that is normal.</div>'}
+    <h2>Old photographic plates (1949–2003): distant objects</h2>
+    <div class="card"><p class="small">The method used for 2026 ED138: for newly found distant objects bright enough for old plates, Space Lab predicts where each was on every scanned SuperCOSMOS plate, measures the plate against Gaia, removes nearby stars, checks the plate's date and another date, and asks the MPC what is already known. Plates someone has already reported become accuracy tests.${acc.n ? ` <b>Accuracy so far: median ${num(acc.median_arcsec, 2)}″ from positions already at the MPC (${acc.n} plate${acc.n === 1 ? '' : 's'}).</b>` : ''}</p>
+      <table class="compact"><tr><th>object</th><th>plates</th><th>searched</th></tr>${plateList || '<tr><td colspan=3 class="muted">Runs once a day; the first objects are searched on the next run.</td></tr>'}</table>
+      <p class="small muted">Plate search, cutouts and star removal: SpaceRockSuite by E. A. Puerto (MIT). Plates: SuperCOSMOS Sky Surveys (WFAU, Edinburgh). Reference stars: ESA Gaia DR3. Orbits: JPL Horizons.</p></div>
     <h2>Asteroids being searched</h2><div class="card"><table><tr><th>object</th><th>H (size)</th><th>observed arc</th><th>Palermo</th><th>last search</th><th>images</th><th>result</th></tr>${tg || '<tr><td colspan=7 class="muted">Targets are picked on the first night.</td></tr>'}</table></div>`;
   afterRender();
 }
@@ -542,6 +580,25 @@ document.addEventListener('click', async e => {
       if (!o.a) { body.innerHTML = '<p class="bad-t">No orbit available.</p>'; return; }
       body.innerHTML = `<h3>${esc(o.name)}</h3><div id="orbHost"></div>`;
       return Orbit3D.open($('#orbHost'), o);
+    }
+    if (d.mpctest || d.mpcsend) {
+      const id = d.mpctest || d.mpcsend, test = !!d.mpctest;
+      const go = async () => {
+        const body = modal(`<p class="muted">${test ? 'Asking the MPC\'s test validator (nothing is stored)…' : 'Sending to the Minor Planet Center…'}</p>`);
+        const r = await fetch(`api/pc/${id}/submit`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-SpaceLab': '1' }, body: JSON.stringify(test ? { test: true } : { confirm: true }) });
+        const j = await r.json().catch(() => ({}));
+        body.innerHTML = j.blocked ? `<h3>Not yet</h3><ul>${j.blocked.map(b => `<li>${esc(b)}</li>`).join('')}</ul>`
+          : j.error ? `<h3>Problem</h3><p>${esc(j.error)}</p>`
+          : `<h3>${test ? (j.ok ? 'The MPC\'s test passed ✅' : 'The MPC\'s test did not pass') : (j.ok ? 'Sent ✅' : 'Sent, but no submission ID came back')}</h3>${j.id ? `<p>Submission ID: <span class="mono">${esc(j.id)}</span></p>` : ''}<pre class="small" style="white-space:pre-wrap">${esc(j.text || '')}</pre>`;
+        load('asteroids');
+      };
+      if (test) return go();
+      const txt = await fetch(`api/pc/${id}/ades`).then(r => r.text());
+      const body = modal(`<h3>Send this report to the Minor Planet Center?</h3><p class="small">This is the only step that sends anything, and it cannot be taken back. The MPC emails its acknowledgement to the address in Setup.</p>
+        <pre class="small" style="white-space:pre-wrap;max-height:40vh;overflow:auto">${esc(txt)}</pre><div class="row"><button class="b primary" id="mpcGo">Send it now</button><button class="b" id="mpcNo">Cancel</button></div>`);
+      body.querySelector('#mpcNo').onclick = closeModal;
+      body.querySelector('#mpcGo').onclick = go;
+      return;
     }
     if (d.check) {
       const body = modal('<p class="muted">Checking the report (and asking the MPC about duplicates)…</p>');

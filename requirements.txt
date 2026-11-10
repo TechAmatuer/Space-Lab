@@ -11,3 +11,4 @@ Pillow>=10.0
 certifi
 mlx>=0.20; sys_platform == "darwin" and platform_machine == "arm64"
 sgp4>=2.23
+spacerocksuite @ git+https://github.com/eagnespuerto/spacerocksuite@4079d4a580cbd88d7cf5a093556766d6f2e5181b

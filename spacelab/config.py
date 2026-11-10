@@ -48,6 +48,7 @@ DEFAULTS = {
         'beyond': 'every 3h',
         'radar': 'every 6h',    # the local AI reads and ranks everything new in space science
         'cheops': 'every 72h',  # answer-key test: recover known planets in public CHEOPS data (a few visits each time)
+        'plates': 'every 24h',  # old photographic plates for newly found distant objects (the 2026 ED138 method)
     },
     'arxiv': {
         'categories': ['astro-ph.EP', 'astro-ph.SR', 'astro-ph.IM', 'astro-ph.GA', 'astro-ph.HE', 'astro-ph.CO'],
@@ -77,6 +78,12 @@ DEFAULTS = {
         'max_period': 30.0,
         'sde_min': 9.0,
         'snr_min': 7.1,
+    },
+    'plates': {                  # old-plate precovery of distant objects (spacelab/plates.py)
+        'manual': ['2026 ED138'],    # always searched first; objects already measured by others become accuracy tests
+        'objects_per_run': 2, 'sigma': 3, 'max_ellipse_arcsec': 150, 'depth_margin_min': 0.0, 'plates_per_object': 8,
+        'h_max': 8.0, 'plate_limit': 21.0, 'first_after': 1995, 'research_days': 120, 'step_days': 2,
+        'time_budget_min': 60,
     },
     'precovery': {
         'time_budget_min': 100,

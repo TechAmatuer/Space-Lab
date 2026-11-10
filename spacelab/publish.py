@@ -138,8 +138,11 @@ def build_data(con, cfg):
     w = db.kv_get(con, 'neo_watch') or {}
     pcs = []
     for c in db.rows(con, "SELECT * FROM pc_cands WHERE status IN ('new','real','unsure') ORDER BY created DESC LIMIT 40"):
+        plate = str(c['archive'] or '').startswith('SuperCOSMOS')
+        sent = bool((_j(c.get('mpc')) or {}).get('sent'))
+        keep = ('obsTime', 'filter', 'snr') if plate and not sent else ('obsTime', 'ra', 'dec', 'filter', 'snr')   # plate positions stay private until sent
         pcs.append({'id': c['id'], 'des': c['des'], 'night': c['night'], 'archive': c['archive'], 'offset': c['offset'],
-                    'obs': [{k: o.get(k) for k in ('obsTime', 'ra', 'dec', 'filter', 'snr')} for o in (_j(c['obs']) or [])],
+                    'obs': [{k: o.get(k) for k in keep} for o in (_j(c['obs']) or [])],
                     'gif': f(c['gif']), 'png': f(c['png']), 'status': c['status']})
     from . import orbits
 

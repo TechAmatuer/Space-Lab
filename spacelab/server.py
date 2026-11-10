@@ -340,6 +340,7 @@ def api_neo():
     cands = db.rows(con, "SELECT * FROM pc_cands ORDER BY CASE status WHEN 'new' THEN 0 WHEN 'real' THEN 1 ELSE 2 END, created DESC LIMIT 60")
     for c in cands:
         c['obs'] = j(c['obs'])
+        c['mpc'] = {k: {kk: vv for kk, vv in v.items() if kk != 'hash'} for k, v in (j(c.get('mpc')) or {}).items()}
     neocp = []
     for r in db.rows(con, 'SELECT * FROM neocp WHERE gone IS NULL ORDER BY first DESC LIMIT 40'):
         d = j(r['data']) or {}
@@ -348,6 +349,7 @@ def api_neo():
     cfg = config.load()
     return {'watch': {'t': w.get('t'), 'cad': w.get('cad') or [], 'sentry': (w.get('sentry') or [])[:15], 'scout': w.get('scout') or []},
             'text': db.kv_get(con, 'neo_watch_text'), 'targets': targets, 'cands': cands, 'neocp': neocp, 'new_neos': fresh,
+            'plates': db.kv_get(con, 'plates'), 'email_set': bool((cfg.get('contact_email') or '').strip()),
             'neocp_t': (db.kv_get(con, 'neocp_snapshot') or {}).get('t'),
             'sarc_verified': cfg.get('sarc_verified'), 'shared': bool(((cfg.get('share') or {}).get('discord_webhook')))}
 
@@ -473,6 +475,25 @@ def post_action(path, body):
                         'I will help you write it up.', {'tab': 'tess', 'id': c['id'],
                                                          'url': f'https://exofop.ipac.caltech.edu/tess/target.php?id={c["tic"]}'}, 2)
         return 200, {'ok': True}
+    if kind == 'pc' and oid.isdigit() and len(parts) > 3 and parts[3] == 'submit':
+        from . import mpcsubmit
+        c = db.one(con, 'SELECT * FROM pc_cands WHERE id=?', (int(oid),))
+        if not c:
+            return 404, {'error': 'not found'}
+        mode = 'test' if body.get('test') else 'real'
+        if mode == 'real' and body.get('confirm') is not True:
+            return 400, {'error': 'sending needs your confirmation'}
+        try:
+            code, out, state = mpcsubmit.submit(c, config.load(), mode)
+        except Exception as e:
+            return 502, {'ok': False, 'error': f'the MPC did not answer: {type(e).__name__}: {str(e)[:200]}'}
+        con.execute('UPDATE pc_cands SET mpc=? WHERE id=?', (json.dumps(state), c['id']))
+        if mode == 'real' and out.get('ok'):
+            db.close_task(con, f'pc:report:{c["id"]}')
+            db.save_result(con, {'kind': 'mpc', 'key': f'mpc:{c["id"]}', 'target': c['des'], 'public': False, 'status': 'submitted',
+                                 'title': f"Precovery position of {c['des']} ({c.get('archive') or ''})",
+                                 'note': 'Sent from Meridian. MPC submission ID ' + (out.get('id') or '(see the acknowledgement email)')})
+        return code, out
     if kind == 'pc':
         if oid.isdigit() and body.get('verdict'):
             v = body['verdict']
