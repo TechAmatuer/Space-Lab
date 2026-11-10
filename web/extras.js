@@ -630,7 +630,7 @@
       ['Small enough to be a planet', ran(has(/too big/i), !!c.rp), 'From the depth of the dip and the size of the star.'],
       ['The dip lasts a sensible time', ran(has(/lasts longer/i), periodic), 'Too long for this star suggests a bigger, more distant pair of stars.'],
       ['Seen at least three times', ran(has(/only (\d+|one) dips?/i), periodic), 'One or two dips can be a glitch; three evenly spaced dips are hard to fake.'],
-      ['Not a known eclipsing pair of stars', ran(has(/eclipsing-binary catalog/i), true), 'Checked against the TESS eclipsing-binary catalogue.'],
+      ['Not a known eclipsing pair of stars', ran(has(/eclipsing-binary catalog/i), periodic), 'Checked against the TESS eclipsing-binary catalogue.'],
       ['The star looks single to Gaia', ran(has(/Gaia (sees|lists)/i), c.gaia_ruwe !== null && c.gaia_ruwe !== undefined), 'A star that wobbles in Gaia\'s measurements probably has a hidden companion star.'],
       ['The dip comes from this star, not a neighbour', ran(has(/nearby star \(|within 2 TESS pixels/i), !!cen && cen.verdict !== 'off target'), 'TESS pixels are big, so the pixel-level test checks where on the sky the light actually drops.'],
       ['Statistics favour a planet', fpp ? (/planet/i.test(fpp.verdict || '') && !has(/TRICERATOPS/i) ? 'pass' : 'fail') : 'none', 'A calculation of how likely each kind of impostor is (TRICERATOPS).'],

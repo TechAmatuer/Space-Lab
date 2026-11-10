@@ -35,7 +35,7 @@ ai.verdict, fpp.verdict), `data.asteroids.cands[]` (des, night, archive, gif, pn
 `data.exowatch.stale[]` (with ra, dec), `data.brief.papers[]`, `data.tess.cands[].star` (teff, radius_sun, dist_pc, tmag),
 `data.community` (GitHub review leaderboard and per-candidate votes), `data.contributions`, and `data.beyond`
 (space_weather, fireballs, comets, gw, supernovae, launches, habitable, sky, earth, quakes, iss), `data.daily` (candidate of
-the day: date, cand, blurb, votes, prev), `data.radar` (items ranked by the local AI, digest), `data.results` and `data.site.url`. Image/JSON paths like
+the day: date, cand, blurb, votes, prev), `data.radar` (items ranked by the local AI, digest), `data.results` and `data.site.url`. Newer: `data.tess.cands[].star.ra/dec` (sky position), `data.tess.cands[].gaia_ruwe`, `data.tess.crosscheck` (CHEOPS answer-key test: tested, recovered, items[]), `data.beyond.missions` (space telescopes with dates) and `data.beyond.orbits` (orbit elements of the closest flybys, keyed by designation). Image/JSON paths like
 `files/...` load from the same site.
 
 ## Rules
