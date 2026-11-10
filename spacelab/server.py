@@ -21,6 +21,7 @@ from pathlib import Path
 
 from . import aavso, classifier, config, db, mpccheck, net, notify
 from .jobs import JOBS
+from .jobs import wanted as jobs_wanted
 
 WEB = config.ROOT / 'web'
 JOBQ = queue.Queue()
@@ -200,7 +201,7 @@ def scheduler():
             con = db.connect()
             now = datetime.now()
             for job, hhmm in (cfg.get('schedule') or {}).items():
-                if job not in JOBS:
+                if job not in JOBS or not jobs_wanted(job, cfg):
                     continue
                 if str(hhmm).startswith('every'):
                     try:
@@ -458,7 +459,88 @@ def masked_settings():
     for k in ('github_token', 'goatcounter_token'):
         if sh.get(k):
             sh[k] = MASK + sh[k][-4:]
+    vs = cfg.get('vstars') or {}
+    if vs.get('targettool_key'):
+        vs['targettool_key'] = MASK + vs['targettool_key'][-4:]
     return cfg
+
+
+def api_vs():
+    """The variable-star observatory tab: settings (key masked), tonight's plan, measurements, AAVSO files."""
+    from . import vsobs, vsphot
+    con, cfg = db.connect(), config.load()
+    vsphot.ensure(con)
+    s = vsobs.settings(cfg)
+    raw = masked_settings().get('vstars') or {}
+    meas = lambda where, n: [dict(r, flags=j(r['flags']) or [], comps=j(r['comps']) or [], frame=Path(r['frame'] or '').name)
+                             for r in db.rows(con, f'SELECT * FROM vs_meas WHERE {where} ORDER BY jd DESC LIMIT {int(n)}')]
+    plots = sorted(vsphot.PLOTS.glob('*.png'), key=lambda p: -p.stat().st_mtime)[:24] if vsphot.PLOTS.exists() else []
+    obscode = (s.get('obscode') or cfg.get('aavso_code') or '').strip()
+    ready = [
+        ['Switched on (vstars.enabled)', bool(s.get('enabled'))],
+        ['Observatory location (vstars.site, or Setup > telescope)', bool((s.get('site') or {}).get('lat') is not None)],
+        ['Targets: Target Tool API key, exported CSV or watch list', bool(s.get('targettool_key') or s.get('targettool_csv') or s.get('watchlist')
+                                                                        or (config.INBOX / 'vstars' / 'targettool.csv').exists())],
+        ['Image folder (vstars.images_dir)', bool(s.get('images_dir')) and Path(str(s.get('images_dir'))).expanduser().is_dir()],
+        ['AAVSO observer code', bool(obscode)],
+    ]
+    return {'settings': raw, 'ready': ready, 'plan': db.kv_get(con, 'vs_plan'), 'review': meas("status='review'", 300),
+            'recent': meas("status!='review'", 200), 'reports': db.kv_get(con, 'vs_reports') or [],
+            'frames': {r['status']: r['n'] for r in db.rows(con, 'SELECT status, COUNT(*) AS n FROM vs_frames GROUP BY status')},
+            'failed': [dict(r, path=Path(r['path']).name) for r in db.rows(con, "SELECT path, note, at FROM vs_frames WHERE status='failed' "
+                                                                               'ORDER BY at DESC LIMIT 30')],
+            'plots': [str(p.relative_to(config.DATA)) for p in plots], 'webobs': vsphot.WEBOBS, 'sections': vsobs.SECTIONS,
+            'runs': {k: db.one(con, 'SELECT started, finished, status, summary FROM runs WHERE job=? ORDER BY id DESC LIMIT 1', (k,))
+                     for k in ('vsplan', 'vsphot')}}
+
+
+def vs_action(con, oid, body):
+    """Accept or reject a measurement, mark a file uploaded, or save the settings. Nothing is ever sent to the AAVSO."""
+    from . import vsobs, vsphot
+    vsphot.ensure(con)
+    a = body.get('action')
+    cfg = config.load()
+    s = vsobs.settings(cfg)
+    if a == 'settings':
+        new = body.get('settings')
+        if not isinstance(new, dict):
+            return 400, {'error': 'the settings must be a JSON object'}
+        old = cfg.get('vstars') or {}
+        if str(new.get('targettool_key') or '').startswith(MASK):
+            new['targettool_key'] = old.get('targettool_key', '')
+        for f in new.get('filters') or []:
+            if not isinstance(f, dict) or f.get('aavso') not in vsphot.AAVSO_FILTERS or not f.get('fits'):
+                return 400, {'error': f'each filter needs "fits" (the name in your images) and an AAVSO filter code as "aavso"; got {json.dumps(f)[:80]}'}
+        for k, v in (new.get('transform') or {}).items():
+            if not (isinstance(v, list) and len(v) == 3 and isinstance(v[2], (int, float))):
+                return 400, {'error': f'transform "{k}" should look like ["B", "V", 0.031]'}
+        config.replace_user('vstars', new)
+        return 200, {'ok': True}
+    if a == 'uploaded':
+        name = str(body.get('file') or '')
+        reps = db.kv_get(con, 'vs_reports') or []
+        rep = next((r for r in reps if r['file'] == name), None)
+        if not rep:
+            return 404, {'error': 'no such file'}
+        rep['uploaded'] = time.time()
+        db.kv_set(con, 'vs_reports', reps)
+        con.execute("UPDATE vs_meas SET status='reported' WHERE report=?", (name,))
+        db.close_task(con, f'vs:upload:{name}')
+        return 200, {'ok': True}
+    if a in ('accept', 'reject', 'reopen') and oid.isdigit():
+        m = db.one(con, 'SELECT * FROM vs_meas WHERE id=?', (int(oid),))
+        if not m:
+            return 404, {'error': 'not found'}
+        if m['status'] == 'reported':
+            return 400, {'error': 'this measurement is already in an uploaded file; change it at AAVSO WebObs if needed'}
+        new = {'accept': 'ok', 'reject': 'rejected', 'reopen': 'review'}[a]
+        con.execute('UPDATE vs_meas SET status=?, report=NULL WHERE id=?', (new, m['id']))
+        if m['report']:
+            vsphot.remake(con, s, m['report'], log)
+        if not con.execute("SELECT COUNT(*) FROM vs_meas WHERE status='review'").fetchone()[0]:
+            db.close_task(con, 'vs:review')
+        return 200, {'ok': True}
+    return 400, {'error': 'bad action'}
 
 
 CLOUD_PROMPT = ('This is a photo of the sky taken by an amateur astronomer. Name the main cloud type (one of: clear sky, cirrus, '
@@ -511,6 +593,8 @@ def post_action(path, body):
         if st in ('real', 'fake', 'submitted'):
             db.close_task(con, f'var:{oid}')
         return 200, {'ok': True}
+    if kind == 'vs':
+        return vs_action(con, oid, body)
     if kind == 'task':
         st = {'done': 'done', 'dismiss': 'dismissed', 'reopen': 'open'}.get(body.get('action'))
         if not st:
@@ -740,6 +824,8 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, api_arxiv(q))
             if p == '/api/var':
                 return self.send(200, api_var())
+            if p == '/api/vs':
+                return self.send(200, api_vs())
             if p == '/api/health':
                 from . import health
                 return self.send(200, health.report(db.connect(), config.load()))

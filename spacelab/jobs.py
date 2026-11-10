@@ -27,11 +27,20 @@ JOBS = {
     'catalogs': ('spacelab.localcat', 'Local copies of the star and galaxy catalogues (weekly)'),
     'health': ('spacelab.health', 'System health check (hourly)'),
     'injection': ('spacelab.injection', 'What the planet search can find (fake planets, monthly)'),
+    'vsplan': ('spacelab.vsobs', 'Variable-star observatory: tonight\'s targets'),
+    'vsphot': ('spacelab.vsphot', 'Variable-star observatory: photometry and AAVSO files'),
     'ai': ('spacelab.aicatchup', 'Local AI catch-up (while the Mac is idle)'),
     'selftest': ('spacelab.selftest', 'Self-test'),
     'report': ('spacelab.reanalyze', 'Maintenance & coverage report'),
     'export': ('spacelab.export', 'Data export (JSON/CSV)'),
 }
+
+
+def wanted(job, cfg):
+    """False for jobs of a feature that is switched off (they are neither scheduled nor checked by the health check)."""
+    if job in ('vsplan', 'vsphot'):
+        return bool((cfg.get('vstars') or {}).get('enabled'))
+    return True
 
 
 class Ctx:

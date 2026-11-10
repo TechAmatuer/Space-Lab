@@ -57,6 +57,8 @@ DEFAULTS = {
         'catalogs': 'every 168h',  # local copies of the catalogues the jobs depend on (spacelab/localcat.py)
         'health': 'every 1h',      # are the outside services answering, has a job failed twice, is the website current
         'injection': 'every 720h', # fake planets hidden in real light curves: what the planet search can find
+        'vsplan': '15:30',         # variable-star observatory: tonight's targets (runs only when vstars.enabled)
+        'vsphot': 'every 1h',      # variable-star observatory: measure new images, make AAVSO files (only when vstars.enabled)
     },
     'arxiv': {
         'categories': ['astro-ph.EP', 'astro-ph.SR', 'astro-ph.IM', 'astro-ph.GA', 'astro-ph.HE', 'astro-ph.CO'],
@@ -89,6 +91,34 @@ DEFAULTS = {
     },
     'variables': {               # variable stars in TESS light curves (spacelab/variables.py); never submitted from here
         'backfill_min': 25, 'checks_per_run': 40, 'time_budget_min': 45,
+    },
+    'vstars': {                  # a variable-star observatory's own targets, photometry and AAVSO files (VARIABLE_STARS.md).
+        'enabled': False,        # Private: location and key stay on this computer. Nothing is ever sent to the AAVSO from here.
+        'site': {'lat': None, 'lon': None, 'elev_m': 0},   # blank = the telescope location in Setup
+        'obscode': '',           # AAVSO observer code (blank = the one in Setup)
+        'targettool_key': '',    # your AAVSO Target Tool API key (Target Tool > Settings); or export a CSV instead:
+        'targettool_csv': '',    # path of a CSV exported from the Target Tool (blank = inbox/vstars/targettool.csv)
+        'sections': ['ac'],      # Target Tool sections: ac (alerts/campaigns), ep, cv, eb, spp, lpv, yso, het, misc
+        'watchlist': [],         # your own stars, e.g. [{"name": "SS Cyg", "cadence_days": 1}, {"name": "V Sge", "series_min": 120}]
+        'sun_alt': -12, 'min_alt': 30, 'moon_sep_min': 15, 'bright_limit': 8.0, 'faint_limit': 16.0,
+        'filters': [             # fits = the FILTER name in your images; aavso = the AAVSO code; chart = the band on AAVSO charts
+            {'fits': 'B', 'aavso': 'B', 'chart': 'B', 'exp_at_mag12': 40, 'n': 1},
+            {'fits': 'V', 'aavso': 'V', 'chart': 'V', 'exp_at_mag12': 20, 'n': 1},
+            {'fits': 'R', 'aavso': 'R', 'chart': 'Rc', 'exp_at_mag12': 15, 'n': 1},
+            {'fits': 'I', 'aavso': 'I', 'chart': 'Ic', 'exp_at_mag12': 20, 'n': 1},
+        ],
+        'exp_min': 3, 'exp_max': 300, 'readout_s': 5, 'filter_change_s': 10, 'overhead_s': 120,
+        'max_targets': 60, 'series_min': 60,
+        'classes': [[15, 'VS short'], [60, 'VS medium'], [100000, 'VS long']],   # N.I.N.A. Target Scheduler Types
+        'nina_import_dir': '',   # also copy tonight's CSV here (e.g. a shared folder the N.I.N.A. computer sees)
+        'images_dir': '',        # where N.I.N.A. saves the light frames (a shared folder is fine)
+        'calib_dir': '',         # master or single bias/dark/flat frames (blank = images are used as they are)
+        'lookback_days': 30, 'pixel_scale': None, 'saturation_adu': 60000, 'gain_e_adu': None,
+        'aperture_fwhm': 1.6, 'snr_min': 20, 'snr_comp': 50, 'check_tol': 0.1, 'comp_clip': 0.05, 'airmass_max': 2.5,
+        'group_gap_min': 20,
+        'transform': {},         # your transformation coefficients, e.g. {"V": ["B", "V", 0.031]} (TRANS=YES when applied)
+        'review_all': False,     # True = every measurement waits for you, not only the ones with a warning
+        'obstype': 'CCD', 'time_budget_min': 50,
     },
     'injection': {'trials_per_run': 400, 'time_budget_min': 60},   # fake-planet test of the planet search (spacelab/injection.py)
     'plates': {                  # old-plate precovery of distant objects (spacelab/plates.py)
@@ -166,6 +196,22 @@ def save_user(changes):
         except Exception:
             user = {}
     user = _merge(user, changes)
+    tmp = SETTINGS_PATH.with_suffix('.tmp')
+    tmp.write_text(json.dumps(user, indent=2))
+    tmp.replace(SETTINGS_PATH)
+    return load()
+
+
+def replace_user(key, value):
+    """Replace one whole block of data/settings.json (so keys removed in an editor are really removed)."""
+    ensure_dirs()
+    user = {}
+    if SETTINGS_PATH.exists():
+        try:
+            user = json.loads(SETTINGS_PATH.read_text())
+        except Exception:
+            user = {}
+    user[key] = value
     tmp = SETTINGS_PATH.with_suffix('.tmp')
     tmp.write_text(json.dumps(user, indent=2))
     tmp.replace(SETTINGS_PATH)

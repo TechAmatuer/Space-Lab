@@ -80,11 +80,13 @@ def fetch_reach(fetch, url):
 
 def job_report(con, cfg, now=None):
     """For every scheduled job: last run, last success, failures in a row, and whether it is overdue."""
-    from .jobs import JOBS
+    from .jobs import JOBS, wanted
     now = now or time.time()
     sched = cfg.get('schedule', {})
     out = []
     for job, (_mod, label) in JOBS.items():
+        if not wanted(job, cfg):
+            continue
         rows = db.rows(con, 'SELECT started, finished, status, summary FROM runs WHERE job=? ORDER BY id DESC LIMIT 12', (job,))
         every = _hours(sched.get(job))
         last_ok = next((r for r in rows if r['status'] == 'ok'), None)

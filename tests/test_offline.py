@@ -2195,6 +2195,153 @@ def around_earth_orbits_for_the_page():
     assert 'earthview.js' in publish.SITE_FILES
 
 
+@test
+def variable_star_observatory_plans_measures_and_makes_aavso_files():
+    """Another observer's automated observatory: tonight's targets (Target Tool export) -> N.I.N.A. CSV; images -> ensemble
+    photometry against AAVSO chart stars -> one checked AAVSO Extended file per finished night. Made-up stars and place."""
+    from datetime import datetime, timezone
+    from astropy.io import fits
+    from astropy.wcs import WCS
+    from spacelab import config, db, jobs, server, vsobs, vsphot
+    T = lambda x: datetime.fromisoformat(x).replace(tzinfo=timezone.utc).timestamp()
+    con = db.connect()
+    work = Path(tempfile.mkdtemp(prefix='vstars-'))
+    (work / 'lights').mkdir()
+    (work / 'tt.csv').write_text(
+        'Star Name,RA,Dec,Var Type,Min Mag,Max Mag,Period,Obs Cadence,Obs Section,Last Data Point,Priority\n'
+        'XX Tst,22:00:00.0,+45:00:00,UGSS,14.0,12.0,,1,"Alerts / Campaigns",2026-10-20 00:00:00,true\n'
+        'ZZ Low,03:00:00.0,-80:00:00,M,13,9,300,7,Long Period Variables,2026-11-01 00:00:00,false\n'
+        'WW Fnt,02:00:00.0,+20:00:00,EA,18.5,17.9,1.2,3,Eclipsing Variables,2026-11-01 00:00:00,false\n'
+        'VV Ok,01:00:00.0,+40:00:00,RRAB,13.0,12.0,0.55,3,Short Period Pulsators,2026-11-09 00:00:00,false\n')
+    vs = {'enabled': True, 'site': {'lat': 40.0, 'lon': -100.0, 'elev_m': 100}, 'targettool_csv': str(work / 'tt.csv'),
+          'images_dir': str(work / 'lights'), 'pixel_scale': 1.5, 'obscode': 'TEST1', 'transform': {'V': ['B', 'V', 0.05]},
+          'targettool_key': 'secret-test-key-1234'}
+    cfg = config._merge(config.DEFAULTS, {'vstars': vs})
+    logs = []
+
+    class Ctx:
+        pass
+    cx = Ctx(); cx.con, cx.log, cx.cfg, cx.time_left = con, logs.append, cfg, (lambda: 1e9)
+    # a switched-off observatory is neither scheduled nor checked by the health check
+    assert not jobs.wanted('vsphot', config.DEFAULTS) and jobs.wanted('vsphot', cfg) and jobs.wanted('tess', config.DEFAULTS)
+    assert vsobs.run(type('C', (), {'con': con, 'log': logs.append, 'cfg': config.DEFAULTS})()).startswith('variable-star observatory not set up')
+    # ---- the plan: the overdue alert star first; the one too far south and the one too faint are left out, with the reason
+    api_rows = [{'star_name': 'AB Api', 'ra': 15.0, 'dec': 30.0, 'obs_section': ['Alerts / Campaigns'], 'obs_cadence': 2, 'priority': True,
+                 'last_data_point': '2026-11-01 12:00:00', 'min_mag': 13.5, 'max_mag': 12.5, 'obs_mode': 'photometry'}]
+    assert vsobs.normalise(api_rows[0], 'x')['ra'] == 15.0 and vsobs.normalise({'Star Name': 'A', 'RA': '01 00 00', 'Dec': '-10 30 00'}, 'x')['dec'] == -10.5
+    got = vsobs.target_tool(dict(vs, targettool_key=''), log=logs.append)
+    assert [t['name'] for t in got] == ['XX Tst', 'ZZ Low', 'WW Fnt', 'VV Ok'] and got[0]['ra'] == 330.0 and got[0]['priority']
+    assert vsobs.target_tool(vs, fetch=lambda: {'targets': api_rows}, log=logs.append)[0]['name'] == 'AB Api'
+    now = T('2026-11-10T20:00:00')
+    cx.cfg = config._merge(config.DEFAULTS, {'vstars': dict(vs, targettool_key='')})
+    out = vsobs.run(cx, now=now)
+    plan = db.kv_get(con, 'vs_plan')
+    names = [t['name'] for t in plan['targets']]
+    assert set(names) == {'XX Tst', 'VV Ok'} and plan['day'] == '2026-11-10', (out, plan['left'])
+    xx = next(t for t in plan['targets'] if t['name'] == 'XX Tst')
+    assert xx['score'] > 9 and xx['why'][0] == 'AAVSO alert or campaign' and 'overdue' in xx['why'][1], xx['why']
+    left = {x['name']: x['why'] for x in plan['left']}
+    assert 'not high enough' in left['ZZ Low'] and 'too faint' in left['WW Fnt'], left
+    assert [e['exp'] for e in xx['exposures']] == [90, 45, 45, 45] and xx['class'] == 'VS long'    # magnitude 13: longer than at 12
+    csv_text = (config.DATA / plan['csv']).read_text()
+    assert csv_text.splitlines()[0] == 'Type,Name,Ra,Dec,Rotation,ROI' and 'VS long,XX Tst,22h 00m 00s,"45º 00\' 00""",0,100' in csv_text, csv_text
+    assert vsobs.hms(359.99999) == '00h 00m 00s' and vsobs.dms(-0.5) == '-00º 30\' 00"'
+    # ---- three images of XX Tst (B and V with a plate solution, V without one), a flat and an H-alpha image to skip
+    rng = np.random.default_rng(7)
+    RA0, DE0, SC, N = 330.0, 45.0, 1.5, 600
+    w = WCS(naxis=2); w.wcs.ctype = ['RA---TAN', 'DEC--TAN']; w.wcs.crval = [RA0, DE0]; w.wcs.crpix = [N / 2 + .5, N / 2 + .5]; w.wcs.cdelt = [-SC / 3600, SC / 3600]
+    pos = lambda k: w.all_pix2world(*rng.uniform(60, N - 60, (2, k)), 0)
+    cra, cde = pos(9)
+    comps = []
+    for k in range(9):
+        V, bv = rng.uniform(11.0, 14.0), rng.uniform(0.3, 1.2)
+        comps.append({'ra': float(cra[k]), 'dec': float(cde[k]), 'V': V, 'B': V + bv, 'auid': f'000-TST-{k:03d}', 'label': str(int(round(V * 10)))})
+    fra, fde = pos(30)
+    field = [{'ra': float(a), 'dec': float(b), 'V': float(rng.uniform(12, 15.5))} for a, b in zip(fra, fde)]
+    TV, TBV = 12.30, 0.90
+    yy, xx_ = np.mgrid[0:N, 0:N]
+
+    def image(band, wcs_in, when, mag_t, imtype='LIGHT', filt=None):
+        img = np.full((N, N), 500.0)
+        def put(ra, de, m):
+            x, y = w.all_world2pix([ra], [de], 0)
+            x0, y0 = int(round(x[0])), int(round(y[0]))
+            sl = (slice(max(0, y0 - 12), y0 + 13), slice(max(0, x0 - 12), x0 + 13))
+            img[sl] += 10 * 10 ** (-0.4 * (m - 22.0)) / (2 * np.pi * 1.69) * np.exp(-((xx_[sl] - x[0]) ** 2 + (yy[sl] - y[0]) ** 2) / 3.38)
+        put(RA0, DE0, mag_t)
+        for c in comps:
+            put(c['ra'], c['dec'], c[band] + (0.4 if c['auid'].endswith('003') else 0))      # comparison star 003 is secretly variable
+        for f in field:
+            put(f['ra'], f['dec'], f['V'] + (0.7 if band == 'B' else 0))
+        h = fits.Header()
+        if wcs_in:
+            h.update(w.to_header())
+        h.update({'OBJECT': 'XX Tst', 'FILTER': filt or band, 'EXPTIME': 10.0, 'DATE-OBS': when, 'IMAGETYP': imtype, 'RA': RA0 + .003, 'DEC': DE0 - .002})
+        return fits.PrimaryHDU(rng.normal(img, np.sqrt(img) + 3).astype(np.float32), h)
+    frames = [('B', True, '2026-11-11T02:00:00', 'LIGHT', None), ('V', True, '2026-11-11T02:01:00', 'LIGHT', None),
+              ('V', False, '2026-11-11T02:30:00', 'LIGHT', None), ('V', True, '2026-11-11T01:00:00', 'FLAT', None),
+              ('V', True, '2026-11-11T01:10:00', 'LIGHT', 'Ha')]
+    for i, (band, wi, when, it, filt) in enumerate(frames):
+        p = work / 'lights' / f'XX_Tst_{i}.fits'
+        image(band, wi, when, TV + (TBV if band == 'B' else 0), it, filt).writeto(p)
+    tnow = T('2026-11-11T06:00:00')
+    for p in (work / 'lights').iterdir():
+        os.utime(p, (tnow - 3600, tnow - 3600))
+    asked = []
+
+    def vsp(q):
+        asked.append(q)
+        assert q['star'] == 'XX Tst' and q['format'] == 'json' and q['fov'] == 30, q
+        sexa = lambda v: f'{int(v):02d}:{int(v * 60 % 60):02d}:{v * 3600 % 60:05.2f}'           # VSP style: 21:58:31.07, +44:57:10.10
+        return {'chartid': 'X12345AB', 'photometry': [{'auid': c['auid'], 'label': c['label'], 'ra': sexa(c['ra'] / 15), 'dec': '+' + sexa(c['dec']),
+                                                       'bands': [{'band': 'V', 'mag': round(c['V'], 3), 'error': 0.01}, {'band': 'B', 'mag': round(c['B'], 3), 'error': 0.02}]}
+                                                      for c in comps]}
+    gaia = lambda ra, dec, r, gmax: [{'ra': c['ra'], 'dec': c['dec'], 'g': c['V']} for c in comps + field] + [{'ra': RA0, 'dec': DE0, 'g': TV}]
+    cx.cfg = cfg
+    out = vsphot.run(cx, vsp=vsp, gaia_fn=gaia, now=tnow)
+    assert out.startswith('5 new images: 3 measured and ready, 0 to look at, 0 failed, 2 skipped') and len(asked) == 1, (out, logs[-6:])
+    m = db.rows(con, 'SELECT * FROM vs_meas ORDER BY jd')
+    assert [r['filter'] for r in m] == ['B', 'V', 'V'] and all(r['night'] == '2026-11-10' and r['status'] == 'ok' for r in m)
+    assert abs(m[0]['mag'] - (TV + TBV)) < 0.03 and abs(m[1]['mag'] - TV) < 0.02 and abs(m[2]['mag'] - TV) < 0.02, [r['mag'] for r in m]
+    assert all('000-TST-003' not in json.loads(r['comps']) and r['kname'] and abs(r['kdev']) < 0.05 for r in m)    # variable comp left out
+    assert 'Gaia' in db.one(con, "SELECT note FROM vs_frames WHERE path LIKE '%XX_Tst_2.fits'")['note']                # solved without a WCS
+    assert {r['note'][:20] for r in db.rows(con, "SELECT note FROM vs_frames WHERE status='skipped'")} == {'not a light frame (f', "filter 'Ha' is not i"}
+    assert not (config.DATA / 'vstars' / 'reports').exists() or not list((config.DATA / 'vstars' / 'reports').iterdir())   # the night is not over
+    assert (config.PLOTS / 'vstars' / 'XX_Tst-2026-11-10.png').exists()
+    assert vsphot.which_star(fits.Header({'OBJECT': '', 'RA': 330.01, 'DEC': 45.01}), vsphot.known_targets(con))['name'] == 'XX Tst'
+    # ---- next afternoon: one AAVSO file for the night, grouped, V transformed, checked
+    out = vsphot.run(cx, vsp=vsp, gaia_fn=gaia, now=T('2026-11-11T20:00:00'))
+    assert out.endswith('1 AAVSO file(s) made'), out
+    txt = (config.DATA / 'vstars' / 'reports' / 'aavso-2026-11-10.txt').read_text()
+    lines = [ln.split(',') for ln in txt.splitlines() if not ln.startswith('#')]
+    assert txt.startswith('#TYPE=EXTENDED\n#OBSCODE=TEST1\n') and '#DATE=JD' in txt and vsphot.validate(txt) == [], vsphot.validate(txt)
+    assert [(ln[4], ln[5], ln[7], ln[8], ln[12], ln[13]) for ln in lines] == [('B', 'NO', 'ENSEMBLE', 'na', '1', 'X12345AB'),
+                                                                               ('V', 'YES', 'ENSEMBLE', 'na', '1', 'X12345AB'), ('V', 'NO', 'ENSEMBLE', 'na', '2', 'X12345AB')], lines
+    m = db.rows(con, 'SELECT * FROM vs_meas ORDER BY jd')
+    assert abs(m[1]['mag'] - m[1]['mag_raw'] - 0.05 * ((m[0]['mag_raw'] - m[1]['mag_raw']) - m[1]['ci_comp'])) < 1e-9 and m[1]['trans'] == 1
+    assert db.one(con, "SELECT status FROM tasks WHERE key='vs:upload:aavso-2026-11-10.txt'")['status'] == 'open'
+    bad = txt.replace('ENSEMBLE,na', 'ENSEMBLE,9.1', 1).replace(',B,NO,', ',XX,NO,', 1).replace('#OBSCODE=TEST1', '#OBSCODE=')
+    assert {p[2][:16] for p in vsphot.validate(bad)} == {'no AAVSO observe', 'XX is not an AAV', 'an ensemble need'}, vsphot.validate(bad)
+    # ---- Meridian: the tab, rejecting a filed measurement remakes the file, marking it uploaded, the settings (key masked)
+    config.replace_user('vstars', vs)
+    try:
+        x = server.api_vs()
+        assert x['settings']['targettool_key'].startswith(server.MASK) and 'secret' not in json.dumps(x) and all(r[1] for r in x['ready'] if 'Image' not in r[0])
+        assert len(x['recent']) == 3 and x['reports'][0]['file'] == 'aavso-2026-11-10.txt' and x['plots'] == ['plots/vstars/XX_Tst-2026-11-10.png']
+        assert server.post_action(f'/api/vs/{m[2]["id"]}', {'action': 'reject'})[0] == 200
+        txt2 = (config.DATA / 'vstars' / 'reports' / 'aavso-2026-11-10.txt').read_text()
+        assert len([ln for ln in txt2.splitlines() if not ln.startswith('#')]) == 2 and vsphot.validate(txt2) == []
+        assert server.post_action('/api/vs/0', {'action': 'uploaded', 'file': 'aavso-2026-11-10.txt'})[0] == 200
+        assert db.one(con, 'SELECT status FROM vs_meas WHERE id=?', (m[0]['id'],))['status'] == 'reported'
+        assert server.post_action(f'/api/vs/{m[0]["id"]}', {'action': 'reject'})[0] == 400              # already uploaded: change it at WebObs
+        assert server.post_action('/api/vs/0', {'action': 'settings', 'settings': dict(vs, filters=[{'fits': 'V', 'aavso': 'Vj'}])})[0] == 400
+        assert server.post_action('/api/vs/0', {'action': 'settings', 'settings': dict(vs, targettool_key=x['settings']['targettool_key'], max_targets=5)})[0] == 200
+        kept = config.load()['vstars']
+        assert kept['targettool_key'] == 'secret-test-key-1234' and kept['max_targets'] == 5
+    finally:
+        config.replace_user('vstars', {})
+    assert not config.load()['vstars']['enabled']
+
 import urllib.error  # noqa: E402
 
 if __name__ == '__main__':
