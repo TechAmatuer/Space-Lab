@@ -2413,6 +2413,24 @@ def second_look_practice_cases_and_weighted_votes():
     assert 'exclude_paths' not in asked[0] and asked[1]['exclude_paths'] == [1, 2, 3]
     assert daily.second_look({}, lambda *a: None) is None
 
+
+@test
+def stored_paths_follow_a_moved_folder():
+    from spacelab import db
+    con = db.connect()
+    old, new = '/tmp/example/Meridian/SpaceLab/', '/tmp/example/SpaceLab'
+    con.execute("INSERT INTO runs(job, started, status, log) VALUES ('t', 1, 'ok', ?)", (old + 'logs/t/1.log',))
+    rid = con.execute('SELECT MAX(id) FROM runs').fetchone()[0]
+    con.execute("INSERT INTO tasks(key, project, kind, title, detail, status, created, updated) VALUES ('mv:1', 'x', 'x', 't', ?, 'done', 1, 1)",
+                ('see "' + old + 'inbox/a.zip" and "' + old + 'data/b.txt"',))
+    try:
+        assert db.repair_moved_paths(con, new) == 2
+        assert db.one(con, 'SELECT log FROM runs WHERE id=?', (rid,))['log'] == new + '/logs/t/1.log'
+        assert db.one(con, "SELECT detail FROM tasks WHERE key='mv:1'")['detail'] == 'see "' + new + '/inbox/a.zip" and "' + new + '/data/b.txt"'
+        assert db.repair_moved_paths(con, new) == 0
+    finally:
+        con.execute('DELETE FROM runs WHERE id=?', (rid,)); con.execute("DELETE FROM tasks WHERE key='mv:1'")
+
 import urllib.error  # noqa: E402
 
 if __name__ == '__main__':

@@ -69,6 +69,35 @@ def migrate(con):
                     pass
 
 
+MOVED = {'exo': ('folder', 'result', 'aavso_file', 'preview', 'plot'), 'runs': ('log',), 'tasks': ('detail', 'ref')}
+
+
+def repair_moved_paths(con, root):
+    """After the Space Lab folder was moved (e.g. out of Meridian), point stored absolute paths at the new place."""
+    import re
+    new = str(root).rstrip('/') + '/'
+    olds = set()
+    for table, cols in MOVED.items():
+        for col in cols:
+            try:
+                vals = con.execute(f"SELECT {col} FROM {table} WHERE {col} LIKE '%/SpaceLab/%'").fetchall()
+            except sqlite3.OperationalError:
+                continue
+            for (v,) in vals:
+                for m in re.finditer(r'/[^"\n]*?/SpaceLab/', str(v)):
+                    if m.group(0) != new:
+                        olds.add(m.group(0))
+    n = 0
+    for old in olds:
+        for table, cols in MOVED.items():
+            for col in cols:
+                try:
+                    n += con.execute(f"UPDATE {table} SET {col}=replace({col}, ?, ?) WHERE instr({col}, ?) > 0", (old, new, old)).rowcount
+                except sqlite3.OperationalError:
+                    continue
+    return n
+
+
 def rows(con, sql, args=()):
     return [dict(r) for r in con.execute(sql, args).fetchall()]
 

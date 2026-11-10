@@ -933,6 +933,9 @@ def main():
         return
     con = db.connect()
     con.execute("UPDATE runs SET status='interrupted', finished=? WHERE status='running'", (time.time(),))
+    moved = db.repair_moved_paths(con, config.ROOT)
+    if moved:
+        log(f'the Space Lab folder was moved: {moved} stored paths updated')
     if not cfg.get('observer_name') or not cfg.get('contact_email'):
         db.add_task(con, 'setup:profile', 'setup', 'setup', 'Add your name and email in Setup',
                     'Used only for credit on the result files you upload yourself (AAVSO, Minor Planet Center).', {'tab': 'setup'}, 3)
