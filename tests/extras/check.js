@@ -913,6 +913,8 @@ const CHECKS = {
       else {
         fb.click(); await sleep(5);
         if (!wrap.classList.contains('sl-full') || !wrap.querySelector('.uv-bar') || !/Leave full screen/.test(fb.textContent) || sp.getAttribute('aria-pressed') !== 'true') fails.push('full screen: the map fills the window, search and buttons ride along, the map turns by itself');
+        wrap.classList.add('sl-idle'); wrap.dispatchEvent(new env.w.Event('pointermove'));
+        if (wrap.classList.contains('sl-idle')) fails.push('full screen: controls that stepped aside come back when the pointer moves');
         env.w.document.dispatchEvent(new env.w.KeyboardEvent('keydown', { key: 'Escape' })); await sleep(5);
         if (wrap.classList.contains('sl-full') || wrap.querySelector('.uv-bar') || !v.querySelector('.uv-top .uv-bar') || sp.getAttribute('aria-pressed') !== 'false') fails.push('Esc leaves full screen and puts everything back');
         sp.click(); await sleep(5);

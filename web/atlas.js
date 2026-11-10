@@ -21,9 +21,22 @@
   // not use it, the box fills the whole window instead. Esc or the same button leaves. onChange(isFull) after every change.
   function fullScreen(el, btn, onChange) {
     const isOn = () => document.fullscreenElement === el || el.classList.contains('sl-full');
+    // In full screen the controls step aside after a few quiet seconds and come back on any movement, tap or key.
+    let quiet = 0;
+    const wake = () => {
+      el.classList.remove('sl-idle');
+      clearTimeout(quiet);
+      if (!isOn()) return;
+      quiet = setTimeout(() => {
+        const a = document.activeElement;
+        if (isOn() && !(a && el.contains(a) && /^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) && !el.querySelector('.uv-bar:hover, .ss-bar:hover')) el.classList.add('sl-idle');
+      }, 4000);
+    };
+    for (const ev of ['pointermove', 'pointerdown', 'keydown', 'wheel', 'touchstart']) el.addEventListener(ev, wake, { passive: true });
     const upd = () => {
       const on = isOn();
       el.classList.toggle('sl-fs', on);
+      wake();
       btn.textContent = on ? '✕ Leave full screen' : '⛶ Full screen';
       btn.setAttribute('aria-pressed', on ? 'true' : 'false');
       if (onChange) onChange(on);

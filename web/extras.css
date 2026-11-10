@@ -219,6 +219,9 @@ button.b.at-mode.on,button.b.at-layer.on,button.b.at-alt.on{background:var(--acc
 .uv-wrap.sl-fs,.ss-wrap.sl-fs{height:100vh;height:100dvh;max-height:none;margin:0;border:0;border-radius:0;width:100%}
 .uv-wrap.sl-fs .uv-bar,.ss-wrap.sl-fs .ss-bar{position:absolute;left:8px;right:8px;top:8px;z-index:5;background:rgba(8,11,19,.72);border-radius:10px;padding:6px 8px;backdrop-filter:blur(6px)}
 .uv-wrap.sl-fs .uv-read{top:auto;bottom:8px;right:auto;max-width:60%}
+.uv-wrap.sl-fs .uv-bar,.ss-wrap.sl-fs .ss-bar,.uv-wrap.sl-fs .uv-read{transition:opacity .5s}
+.uv-wrap.sl-fs.sl-idle .uv-bar,.ss-wrap.sl-fs.sl-idle .ss-bar,.uv-wrap.sl-fs.sl-idle .uv-read{opacity:0;pointer-events:none}
+.uv-wrap.sl-fs.sl-idle,.ss-wrap.sl-fs.sl-idle{cursor:none}
 .uv-wrap.sl-fs .uv-tour{bottom:40px}
 .uv-spin.on{border-color:var(--ok);color:var(--ok)}
 .uv-wrap{background:radial-gradient(ellipse at 50% 45%, #070a16 0%, #03040a 70%)}
