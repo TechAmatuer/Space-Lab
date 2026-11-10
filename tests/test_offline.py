@@ -1084,6 +1084,11 @@ def plates_astrometry_on_a_synthetic_1954_plate():
     c2 = plates.absent_elsewhere(img, w, truth['ra'], truth['dec'], 3.0, gaia, truth['jd'], log=lambda *a: None)
     assert c2 and not c2['absent'] and plates.verdict(m, c2).startswith('static'), c2
     assert plates.verdict(m, c) == 'detected'
+    # noise control: a blob nearly as strong where the object would be on a wrong date makes the detection only marginal
+    weak = dict(m, snr=5.0)
+    assert plates.verdict(weak, c) == 'detected' and plates.verdict(weak, c, control=4.2) == 'marginal' and plates.verdict(dict(m, snr=11.1), c, control=4.2) == 'detected'
+    assert plates.control_snr({0.0: {'found': True, 'snr': 5.0}, -1.0: {'found': True, 'snr': 4.2}, 1.0: {'found': False}}, 0.0) == 4.2
+    assert plates.control_snr({0.0: {'found': True, 'snr': 11.1}}, 0.0) == 0.0
 
 
 @test
@@ -1131,6 +1136,51 @@ def plates_pure_helpers():
              {'des': 'X3', 'obs': 'not json'}]
     asked = []
     assert plates.stale_objects(cands, lambda d: asked.append(d) or [dict(o[0], stn='262')]) == {'X1'} and asked == ['X1', 'X2'], asked
+    # timing check: seconds between the MPC's time and the time used here, for plates that others measured too
+    objs = {'X1': {'plates': [{'site': '809', 'obsTime': t_iso, 'validation': {'diff_arcsec': 0.2}}, {'site': '809', 'obsTime': t_iso, 'result': 'detected'}]},
+            'X9': {'plates': []}}
+    dts = plates.timing_audit(objs, lambda d: [dict(o[0], stn='262', jd=_T(t_iso.replace('Z', ''), format='isot', scale='utc').jd - 236.0 / 86400)])
+    assert len(dts) == 1 and abs(dts[0] + 236.0) < 0.2 and abs(objs['X1']['plates'][0]['validation']['mpc_dt_s'] + 236.0) < 0.2, dts
+    # an object whose search failed because a server was down is tried again soon (a few times), others after the long wait
+    now = 1.0e9
+    flaky = {'t': now - 7 * 3600, 'plates': [{'result': 'error: ConnectionError: the Gaia star catalogue could not be reached'}], 'tries': 1}
+    assert plates.due_again('A', flaky, [], 120 * 86400, now) and not plates.due_again('A', dict(flaky, t=now - 3600), [], 120 * 86400, now)
+    assert not plates.due_again('A', dict(flaky, tries=4), [], 120 * 86400, now)
+    assert plates.due_again('A', {'t': now - 7 * 3600, 'plates': [{'result': 'not found (not enough Gaia stars could be matched for a plate solution)'}]}, [], 120 * 86400, now)
+    fine = {'t': now - 7 * 3600, 'plates': [{'result': 'not found (nothing above 4 sigma)'}]}
+    assert not plates.due_again('A', fine, [], 120 * 86400, now) and plates.due_again('A', dict(fine, t=now - 121 * 86400), [], 120 * 86400, now)
+    assert plates.due_again('M', dict(fine, t=now - 21 * 3600), ['M'], 120 * 86400, now) and not plates.due_again('M', dict(fine, t=now - 19 * 3600), ['M'], 120 * 86400, now)
+    # the star catalogue: the ESA copy first, then IRSA's; an empty answer is a failure, never "no stars there"
+    from spacelab import net as _net
+    real_fetch, calls = _net.fetch_text, []
+    csv_rows = '\n'.join(f'{10 + k * 0.001},{-5 + k * 0.001},1.5,-2.5,{15 + k * 0.1}' for k in range(12))
+
+    def fake(url, params=None, **kw):
+        calls.append(url)
+        if 'esac.esa.int' in url:
+            raise OSError('HTTP Error 503')
+        if 'irsa' in url:
+            assert 'gaia_dr3_source' in params['QUERY'] and 'gaiadr3.gaia_source' not in params['QUERY'], params
+            return '"dec","ra","pmra","pmdec","phot_g_mean_mag"\n' + '\n'.join(','.join((r.split(',')[1], r.split(',')[0], *r.split(',')[2:])) for r in csv_rows.splitlines())
+        raise OSError('unreachable')
+    _net.fetch_text = fake
+    try:
+        g = plates.gaia_cone(10.0, -5.0, 0.1, log=lambda *a: None)
+        assert len(g['ra']) == 12 and abs(g['ra'][0] - 10.0) < 1e-9 and abs(g['dec'][0] + 5.0) < 1e-9 and abs(g['pmdec'][0] + 2.5) < 1e-9, g
+        assert any('irsa' in c for c in calls)
+
+        def dead(url, params=None, **kw):
+            if 'esac.esa.int' in url:
+                return 'ra,dec,pmra,pmdec,phot_g_mean_mag\n'          # an empty table
+            raise OSError('unreachable')
+        _net.fetch_text = dead
+        try:
+            plates.gaia_cone(10.0, -5.0, 0.1, log=lambda *a: None)
+            raise AssertionError('an empty star catalogue must be an error')
+        except ConnectionError as e:
+            assert 'tried again' in str(e)
+    finally:
+        _net.fetch_text = real_fetch
     # targets: bright distant objects first seen recently; manual ones first; done ones skipped
     rows = [{'pdes': '2026 ED138', 'full_name': '2026 ED138', 'H': '2.85', 'q': '36.9', 'a': '43.2', 'first_obs': '2016-02-25'},
             {'pdes': '2020 XX1', 'H': '9.5', 'q': '35', 'first_obs': '2020-01-01'},           # far too faint for plates

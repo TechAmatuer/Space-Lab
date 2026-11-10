@@ -28,6 +28,7 @@ from . import config, db, net
 
 SBDB_Q = 'https://ssd-api.jpl.nasa.gov/sbdb_query.api'
 GAIA_TAP = 'https://gea.esac.esa.int/tap-server/tap/sync'
+IRSA_TAP = 'https://irsa.ipac.caltech.edu/TAP/sync'
 SKYBOT = 'https://ssp.imcce.fr/webservices/skybot/api/conesearch.php'
 MPC_OBS = 'https://data.minorplanetcenter.net/api/get-obs'
 ARCSEC = 206264.80624709636
@@ -442,12 +443,34 @@ def gaia_cone(ra, dec, radius_deg, gmax=20.5, log=print):
         txt = net.fetch_text(GAIA_TAP, params={'REQUEST': 'doQuery', 'LANG': 'ADQL', 'FORMAT': 'csv', 'QUERY': q}, timeout=180, min_gap=1.0)
         rows = [ln.split(',') for ln in txt.strip().splitlines()[1:]]
         cols = [np.array([_f(r[k]) if r[k] else np.nan for r in rows], float) for k in range(5)]
+        if len(rows) < 8:
+            raise ValueError(f'only {len(rows)} stars came back')
     except Exception as e:
-        log(f'    Gaia (ESA) failed ({e}); trying VizieR')
-        from .catalogs import _asu, _rows
-        rr = _rows(_asu({'-source': 'I/355/gaiadr3', '-c': f'{ra} {dec:+}', '-c.rd': f'{radius_deg:.5f}',
-                         '-out': 'RA_ICRS,DE_ICRS,pmRA,pmDE,Gmag', 'Gmag': f'<{gmax}', '-out.max': '20000'}, timeout=180))
-        cols = [np.array([_f(r.get(k)) if r.get(k) else np.nan for r in rr], float) for k in ('RA_ICRS', 'DE_ICRS', 'pmRA', 'pmDE', 'Gmag')]
+        log(f'    Gaia (ESA) failed ({e}); trying other copies of the catalogue')
+        cols = None
+        try:                                                 # NASA/IPAC keeps a copy of Gaia DR3 with the same columns
+            txt = net.fetch_text(IRSA_TAP, params={'QUERY': q.replace('gaiadr3.gaia_source', 'gaia_dr3_source'), 'FORMAT': 'CSV'},
+                                 timeout=180, min_gap=1.0)
+            lines = txt.strip().splitlines()
+            head = [h.strip().strip('"').lower() for h in lines[0].split(',')]
+            ix = [head.index(k) for k in ('ra', 'dec', 'pmra', 'pmdec', 'phot_g_mean_mag')]
+            rows = [ln.split(',') for ln in lines[1:]]
+            if len(rows) >= 8:
+                cols = [np.array([_f(r[k]) if len(r) > k and r[k] else np.nan for r in rows], float) for k in ix]
+                log(f'    Gaia from IRSA: {len(rows)} stars')
+        except Exception as e2:
+            log(f'    Gaia (IRSA) failed ({str(e2)[:80]})')
+        if cols is None:
+            try:
+                from .catalogs import _asu, _rows
+                rr = _rows(_asu({'-source': 'I/355/gaiadr3', '-c': f'{ra} {dec:+}', '-c.rd': f'{radius_deg:.5f}',
+                                 '-out': 'RA_ICRS,DE_ICRS,pmRA,pmDE,Gmag', 'Gmag': f'<{gmax}', '-out.max': '20000'}, timeout=180))
+                if len(rr) >= 8:
+                    cols = [np.array([_f(r.get(k)) if r.get(k) else np.nan for r in rr], float) for k in ('RA_ICRS', 'DE_ICRS', 'pmRA', 'pmDE', 'Gmag')]
+            except Exception as e3:
+                log(f'    Gaia (VizieR) failed ({str(e3)[:80]})')
+        if cols is None:                                     # no catalogue is not the same as "the object is not there"
+            raise ConnectionError('the Gaia star catalogue could not be reached; this plate will be tried again')
     ok = np.isfinite(cols[0]) & np.isfinite(cols[1])
     return {k: c[ok] for k, c in zip(('ra', 'dec', 'pmra', 'pmdec', 'g'), cols)}
 
@@ -670,7 +693,13 @@ def asteroid_timing(img, wcs, ra, dec, radius_deg, jd, site, limit, fwhm_px, log
     return {'offset': off, 'n': sum(len(v) for v in votes.values()), 'text': text}
 
 
-def verdict(m, cmp_=None):
+def control_snr(trials, chosen):
+    """The strongest blob found where the object would be on a WRONG date (one day either side). The object cannot be
+    there, so this is what noise alone produces on this plate: a detection must clearly beat it."""
+    return max([float(t.get('snr') or 0) for d, t in trials.items() if d != chosen and t.get('found')] or [0.0])
+
+
+def verdict(m, cmp_=None, control=0.0):
     """Plain decision from the numbers. 'detected' still means: a person must look before anything is sent."""
     if not m.get('found'):
         return 'not found'
@@ -678,6 +707,8 @@ def verdict(m, cmp_=None):
         return 'static source (also there on another date)'
     if m['in_ellipse'] > 1.0:
         return 'outside the 3-sigma area'
+    if control >= 3 and m['snr'] < 1.5 * control:
+        return 'marginal'                                    # noise on this plate makes blobs nearly as strong
     if m['snr'] >= 5:
         return 'detected'
     if m['snr'] >= 3:
@@ -783,6 +814,39 @@ def withdraw(con, des, plate_id):
         db.close_task(con, f'plate:{des}:{plate_id}')
 
 
+def timing_audit(objs, mpc_for):
+    """For every plate that became an accuracy test: seconds from this pipeline's time to the MPC's time for the same plate
+    (stored as validation.mpc_dt_s). A steady offset means the plate times here need a correction. Returns the list."""
+    from astropy.time import Time
+    out = []
+    for des, o in objs.items():
+        recs = [p for p in o.get('plates') or [] if p.get('validation') and p.get('obsTime')]
+        if not recs:
+            continue
+        mpc = mpc_for(des) or []
+        for p in recs:
+            jd = Time(p['obsTime'].replace('Z', ''), format='isot', scale='utc').jd
+            near = [m for m in mpc if same_site(m['stn'], str(p.get('site') or '')) and abs(m['jd'] - jd) <= 1.6]
+            if near:
+                m = min(near, key=lambda m: abs(m['jd'] - jd))
+                p['validation']['mpc_dt_s'] = round((m['jd'] - jd) * 86400.0, 1)
+                out.append(p['validation']['mpc_dt_s'])
+    return out
+
+
+def due_again(des, o, manual, redo, now=None):
+    """Search this object again? Your own list: daily. One whose last search hit a failure that was not the sky's fault (a server
+    or the star catalogue down): after six hours, up to three more times. Everything else: after `redo` seconds."""
+    age = (now or time.time()) - (o.get('t') or 0)
+    if des in manual:
+        return age >= 20 * 3600
+    flaky = any(str(p.get('result') or '').startswith('error:') or 'Gaia' in (str(p.get('result') or '') + str(p.get('why') or ''))
+                for p in o.get('plates') or [])
+    if flaky and (o.get('tries') or 1) < 4:
+        return age >= 6 * 3600
+    return age >= redo
+
+
 def stale_objects(cands, mpc_for):
     """Objects with a waiting plate candidate that someone else has reported to the MPC in the meantime.
     cands: rows of pc_cands (des, obs as JSON text); mpc_for(des) -> the MPC's observations of that object."""
@@ -882,7 +946,8 @@ def search_object(ctx, llm, t, mpc, plates_cfg):
                     except Exception as e:
                         log(f'    comparison plate ({oname}) skipped: {e}')
             rec['comparison'] = cmp_
-            v = verdict(m, cmp_)
+            rec['control_snr'] = control_snr(trials, m['date_offset'])
+            v = verdict(m, cmp_, rec['control_snr'])
             rec.update({k: m.get(k) for k in ('snr', 'off', 'in_ellipse', 'sigma', 'shape', 'date_offset', 'n_removed', 'why', 'snr_at_pred', 'ra', 'dec', 'obsTime')})
             rec['solution'] = m.get('plate')
             rec['result'] = v
@@ -913,7 +978,9 @@ def search_object(ctx, llm, t, mpc, plates_cfg):
             if v in ('detected', 'marginal'):
                 facts = (f"S/N {m['snr']}, {m['off']}\" from prediction (3-sigma area {pred['a']:.0f}\"), plate solution {m['plate']['n']} "
                          f"Gaia stars rms {m['plate']['rms_ra']}\", {m['n_removed']} stars removed nearby, shape: {m['shape'].get('verdict')}, "
-                         f"other date: {'nothing there' if cmp_ and cmp_['absent'] else 'not checked' if not cmp_ else 'something there'}")
+                         f"other date: {'nothing there' if cmp_ and cmp_['absent'] else 'not checked' if not cmp_ else 'something there'}"
+                         + (f"; noise control: a blob of S/N {rec['control_snr']:g} sits where the object would be on a wrong date"
+                            if rec['control_snr'] >= 3 else ''))
                 ai = ai_look(llm, png, facts) if llm else None
                 obs = [{'obsTime': m['obsTime'], 'ra': m['ra'], 'dec': m['dec'], 'filter': SURVEYS[sid][3], 'snr': m['snr'], 'timing': rec['timing'],
                         'date_probe': rec['date_probe'], 'objtype': t.get('objtype') or ('tno' if (t.get('q') or 30) >= 29 else 'unclassified'),
@@ -921,13 +988,19 @@ def search_object(ctx, llm, t, mpc, plates_cfg):
                         'shape': m['shape'], 'comparison': cmp_, 'solution': m['plate'], 'date_offset': m['date_offset'], 'ai': ai,
                         'n_removed': m['n_removed']}]
                 ades = ades_plate(des, m, ctx.cfg, site, label, date_note)
-                exists = db.one(con, 'SELECT id FROM pc_cands WHERE des=? AND archive=?', (des, f'SuperCOSMOS {h.plate_id}'))
+                obs[0]['verdict'], obs[0]['control_snr'] = v, rec['control_snr']
+                exists = db.one(con, 'SELECT id, status FROM pc_cands WHERE des=? AND archive=?', (des, f'SuperCOSMOS {h.plate_id}'))
+                if exists and exists['status'] == 'new':     # measured again before you looked: keep the newest numbers
+                    con.execute('UPDATE pc_cands SET obs=?, offset=?, mdist=?, score=?, png=?, ades=? WHERE id=?',
+                                (json.dumps(obs), m['off'], m['in_ellipse'], m['snr'], rec['png'], ades, exists['id']))
                 if not exists:
                     con.execute('INSERT INTO pc_cands(des,night,archive,obs,offset,mdist,score,gif,png,ades,status,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
                                 (des, m['obsTime'][:10], f'SuperCOSMOS {h.plate_id}', json.dumps(obs), m['off'], m['in_ellipse'],
                                  m['snr'], None, rec['png'], ades, 'new', time.time()))
                     db.add_task(con, f"plate:{des}:{h.plate_id}", 'asteroids', 'review', f"Look at {des} on the {label} plate",
-                                f"S/N {m['snr']}, {m['off']}\" from the prediction. Is it a real point source that is gone on the other date?",
+                                f"S/N {m['snr']}, {m['off']}\" from the prediction"
+                                + (f" (weak: noise on this plate reaches S/N {rec['control_snr']:g})" if v == 'marginal' and rec['control_snr'] >= 3 else '')
+                                + ". Is it a real point source that is gone on the other date?",
                                 {'tab': 'asteroids'}, 2)
         except Exception as e:
             rec['result'] = f'error: {type(e).__name__}: {str(e)[:140]}'
@@ -943,7 +1016,7 @@ def run(ctx):
     objs = {o['des']: o for o in state.get('objects') or []}
     redo = float(pc.get('research_days', 120)) * 86400
     manual = [m for m in pc.get('manual') or [] if m]
-    done = {d for d, o in objs.items() if time.time() - (o.get('t') or 0) < (20 * 3600 if d in manual else redo)}   # your list: daily
+    done = {d for d, o in objs.items() if not due_again(d, o, manual, redo)}
     try:
         rows = sbdb_targets(log, float(pc.get('h_max', 8.0)))
     except Exception as e:
@@ -970,11 +1043,19 @@ def run(ctx):
             break
         mpc = mpc_observations(t['des'], log)
         s = search_object(ctx, llm, t, mpc, pc)
+        s['tries'] = ((objs.get(t['des']) or {}).get('tries') or 0) + 1
         objs[t['des']] = s
         checked += len(s['plates'])
         found += sum(1 for p in s['plates'] if p.get('result') in ('detected', 'marginal'))
         tests += sum(1 for p in s['plates'] if p.get('validation'))
         ctx.progress(f"old plates: {checked} checked, {found} possible detection(s)")
+    try:
+        dts = timing_audit(objs, lambda d: mpc_observations(d, log))
+        if dts:
+            log(f"  timing check on {len(dts)} plate(s) also measured by others: the MPC's times are {float(np.median(dts)):+.0f} s from "
+                f"the times used here (each: {', '.join(f'{x:+.0f}' for x in dts)})")
+    except Exception as e:
+        log(f'  timing check skipped: {e}')
     allv = [p['validation']['diff_arcsec'] for o in objs.values() for p in o.get('plates') or [] if p.get('validation')]
     out = {'t': time.time(), 'objects': sorted(objs.values(), key=lambda o: -(o.get('t') or 0))[:30],
            'accuracy': {'n': len(allv), 'median_arcsec': round(float(np.median(allv)), 2) if allv else None}}

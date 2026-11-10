@@ -378,17 +378,24 @@ function renderNeo(x) {
   // old photographic plates: one position per plate, measured against Gaia; send to the MPC only after your own look
   const plateCard = c => {
     const o = (c.obs || [])[0] || {}, sol = o.solution || {}, tm = o.timing || {}, cm = o.comparison, ai = o.ai, mp = c.mpc || {}, real = c.status === 'real';
+    // noise control: the strongest blob found where the object would be if the plate date were a day off. It cannot be there.
+    const probe = o.date_probe || {}, at = `${(o.date_offset || 0) >= 0 ? '+' : ''}${o.date_offset || 0}`;
+    const others = Object.keys(probe).filter(k => k !== at), control = Math.max(0, ...others.map(k => Number(probe[k]) || 0));
+    const weak = control >= 3 && Number(o.snr) < 1.5 * control;
     const facts = [
       `<b>S/N ${num(o.snr, 1)}</b>, ${num(o.off, 1)}″ from JPL's prediction (${num(o.in_ellipse, 2)} of the way to the edge of the 3-sigma area)`,
       `plate solution: ${esc(sol.n)} Gaia DR3 stars moved to the plate's date, order-${esc(sol.order)} fit, scatter ${num(sol.rms_ra, 2)}″ / ${num(sol.rms_dec, 2)}″; position uncertainty <b>±${num(o.sigma, 2)}″</b>`,
       `${esc(o.n_removed || 0)} nearby catalogued star(s) modelled and removed`,
       `shape: ${esc((o.shape || {}).verdict || 'not measured')}`,
+      weak ? `<span class="bad-t"><b>weak:</b> a blob of S/N ${num(control, 1)} also sits where the object would be if the date were one day off. It cannot be there, so noise on this plate gets that strong</span>`
+        : control >= 3 ? `noise check: the strongest blob at a wrong-date position has S/N ${num(control, 1)}, well below this one ✓`
+        : others.length ? 'noise check: nothing where the object would be on a wrong date ✓' : '',
       cm ? `another date (${esc(cm.plate || 'other plate')}): ${cm.absent ? 'nothing at that spot ✓' : `<span class="bad-t">something is there too (S/N ${num(cm.snr, 1)})</span>`}` : 'no plate from another date could be checked',
       `plate date: SuperCOSMOS date +1 day${o.date_offset ? `, then ${o.date_offset > 0 ? '+' : ''}${o.date_offset} more day (the object is seen there)` : ''}. ${esc(tm.text || '')}`,
       ai ? `local AI's first look: <b>${esc(ai.verdict)}</b>${ai.reasons && ai.reasons.length ? ' (' + ai.reasons.map(esc).join('; ') + ')' : ''}` : ''].filter(Boolean);
     const tested = mp.test, sent = mp.sent;
     const canSend = real && x.sarc_verified && x.email_set && tested && tested.ok && !sent;
-    return `<div class="card" id="item-asteroids-${c.id}" data-pc="${c.id}"><div class="row"><h3>${esc(c.des)} · ${esc(c.night)}</h3><span class="chip">${esc(c.archive)}</span><span class="spacer"></span><span class="chip ${real ? 'ok' : c.status === 'new' ? 'warn' : ''}">${esc(sent ? 'sent to the MPC' : c.status)}</span></div>
+    return `<div class="card" id="item-asteroids-${c.id}" data-pc="${c.id}"><div class="row"><h3>${esc(c.des)} · ${esc(c.night)}</h3><span class="chip">${esc(c.archive)}</span><span class="spacer"></span>${weak ? '<span class="chip bad">weak</span>' : ''}<span class="chip ${real ? 'ok' : c.status === 'new' ? 'warn' : ''}">${esc(sent ? 'sent to the MPC' : c.status)}</span></div>
       <p class="small">A possible sighting on an old photographic plate. Look at the picture: is there a real round dot in the red circle, near the blue cross, that is gone on the other date?</p>
       <img class="plot" src="${fileUrl(c.png)}" alt="plate cutout, the same with stars removed, and another date">
       <ul class="small">${facts.map(f => `<li>${f}</li>`).join('')}</ul>
