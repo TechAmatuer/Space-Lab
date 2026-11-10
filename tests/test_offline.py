@@ -1279,7 +1279,7 @@ def universe_build_collapses_clusters_and_finds_the_web():
                'sigV': '900', '_RA.icrs': '194.95', '_DE.icrs': '+27.98'}]
     ngc4993 = rows[-1]['ID']
     meta, pos = universe.build(lambda *a: None, (rows, tully, groups), famous_lookup={'NGC 4993': {'id': ngc4993, 'pos': None},
-                                                                                       'NGC 5194': {'id': None, 'pos': (194.95, 27.98)}})
+                                                                                       'NGC 5194': {'id': None, 'pos': (float(rows[5]['RAJ2000']) + 2e-3, float(rows[5]['DEJ2000']))}})
     np_ = {b['cat']: b for b in meta['blueshift']}
     assert meta['n'] == len(rows) - 2 and np_['NGC 224']['why'] == 'blue' and np_['NGC 224']['name'] == 'Andromeda Galaxy', meta['blueshift']
     assert np_['NGC 253']['why'] == 'near' and np_['NGC 253']['name'] == 'Sculptor Galaxy' and 'so close' in meta['near_note'], np_
