@@ -284,8 +284,8 @@ def tweb(xyz, weights, half=260.0, n=128, smooth=5.0, lam=0.7):
     K = (KX, KY, KZ)
     for a in range(3):
         for b in range(a, 3):
-            comps[a, b] = np.fft.irfftn(base * K[a] * K[b], s=(n, n, n))
-    dsm = np.fft.irfftn(dk, s=(n, n, n))
+            comps[a, b] = np.fft.irfftn(base * K[a] * K[b], s=(n, n, n), axes=(0, 1, 2))
+    dsm = np.fft.irfftn(dk, s=(n, n, n), axes=(0, 1, 2))
     env = np.full(len(xyz), 4, np.uint8)
     dens = np.full(len(xyz), np.nan)
     ii = tuple(idx[inside].T)
