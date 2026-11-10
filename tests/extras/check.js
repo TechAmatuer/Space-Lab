@@ -518,7 +518,7 @@ const CHECKS = {
     if (!/not found/.test(v.querySelector('.sg-placeout').textContent)) fails.push('an unknown ZIP code must say "not found"');
     v.querySelector('.sg-zip').value = '12345'; v.querySelector('.sg-setzip').click(); await sleep(20);
     const pl = JSON.parse(env.w.localStorage.getItem('sl_place') || 'null');
-    if (!pl || Math.abs(pl.lat - 40.0) > 0.01 || Math.abs(pl.lon + 105.0) > 0.01) fails.push('ZIP 12345 must set sl_place to 40.0, -105.0 (got ' + JSON.stringify(pl) + ')');
+    if (!pl || Math.abs(pl.lat - 40) > 0.01 || Math.abs(pl.lon + 105) > 0.01) fails.push('ZIP 12345 (test table) must set sl_place to 40.00, -105.00 (got ' + JSON.stringify(pl) + ')');
     if (!/ZIP 12345/.test(v.querySelector('.sg-placeout').textContent)) fails.push('confirm the place that is being used');
     if (env.rec.opened.length) fails.push('looking up a ZIP code must not open or send anything');
     const ev = v.querySelector('.sg-ev');
@@ -548,7 +548,7 @@ const CHECKS = {
     const ds = { bbox: [24, -125, 50, -66], w: 118, h: 52, cdf: FIXTURE.beyond.darksky.cdf, lo: -3, hi: 1 };
     const grid = new Uint8Array(118 * 52).fill(200);
     const at = (la, lo) => Math.round((50 - la) / 26 * 52) * 118 + Math.round((lo + 125) / 59 * 118);
-    grid[at(40.5, -106.3)] = 20;                 // a dark spot ~120 km west-north-west of the place
+    grid[at(40.5, -106.3)] = 20;                // a dark spot ~120 km west-north-west of the place
     for (let i = 0; i < 118; i++) grid[51 * 118 + i] = 255;   // water along the bottom edge
     const res = SG.darkSpots(ds, grid, place, 150);
     if (!res || !res.found.length || Math.abs(res.found[0].la - 40.5) > 0.4 || Math.abs(res.found[0].lo + 106.3) > 0.4) fails.push('dark-sky finder must find the dark spot near 40.5N 106.3W (got ' + JSON.stringify(res && res.found.map(f => [f.la.toFixed(2), f.lo.toFixed(2)])) + ')');
@@ -591,9 +591,9 @@ const CHECKS = {
     const tn = sky.querySelector('.sg-tonight');
     if (!tn || !/Tonight from ZIP 12345/.test(tn.textContent) || !/Sunset/.test(tn.textContent) || !/Planets you can see/.test(tn.textContent)) fails.push('Sky watch must show "Tonight from <place>" with sunset, darkness and planets');
     if (!/Kp \d/.test(tn ? tn.textContent : '')) fails.push('tonight must say what Kp an aurora needs at that latitude');
-    const t = env.w.SpaceLabStargazing.tonight({ lat: 40.0, lon: -105.0 }, new Date(Date.UTC(2026, 10, 9, 22)));
+    const t = env.w.SpaceLabStargazing.tonight({ lat: 40.0, lon: -105.0 }, new Date(Date.UTC(2026, 10, 10, 3)));
     const ss = new Date(t.night.sunset), dk = new Date(t.night.dark);
-    if (!(ss.getUTCHours() === 21 || ss.getUTCHours() === 22) || !(dk.getUTCHours() === 23 || dk.getUTCHours() === 22)) fails.push(`sunset/darkness for the test place on 9 Nov must be about 21:55 / 23:25 UTC (got ${ss.toISOString()} / ${dk.toISOString()})`);
+    if (ss.getUTCHours() !== 23 || ![0, 1].includes(dk.getUTCHours())) fails.push(`sunset/darkness at 40N 105W on 9 Nov must be about 23:45 / 01:15 UTC (got ${ss.toISOString()} / ${dk.toISOString()})`);
     if (!sky.querySelector('.bx-live img')) fails.push('Sky watch must show the live pictures');
     const home = await env.tab('today');
     if (!home.querySelector('.hm-you .hm-act')) fails.push('Home must start with "Your Space Lab" actions');
