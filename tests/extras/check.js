@@ -74,10 +74,23 @@ async function boot({ extras = true, storage = {}, data = FIXTURE, hash = '', se
   const NASA = { collection: { metadata: { total_hits: 30 }, items: [1, 2, 3].map(i => ({ data: [{ nasa_id: 'PIA0000' + i, title: 'Test photo ' + i + ' <b>', description: 'A <i>described</i> picture.', date_created: '2020-01-0' + i + 'T00:00:00Z', center: 'JPL' }],
     links: [{ href: i === 3 ? 'https://evil.example/x~thumb.jpg' : 'https://images-assets.nasa.gov/image/PIA0000' + i + '/PIA0000' + i + '~thumb.jpg' }] })) } };
   rec.fetches = [];
-  w.fetch = async u => { rec.fetches.push(String(u)); return /zip\.txt$/.test(String(u)) ? { ok: true, text: async () => ZIPS } : /images-api\.nasa\.gov/.test(String(u)) ? { ok: true, json: async () => NASA } : { ok: true, json: async () => json, text: async () => JSON.stringify(json) }; };
+  const UV_IDS = ['12304942+1223279\tNGC 4486', '12000000+0000000\t', '13094770-2323017\tNGC 4993', '15000000-1000000\tUGC 9999'];
+  const uvBin = () => {
+    const n = 4, buf = new ArrayBuffer(16 + 24 * n), dv = new DataView(buf);
+    [83, 76, 85, 49].forEach((c, i) => dv.setUint8(i, c)); dv.setUint32(4, n, true);
+    new Float32Array(buf, 16, 3 * n).set([-20, -4, 4.6, -60, 0, 0, -40, -15, -20, -30, -50, -10]);
+    new Uint8Array(buf, 16 + 12 * n, n).set([3, 1, 2, 3]); new Uint8Array(buf, 16 + 13 * n, n).set([40, 150, 120, 160]);
+    new Uint8Array(buf, 16 + 14 * n, n).set([1, 4, 2, 0]); new Uint8Array(buf, 16 + 15 * n, n).set([180, 1, 6, 1]);
+    new Int32Array(buf, 16 + 16 * n, n).set([1284, 4200, 2961, 3500]); new Uint32Array(buf, 16 + 20 * n, n).set([100002, 0, 200300, 0]);
+    return buf;
+  };
+  w.fetch = async u => { rec.fetches.push(String(u));
+    if (/galaxies\.bin$/.test(String(u))) return { ok: true, arrayBuffer: async () => uvBin() };
+    if (/galaxies\.txt$/.test(String(u))) return { ok: true, text: async () => UV_IDS.join('\n') + '\n' };
+    return /zip\.txt$/.test(String(u)) ? { ok: true, text: async () => ZIPS } : /images-api\.nasa\.gov/.test(String(u)) ? { ok: true, json: async () => NASA } : { ok: true, json: async () => json, text: async () => JSON.stringify(json) }; };
   w.eval(read('web/public.js'));
   if (extras) {
-    for (const f of ['web/beyond.js', 'web/extras.js', 'web/home.js', 'web/stargazing.js', 'web/asteroids.js', 'web/atlas.js']) {
+    for (const f of ['web/beyond.js', 'web/extras.js', 'web/home.js', 'web/stargazing.js', 'web/asteroids.js', 'web/atlas.js', 'web/universe.js']) {
       try { w.eval(read(f)); } catch (e) { rec.errors.push(f + ' crashed while loading: ' + e.message); }
     }
   }
@@ -127,7 +140,7 @@ const CHECKS = {
     // click every extras control in every tab: the page must survive
     for (const t of env.$$('nav.tabs button').map(b => b.dataset.tab).filter(Boolean)) {
       const view = await env.tab(t);
-      for (const el of [...view.querySelectorAll('button[class*="sl-"], a[class*="sl-"], [class*="sl-"] button, [class*="sl-"][role=button], .sl-fav, button[class*="bx-"], [class*="bx-"] button, button[class*="hm-"], [class*="hm-"] button, button[class*="sg-"], [class*="sg-"] button, [class*="as-"] button, button[class*="at-"], [class*="at-"] button')]) {
+      for (const el of [...view.querySelectorAll('button[class*="sl-"], a[class*="sl-"], [class*="sl-"] button, [class*="sl-"][role=button], .sl-fav, button[class*="bx-"], [class*="bx-"] button, button[class*="hm-"], [class*="hm-"] button, button[class*="sg-"], [class*="sg-"] button, [class*="as-"] button, button[class*="at-"], [class*="at-"] button, button[class*="uv-"]:not(.uv-share):not(.uv-view):not(.uv-copy)')]) {
         if (!el.isConnected) continue;
         el.click(); await sleep(5);
         if (env.visible().length !== 1 || /undefined/.test(env.w.location.hash)) { fails.push(`clicking "${norm(el.textContent).slice(0, 30)}" in tab ${t} broke the page`); break; }
@@ -484,7 +497,7 @@ const CHECKS = {
     const groups = env.$$('nav.tabs .navgroup').map(g => g.textContent).join('|');
     if (groups !== 'Explore|Research|Join in') fails.push('tabs must be grouped Explore | Research | Join in (got ' + groups + ')');
     const order = env.$$('nav.tabs button').map(b => b.dataset.tab).join(' ');
-    if (order !== 'today sky atlas stargazing brief beyond tess asteroids exowatch results play create mylist about') fails.push('tab order: ' + order);
+    if (order !== 'today sky atlas universe stargazing brief beyond tess asteroids exowatch results play create mylist about') fails.push('tab order: ' + order);
     report(17, 'Home, candidate of the day and navigation', fails);
   },
 
@@ -734,10 +747,45 @@ const CHECKS = {
     if (tests[6][1] !== 'fail' || tests[8][1] !== 'fail') fails.push('Gaia and TRICERATOPS flags must count as failed tests');
     report(24, 'Missions card and the falsification scorecard', fails);
   },
+  async 25() {
+    const fails = [];
+    let env = await boot();
+    let v = await env.tab('universe');
+    for (let i = 0; i < 40 && v.querySelector('.uv-loading'); i++) await sleep(10);
+    if (!v.querySelector('.uv-canvas') || v.querySelector('.uv-loading')) { fails.push('the 3D universe tab must load its galaxy files: ' + norm(v.textContent).slice(0, 200)); return report(25, '3D universe', fails); }
+    if (!/cannot draw 3D/.test(v.textContent)) fails.push('without WebGL the page says so, and search still works');
+    const U = env.w.SpaceLabUniverse;
+    if (!U.data.ready || U.data.n !== 4 || U.data.ids[2] !== '13094770-2323017' || U.data.env[0] !== 3) fails.push('galaxy file and name index read correctly');
+    const q = v.querySelector('.uv-q'), find = async t => { q.value = t; q.dispatchEvent(new env.w.Event('input')); await sleep(200); return [...v.querySelectorAll('.uv-results li')]; };
+    let r = await find('M87');
+    if (!r.length || !/Virgo A \(M87\)/.test(r[0].textContent)) fails.push('search for a Messier number finds the galaxy (M87 -> NGC 4486): ' + r.map(x => norm(x.textContent)).join(' | '));
+    if (r[0] && r[0].querySelector('.uv-res')) { r[0].querySelector('.uv-res').click(); await sleep(10); }
+    let card = v.querySelector('.uv-card');
+    if (!card || !/2MASX J12304942\+1223279/.test(card.textContent) || !/in a knot/.test(card.textContent) || !/rich cluster \(180 galaxies/.test(card.textContent)) fails.push('the identity card shows the 2MASS ID, the cosmic-web class and the group');
+    if (card && (!card.querySelector('a[href^="https://ned.ipac.caltech.edu/byname?objname=2MASX%20J12304942%2B1223279"]') || !card.querySelector('a[href^="https://simbad.cds.unistra.fr/simbad/sim-id?Ident=2MASX"]'))) fails.push('the card links NED and SIMBAD by the 2MASS name');
+    if (card) { const a = ((card.querySelector('.uv-copy') || { getAttribute: () => '' }).getAttribute('data-c') === '12h30m49.42s +12d23m27.9s'), b = /RA 12h30m49\.42s · Dec \+12°23′27\.9″/.test(card.textContent); if (!a || !b) fails.push('the card gives J2000 coordinates from the 2MASS ID, and a Stellarium copy button (' + a + ',' + b + ')'); }
+    if (card && !/about 6[6-9] million light-years/.test(card.textContent)) fails.push('distance in Mpc and light-years: ' + norm(card.textContent).slice(0, 300));
+    r = await find('Andromeda');
+    if (!r.length || !/not on this map/.test(r[0].textContent) || !/blueshift/.test(r[0].textContent)) fails.push('search for Andromeda explains honestly why a blueshifted galaxy is not on a redshift map');
+    r = await find('coma');
+    if (!r.some(x => /Coma Cluster/.test(x.textContent))) fails.push('landmarks are searchable');
+    r = await find('UGC 9999');
+    if (!r.some(x => /UGC 9999/.test(x.textContent))) fails.push('survey names (NGC, UGC...) are searchable');
+    r = await find('130947');
+    if (!r.some(x => /NGC 4993/.test(x.textContent))) fails.push('2MASS IDs are searchable (from 6 characters)');
+    if (/undefined|NaN/.test(v.textContent)) fails.push('the universe tab shows undefined or NaN');
+    env = await boot({ search: '?sel=13094770-2323017', hash: '#universe' });
+    v = env.$('#v-universe');
+    for (let i = 0; i < 40 && !v.querySelector('.uv-card'); i++) await sleep(10);
+    card = v.querySelector('.uv-card');
+    if (!card || !/NGC 4993/.test(card.textContent) || !/GW170817/.test(card.textContent)) fails.push('a deep link ?sel=<2MASS ID> opens that galaxy\'s card');
+    if (U.readCam('1,2,3,40,0,0,0,1').d !== 40 || U.readCam('1,2') !== null) fails.push('camera deep links are read safely');
+    report(25, '3D universe: data, search, identity cards, deep links', fails);
+  },
 };
 
 (async () => {
-  const order = ['G', '2', '3', '5', '6', '7', '8', '9', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23', '24'];
+  const order = ['G', '2', '3', '5', '6', '7', '8', '9', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23', '24', '25'];
   for (const k of order) {
     if (ONLY && k !== ONLY && k !== 'G') continue;
     try { await CHECKS[k](); } catch (e) { report(k, 'check crashed', ['the check itself crashed (usually because an expected element is missing): ' + e.message]); }

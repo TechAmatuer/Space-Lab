@@ -32,6 +32,9 @@ window.SpaceLab = {
   // load a file from this same site (never another site), e.g. the ZIP code table for the dark-sky finder
   load: p => /^[A-Za-z0-9_./-]+$/.test(p) && !p.includes('..') && !p.startsWith('/')
     ? fetch(p).then(r => (r.ok ? r.text() : Promise.reject(new Error('HTTP ' + r.status)))) : Promise.reject(new Error('only files from this site')),
+  // the same, as raw bytes (the 3D universe's galaxy file)
+  loadBytes: p => /^[A-Za-z0-9_./-]+$/.test(p) && !p.includes('..') && !p.startsWith('/')
+    ? fetch(p).then(r => (r.ok ? r.arrayBuffer() : Promise.reject(new Error('HTTP ' + r.status)))) : Promise.reject(new Error('only files from this site')),
   onRender(fn) { HOOKS.push(fn); },                   // fn(tabName, viewElement, data) after every tab render
   addTab(id, title, render) {                          // render(viewElement, data)
     if (R[id] || EXTRA_TABS[id]) return;
@@ -52,7 +55,7 @@ function runExtras(tab) {
 }
 
 // Tabs in groups, so 12 tabs still read clearly. Extras' tabs are slotted in by id; unknown tabs go before About.
-const NAV = [['Explore', ['today', 'sky', 'atlas', 'stargazing', 'brief', 'beyond']], ['Research', ['tess', 'asteroids', 'exowatch', 'results']],
+const NAV = [['Explore', ['today', 'sky', 'atlas', 'universe', 'stargazing', 'brief', 'beyond']], ['Research', ['tess', 'asteroids', 'exowatch', 'results']],
              ['Join in', ['play', 'create', 'mylist']], ['', ['about']]];
 let navReady = false;
 function layoutNav() {

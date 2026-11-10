@@ -21,6 +21,7 @@ JOBS = {
     'radar': ('spacelab.radar', 'Space science radar (local AI)'),
     'cheops': ('spacelab.cheops', 'CHEOPS answer-key test'),
     'plates': ('spacelab.plates', 'Old-plate precovery (distant objects)'),
+    'universe': ('spacelab.universe', '3D universe (galaxy map, monthly)'),
     'ai': ('spacelab.aicatchup', 'Local AI catch-up (while the Mac is idle)'),
     'selftest': ('spacelab.selftest', 'Self-test'),
     'report': ('spacelab.reanalyze', 'Maintenance & coverage report'),

@@ -182,3 +182,28 @@ button.b.at-mode.on,button.b.at-layer.on,button.b.at-alt.on{background:var(--acc
 .as-orow{display:flex;gap:10px;align-items:center;margin:6px 0} .as-orbit{width:110px;height:110px;flex:none}
 .as-oearth{fill:none;stroke:#4a90d9;stroke-width:1.5} .as-oplanet{fill:none;stroke:var(--line-2);stroke-width:1} .as-orock{fill:none;stroke:#f2994a;stroke-width:1.8} .as-osun{fill:#ffd166}
 .hm-scroll{overflow-x:auto} .hm-ccplot{width:150px;height:auto;border-radius:6px;cursor:zoom-in;display:block}
+
+/* ---- 3D universe (universe.js) */
+.uv-bar{gap:8px;flex-wrap:wrap;align-items:flex-start} .uv-search{position:relative;flex:1;min-width:240px}
+.uv-q{width:100%;font:inherit;background:var(--panel-2);color:var(--ink);border:1px solid var(--line-2);border-radius:6px;padding:6px 10px}
+.uv-results{list-style:none;margin:4px 0 0;padding:0;position:absolute;left:0;right:0;z-index:5;background:var(--panel);border-radius:8px;max-height:50vh;overflow:auto;box-shadow:var(--shadow)}
+.uv-results li{border-bottom:1px solid var(--line);padding:2px 6px} .uv-results p{margin:4px 6px}
+.uv-res{all:unset;cursor:pointer;display:block;padding:6px 4px;width:100%} .uv-res:hover,.uv-res:focus-visible{background:var(--panel-2)}
+.uv-color{font:inherit;background:var(--panel-2);color:var(--ink);border:1px solid var(--line-2);border-radius:6px;padding:5px 8px}
+.uv-wrap{position:relative;height:72vh;min-height:360px;max-height:860px;margin:10px 0;border-radius:10px;overflow:hidden;background:#03040a;border:1px solid var(--line)}
+.uv-canvas{width:100%;height:100%;display:block;touch-action:none;cursor:grab} .uv-canvas:active{cursor:grabbing}
+.uv-labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.uv-lm{position:absolute;left:0;top:0;pointer-events:auto;all:unset;position:absolute;cursor:pointer;font-size:11px;color:#d7dde6;background:rgba(10,14,24,.55);border-radius:4px;padding:1px 5px;white-space:nowrap;margin:-9px 0 0 6px}
+.uv-lm.uv-void{color:#7ef0cf} .uv-lm.uv-region{color:#ffd9a0} .uv-lm:hover{background:rgba(40,60,90,.85)}
+.uv-home{position:absolute;left:0;top:0;color:#fff;font-size:16px;margin:-10px 0 0 -6px;text-shadow:0 0 6px #6cf} .uv-home span{font-size:10px;margin-left:4px;opacity:.75}
+.uv-sel{position:absolute;left:0;top:0;width:22px;height:22px;margin:-11px 0 0 -11px;border:2px solid #fff;border-radius:50%;box-shadow:0 0 8px #fff}
+.uv-read{position:absolute;left:8px;top:8px;right:8px;color:#b9c3d0;background:rgba(5,8,15,.55);padding:3px 8px;border-radius:6px;pointer-events:none;font-size:11px}
+.uv-cardbox{position:absolute;right:8px;bottom:8px;max-width:420px;width:calc(100% - 16px)} .uv-cardbox:empty{display:none}
+.uv-card{background:var(--panel);border:1px solid var(--line-2);border-radius:10px;padding:10px 12px;box-shadow:var(--shadow);max-height:60vh;overflow:auto}
+.uv-card h3{margin:0} .uv-facts th{text-align:left;padding-right:8px;vertical-align:top;color:var(--muted);font-weight:normal;white-space:nowrap}
+.uv-acts{gap:8px;flex-wrap:wrap;margin-top:6px} .uv-dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin:0 3px 0 6px}
+.uv-loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#b9c3d0}
+.uv-joy{position:absolute;left:14px;bottom:14px;width:96px;height:96px;border-radius:50%;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.25);touch-action:none}
+.uv-joy span{position:absolute;left:34px;top:34px;width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,.45)}
+.uv-copyfield{width:100%;font:inherit}
+@media (max-width: 600px){ .uv-wrap{height:64vh} .uv-cardbox{max-width:none} }

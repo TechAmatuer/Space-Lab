@@ -49,6 +49,7 @@ DEFAULTS = {
         'radar': 'every 6h',    # the local AI reads and ranks everything new in space science
         'cheops': 'every 72h',  # answer-key test: recover known planets in public CHEOPS data (a few visits each time)
         'plates': 'every 24h',  # old photographic plates for newly found distant objects (the 2026 ED138 method)
+        'universe': 'every 720h',  # the 3D galaxy map's files (the catalogues rarely change)
     },
     'arxiv': {
         'categories': ['astro-ph.EP', 'astro-ph.SR', 'astro-ph.IM', 'astro-ph.GA', 'astro-ph.HE', 'astro-ph.CO'],

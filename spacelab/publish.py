@@ -21,7 +21,7 @@ from . import classifier, config, db, net
 API = 'https://api.github.com'
 SITE = config.DATA / 'public'
 WEB = config.ROOT / 'web'
-SITE_FILES = ('public.html', 'public.js', 'style.css', 'lcviewer.js', 'orbit3d.js', 'extras.js', 'extras.css', 'beyond.js', 'home.js', 'stargazing.js', 'asteroids.js', 'atlas.js', 'atlas-frame.html')
+SITE_FILES = ('public.html', 'public.js', 'style.css', 'lcviewer.js', 'orbit3d.js', 'extras.js', 'extras.css', 'beyond.js', 'home.js', 'stargazing.js', 'asteroids.js', 'atlas.js', 'atlas-frame.html', 'universe.js')
 TITLE = 'Space Lab: hunting planets and asteroids with open NASA data'
 
 
@@ -181,6 +181,11 @@ def build_data(con, cfg):
     for r in results:
         r['note'] = clean(r.get('note'))
     beyond = _beyond_public(db.kv_get(con, 'beyond') or {})
+    uv = db.kv_get(con, 'universe') or {}
+    if f(uv.get('bin')) and f(uv.get('txt')):          # the 3D universe (spacelab/universe.py): files on this site, details in data.json
+        beyond['universe'] = {**{k: uv.get(k) for k in ('n', 'made', 'h0', 'env_counts', 'landmarks', 'famous', 'blueshift', 'blueshift_note',
+                                                         'messier', 'eq_to_sg', 'max_dist', 'n_in_groups', 'method')},
+                              'bin': f(uv['bin']), 'txt': f(uv['txt'])}
     for k in ('darksky', 'zip'):                     # map the saved files to their public address
         if isinstance(beyond.get(k), dict):
             img = f(beyond[k].get('path'))

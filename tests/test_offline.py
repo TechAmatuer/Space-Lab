@@ -1240,6 +1240,73 @@ def radar_never_lists_the_same_story_twice():
     assert len(fresh2) == 3 and grew2 == {'old2': ['NASA']}, (len(fresh2), grew2)     # void (by arXiv id), dwarf planet (by words), Euclid
 
 
+@test
+def universe_build_collapses_clusters_and_finds_the_web():
+    from spacelab import universe
+    rng = np.random.default_rng(3)
+    rows, tully = [], []
+    from astropy.coordinates import SkyCoord
+    import astropy.units as u
+
+    def add(ra, dec, cz, nest=0, nmb=1, gv=None, name=''):
+        c = SkyCoord(ra=ra * u.deg, dec=dec * u.deg).galactic
+        i = len(rows)
+        rid = f'{i:08d}+{i % 90:02d}00000'
+        rows.append({'ID': rid, 'RAJ2000': f'{ra:.5f}', 'DEJ2000': f'{dec:.5f}', 'GLON': f'{c.l.deg:.5f}', 'GLAT': f'{c.b.deg:.5f}',
+                     'Ktmag': '10.5', 'type': ' 3A2s', 'cz': str(int(cz)), 'CAT': name})
+        v = gv if gv is not None else universe.cmb_velocity(cz, c.l.deg, c.b.deg)
+        tully.append({'PGC': str(i), '_RA.icrs': f'{ra:.4f}', '_DE.icrs': f'{dec:+.4f}', 'MType': '3', 'Vcmba': str(int(cz)),
+                      'Nest': str(nest), 'Nmb': str(nmb), 'Dist': f'{v / 100:.1f}'})
+    # a filament of field galaxies along x, plus a uniform background, plus a "cluster" whose members spread +-1000 km/s
+    for k in range(3000):
+        d = rng.uniform(20, 150)
+        v = rng.normal(size=3); v /= np.linalg.norm(v)
+        ra, dec = math.degrees(math.atan2(v[1], v[0])) % 360, math.degrees(math.asin(v[2]))
+        add(ra, dec, d * 70)
+    for k in range(2500):
+        x = rng.uniform(-120, 120); y, z = rng.normal(0, 2.5, 2) + (60, 10)
+        d = math.sqrt(x * x + y * y + z * z)
+        add(math.degrees(math.atan2(y, x)) % 360, math.degrees(math.asin(z / d)), d * 70)
+    for k in range(150):                                                  # Coma-like: one direction, one group velocity
+        add(194.95 + rng.normal(0, 0.4), 27.98 + rng.normal(0, 0.4), 7300 + rng.normal(0, 1000), nest=100001, nmb=150, gv=7300,
+            name='NGC_4889' if k == 0 else '')
+    add(10.68, 41.27, -300, name='MESSIER_031')                          # Andromeda: blueshifted
+    groups = [{'Nest': '100001', 'Nmb': '150', 'PGC1': '44715', '<Vcmba>': '7300', 'DM': f'{5 * math.log10(73.0) + 25:.2f}',
+               'sigV': '900', '_RA.icrs': '194.95', '_DE.icrs': '+27.98'}]
+    meta, pos = universe.build(lambda *a: None, (rows, tully, groups))
+    assert meta['n'] == len(rows) - 1 and meta['blueshift'][0]['name'] == 'Andromeda Galaxy', (meta['n'], meta['blueshift'])
+    blob = (universe.SITE_DIR / 'galaxies.bin').read_bytes()
+    assert blob[:4] == b'SLU1' and int.from_bytes(blob[4:8], 'little') == meta['n'] and len(blob) == 16 + meta['n'] * 24
+    n = meta['n']
+    xyz = np.frombuffer(blob, '<f4', 3 * n, 16).reshape(n, 3)
+    env = np.frombuffer(blob, np.uint8, n, 16 + 12 * n)
+    nmb = np.frombuffer(blob, np.uint8, n, 16 + 15 * n)
+    coma = nmb == 150
+    d = np.linalg.norm(xyz[coma], axis=1)
+    assert coma.sum() == 150 and np.ptp(d) < 1.0 and abs(d.mean() - 104.3) < 0.5, (np.ptp(d), d.mean())   # finger of God collapsed
+    assert (env[coma] == 3).mean() > 0.9, np.bincount(env[coma])                                       # a knot
+    fil = np.abs(np.linalg.norm(xyz[:, 1:] - [60, 10], axis=1)) < 3
+    fil &= np.abs(xyz[:, 0]) < 80
+    assert np.isin(env[fil], [2, 3]).mean() > 0.7, np.bincount(env[fil], minlength=5)                 # the filament
+    txt = (universe.SITE_DIR / 'galaxies.txt').read_text().splitlines()
+    assert len(txt) == n and any(l.endswith('\tNGC 4889') for l in txt)
+    assert any(f['name'] == 'NGC 4889' and txt[f['i']].endswith('NGC 4889') for f in meta['famous']), meta['famous']
+    coma_mark = next(m for m in meta['landmarks'] if m['name'] == 'Coma Cluster')
+    assert coma_mark['measured'] and abs(coma_mark['dist'] - 104.3) < 0.5 and '150 galaxies' in coma_mark['note'], coma_mark
+    assert not next(m for m in meta['landmarks'] if m['name'] == 'Virgo Cluster')['measured']
+    assert meta['messier']['M87'] == 'NGC 4486' and len(meta['eq_to_sg']) == 3
+    assert universe.clean_name('NGC_0253') == 'NGC 253' and universe.clean_name('MESSIER_087') == 'NGC 4486' and universe.clean_name('2MASXJ123') == ''
+    assert universe.morph(' -5') == 1 and universe.morph(' 3A2s') == 3 and universe.morph(' 98') == 0 and universe.morph('10') == 5
+    from spacelab import db, publish
+    con = db.connect()
+    db.kv_set(con, 'universe', meta)
+    data, files = publish.build_data(con, {})
+    uv = data['beyond']['universe']
+    assert uv['bin'] == 'files/plots/universe/galaxies.bin' and uv['txt'] == 'files/plots/universe/galaxies.txt' and uv['n'] == n, uv.keys()
+    assert {'plots/universe/galaxies.bin', 'plots/universe/galaxies.txt'} <= set(files) and not publish.validate(data)
+    assert 'universe.js' in publish.SITE_FILES
+
+
 import urllib.error  # noqa: E402
 
 if __name__ == '__main__':
