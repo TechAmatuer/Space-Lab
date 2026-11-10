@@ -226,6 +226,26 @@
         <li><b>The spacecraft</b>: thruster firings, scattered sunlight and gaps in the data can all leave dips.</li>
         <li><b>A real planet</b>: flat-bottomed, the same depth every time, and it comes from the target star. Even then, astronomers confirm it with other telescopes before calling it a planet.</li></ul></details></div>`;
   }
+  // Space telescopes and what each means for this lab (dates come from the data, so they can be corrected in one place)
+  function missionWhen(m) {
+    if (!m.date) return '';
+    const exact = m.date.length === 10, t = Date.parse(exact ? m.date + 'T12:00:00Z' : m.date + '-15T12:00:00Z');
+    const nice = new Date(t).toLocaleDateString([], exact ? { day: 'numeric', month: 'short', year: 'numeric' } : { month: 'long', year: 'numeric' });
+    const days = Math.ceil((t - Date.now()) / 864e5);
+    if (!exact) return `<span class="chip ${days > 0 ? 'warn' : ''}">${esc(m.next)}${days > 0 ? ' for ' : ': '}${esc(nice)}</span>`;
+    return days > 1 ? `<span class="chip warn">${esc(m.next)} in ${days} days (${esc(nice)})</span>` : days >= 0 ? `<span class="chip warn">${esc(m.next)}: ${days ? 'tomorrow' : 'today'}</span>`
+      : `<span class="chip ok">${esc(m.next)}: ${esc(nice)} ✓</span>`;
+  }
+  function missionsCard() {
+    const ms = (D().beyond || {}).missions, f = (D().tess || {}).funnel || {};
+    if (!ms || !(ms.items || []).length) return '';
+    return `<div class="card hm-missions"><h3>🛰️ The bigger picture: who is mapping what</h3>
+      <p class="small">This lab has checked <b>${Number(f.stars || 0).toLocaleString()}</b> stars. Here is how that fits beside the space telescopes doing the same kind of work at every scale, from single planets to the whole universe, and what each one means here.</p>
+      <div class="hm-mlist">${ms.items.map(m => `<details class="hm-mission"><summary><b>${esc(m.name)}</b> <span class="small muted">${esc(m.agency)} · ${esc(m.counts || '')}</span> ${missionWhen(m)}</summary>
+        <p class="small">${esc(m.what)}</p><p class="small"><b>What it means here:</b> ${esc(m.here)}</p>
+        <p class="small muted">${m.since ? `In space since ${esc(m.since)}. ` : ''}Status: ${esc(m.status)}. <a href="${esc(m.url)}" target="_blank" rel="noopener">mission page ↗</a>${m.key === 'euclid' ? ' · <a href="#atlas">see its deep field in the Space atlas</a>' : ''}</p></details>`).join('')}</div>
+      <p class="small muted">Dates checked ${esc(ms.checked)}. Launches and data releases often slip.</p></div>`;
+  }
   function nextTransits() {
     const now = Date.now(), btjdNow = now / 864e5 + 2440587.5 - 2457000;
     const up = ((D().tess || {}).cands || []).filter(c => c.kind === 'periodic' && c.period && c.t0).map(c => {
@@ -247,7 +267,7 @@
   function tessTop(el) {
     if (el.querySelector('.hm-big, .hm-next')) return;
     const box = document.createElement('div'); box.className = 'hm-tesstop';
-    box.innerHTML = `<div class="grid g2">${bigPicture()}${nextTransits()}</div>`;
+    box.innerHTML = `<div class="grid g2">${bigPicture()}${nextTransits()}</div>${missionsCard()}`;
     const anchor = el.querySelector('.card');
     if (anchor) anchor.after(box); else el.prepend(box);
     tickCounts(box);

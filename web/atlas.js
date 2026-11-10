@@ -206,6 +206,7 @@
   function skyMode(stage) {
     const sets = pinSets(), off = LS.get('sl_atlas_off', []), groups = [...new Set(PLACES.map(p => p[0]))];
     stage.innerHTML = `<div class="row at-bar"><input type="search" class="at-q" placeholder="Find: Orion, Andromeda, TIC number, or 83.8 -5.4" aria-label="Find a place on the sky"><button class="b at-find">Go</button>
+        <button class="b at-zin" aria-label="Zoom in" title="Zoom in">+</button><button class="b at-zout" aria-label="Zoom out" title="Zoom out">−</button><button class="b at-zall" title="See a big part of the sky">Whole sky</button>
         <span class="spacer"></span><span class="small muted mono at-pos"></span></div>
       <div class="at-map"><iframe class="at-frame" title="Interactive map of the night sky" sandbox="allow-scripts" referrerpolicy="no-referrer" src="${esc(HERE)}atlas-frame.html"></iframe></div>
       <p class="small warn-t at-status">Loading the sky map…</p>
@@ -235,6 +236,10 @@
       send(on ? Object.assign({ t: 'overlay', k: l[0], name: l[1] }, l[2]) : { t: 'overlay' });
       if (on && l[4]) fly(l[4][0], l[4][1], l[4][2]);
     }));
+    const zoomBy = f => { const a = sky && (sky.at || sky.start); if (a) fly(a[0], a[1], Math.max(0.02, Math.min(150, (a[2] || 20) * f))); };
+    stage.querySelector('.at-zin').addEventListener('click', () => zoomBy(0.5));
+    stage.querySelector('.at-zout').addEventListener('click', () => zoomBy(2));
+    stage.querySelector('.at-zall').addEventListener('click', () => zoomBy(1e6));
     const q = stage.querySelector('.at-q'), go = () => find(q.value);
     stage.querySelector('.at-find').addEventListener('click', go);
     q.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });

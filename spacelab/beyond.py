@@ -51,6 +51,67 @@ ECLIPSES = [('2027-02-06', 'Annular solar eclipse ("ring of fire")', 'Chile, Arg
             ('2028-12-31', 'Total lunar eclipse (the Moon turns red)', 'Europe, Africa, Asia and Australia'),
             ('2044-08-23', 'Total solar eclipse in the USA', 'Montana and North Dakota (and Canada)'),
             ('2045-08-12', 'Total solar eclipse across the USA', 'coast to coast, from California to Florida')]
+# Space telescopes worth knowing about, and what each means for this lab. Dates were checked against ESA/NASA pages on
+# MISSIONS_CHECKED; launch and release dates slip, so the page shows that date too. Update both together.
+MISSIONS_CHECKED = '2026-11-09'
+MISSIONS = [
+    {'key': 'tess', 'name': 'TESS', 'agency': 'NASA', 'since': 2018, 'status': 'flying',
+     'what': 'Watches one big strip of sky for about 27 days at a time, looking for the tiny dip when a planet crosses its star.',
+     'here': 'Every star this lab searches comes from TESS.', 'counts': 'about 200,000 bright stars watched closely, millions more in its wide pictures',
+     'url': 'https://science.nasa.gov/mission/tess/'},
+    {'key': 'cheops', 'name': 'CHEOPS', 'agency': 'ESA', 'since': 2019, 'status': 'flying',
+     'what': 'Looks at one star with a known planet at a time, to measure the planet\'s size precisely.',
+     'here': 'Its public measurements are an answer key: a way to test a transit search on stars where the truth is known.',
+     'counts': 'a few hundred stars, one at a time', 'url': 'https://www.esa.int/Science_Exploration/Space_Science/Cheops'},
+    {'key': 'jwst', 'name': 'James Webb', 'agency': 'NASA / ESA / CSA', 'since': 2021, 'status': 'flying',
+     'what': 'Reads the air of distant planets from the starlight that passes through it.',
+     'here': 'The best small candidates around nearby red stars are the kind Webb could study next.',
+     'counts': 'a few dozen planets a year, in great detail', 'url': 'https://science.nasa.gov/mission/webb/'},
+    {'key': 'gaia', 'name': 'Gaia', 'agency': 'ESA', 'since': 2013, 'status': 'observations finished in 2025',
+     'date': '2026-12-02', 'next': 'Data release 4',
+     'what': 'Measured the positions and motions of nearly two billion stars. Release 4 covers five and a half years of measurements and should reveal stars that wobble because unseen planets tug on them.',
+     'here': 'This lab already uses Gaia to flag candidates whose star may have a hidden companion.',
+     'counts': '1.8 billion stars', 'url': 'https://www.cosmos.esa.int/web/gaia/release'},
+    {'key': 'euclid', 'name': 'Euclid', 'agency': 'ESA', 'since': 2023, 'status': 'flying',
+     'date': '2026-11-12', 'next': 'First big data release (DR1-Foundation)',
+     'what': 'Maps the shapes and distances of more than a billion galaxies to trace dark matter and dark energy. The first big release opens about 1,900 square degrees, one seventh of the planned survey; the complete first release follows in mid-2027.',
+     'here': 'Not planets: the widest view there is. Its deep-field pictures are a layer in the Space atlas.',
+     'counts': 'over a billion galaxies', 'url': 'https://www.cosmos.esa.int/web/euclid/timeline'},
+    {'key': 'roman', 'name': 'Nancy Grace Roman', 'agency': 'NASA', 'since': 2026, 'status': 'launched 30 August 2026, getting ready for science',
+     'what': 'Pictures as sharp as Hubble\'s but a hundred times wider. It will find planets when their gravity briefly magnifies a star behind them, and map dark energy.',
+     'here': 'Finds the cold planets far from their stars that TESS cannot see.',
+     'counts': 'hundreds of millions of stars toward the centre of our galaxy', 'url': 'https://science.nasa.gov/mission/roman-space-telescope/'},
+    {'key': 'plato', 'name': 'PLATO', 'agency': 'ESA', 'status': 'being readied for launch',
+     'date': '2027-03', 'next': 'Launch planned',
+     'what': 'Twenty-six cameras watching at least 200,000 Sun-like stars for years, to find Earth-sized planets with year-long orbits.',
+     'here': 'The successor to TESS for a lab like this one: the same kind of brightness records, longer and more precise.',
+     'counts': 'at least 200,000 Sun-like stars', 'url': 'https://www.esa.int/Science_Exploration/Space_Science/Plato'},
+    {'key': 'rubin', 'name': 'Vera C. Rubin Observatory', 'agency': 'NSF / DOE, in Chile', 'since': 2025, 'status': 'surveying',
+     'what': 'Photographs the whole southern sky every few nights for ten years: a film of everything that moves or changes.',
+     'here': 'Expected to discover millions of asteroids, each needing the kind of archive follow-up this lab does.',
+     'counts': 'billions of stars and galaxies, millions of asteroids', 'url': 'https://rubinobservatory.org/'},
+]
+
+
+def flyby_orbits(con, log, n=8):
+    """Orbit shapes (from JPL) for the closest upcoming flybys, so the asteroid guide can draw them."""
+    from . import orbits
+    w = db.kv_get(con, 'neo_watch') or {}
+    out = {}
+    for r in sorted((w.get('cad') or [])[:15], key=lambda r: _f(r.get('dist')) or 9)[:n]:
+        try:
+            el = orbits.elements(con, r['des'], max_age=7 * 86400)
+            if el and el.get('a') and el.get('e') is not None:
+                out[r['des']] = {k: el.get(k) for k in ('a', 'e', 'i', 'om', 'w', 'q')}
+        except Exception as e:
+            log(f"  orbit of {r.get('des')} skipped: {e}")
+    return out or None
+
+
+def missions():
+    return {'checked': MISSIONS_CHECKED, 'items': MISSIONS}
+
+
 EPIC = 'https://epic.gsfc.nasa.gov'
 
 # Major annual meteor showers: (name, peak month, peak day, typical peak rate per hour under dark skies, parent body)
@@ -682,6 +743,9 @@ def build_events(out, now=None):
         if dtp is not None and 0 <= dtp <= 120 and (c.get('m1') or 99) < 11:
             ev.append({'date': (now + timedelta(days=dtp)).date().isoformat(), 'kind': 'comet', 'title': f"Comet {c['name']} closest to the Sun",
                        'detail': f"Comets are often brightest around this time. It passes {c.get('q_au')} AU from the Sun."})
+    for m in MISSIONS:
+        if len(m.get('date') or '') == 10 and m['date'] >= now.date().isoformat():
+            ev.append({'date': m['date'], 'kind': 'mission', 'title': f"{m['name']}: {m['next']}", 'detail': m['what']})
     key = lambda e: e.get('t') or e.get('date')
     return sorted(ev, key=key)[:80]
 
@@ -812,7 +876,8 @@ def run(ctx):
              'earth': lambda: earth_images(log, prev.get('earth')), 'iss': lambda: iss_track(log, prev.get('iss')),
              'quakes': lambda: earthquakes(log), 'satellites': lambda: satellites(log, prev.get('satellites')),
              'darksky': lambda: dark_sky_map(log, prev.get('darksky')), 'zip': lambda: zip_index(log, prev.get('zip')),
-             'live': lambda: live_images(log, prev.get('live')), 'wiki': lambda: asteroid_wiki(con, log, prev.get('wiki'), cfg=cfg)}
+             'live': lambda: live_images(log, prev.get('live')), 'wiki': lambda: asteroid_wiki(con, log, prev.get('wiki'), cfg=cfg),
+             'orbits': lambda: flyby_orbits(con, log)}
     out, ok = {}, []
     for k, fn in parts.items():
         v = fn()
@@ -821,6 +886,7 @@ def run(ctx):
             ok.append(k)
         elif prev.get(k):
             out[k] = prev[k]          # keep the last good copy when a source is down
+    out['missions'] = missions()
     out['events'] = build_events(out)
     out['t'] = time.time()
     db.kv_set(con, 'beyond', out)

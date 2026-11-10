@@ -25,6 +25,26 @@
       <circle cx="${x(1).toFixed(1)}" cy="22" r="3.5" class="as-moon"/><text x="${x(1).toFixed(1)}" y="42" text-anchor="middle">Moon</text>
       <circle cx="${x(ld).toFixed(1)}" cy="22" r="4" class="as-rock"/><text x="${x(ld).toFixed(1)}" y="12" text-anchor="middle">${ld < 30 ? num(ld, 1) + ' LD' : '30+ LD'}</text></svg>`;
   }
+  // the asteroid's path round the Sun seen from above, next to Earth's (and Mars's and Jupiter's when it goes that far)
+  function orbitFor(des) { const O = (D().beyond || {}).orbits || {}; return O[des] || O[String(des || '').replace(/[()]/g, '').trim()] || null; }
+  function orbitKind(o) {
+    const q = o.a * (1 - o.e), Q = o.a * (1 + o.e);
+    return Q < 0.983 ? ['Atira', 'stays inside Earth\'s orbit'] : o.a < 1 ? ['Aten', 'spends most of its time inside Earth\'s orbit and crosses it'] : q < 1.017 ? ['Apollo', 'crosses Earth\'s orbit from outside'] : ['Amor', 'comes close to Earth\'s orbit without crossing it'];
+  }
+  function orbitSVG(o) {
+    const Q = o.a * (1 + o.e), R = Math.min(5.6, Math.max(1.25, Q * 1.08)), k = 78 / R, peri = ((o.om || 0) + (o.w || 0)) * Math.PI / 180, pts = [];
+    for (let i = 0; i <= 120; i++) { const nu = i / 120 * 2 * Math.PI, r = o.a * (1 - o.e * o.e) / (1 + o.e * Math.cos(nu)); pts.push(`${(80 + k * r * Math.cos(nu + peri)).toFixed(1)},${(80 - k * r * Math.sin(nu + peri)).toFixed(1)}`); }
+    const ring = (au, cls) => au * k <= 79 ? `<circle cx="80" cy="80" r="${(au * k).toFixed(1)}" class="${cls}"/>` : '';
+    return `<svg class="as-orbit" viewBox="0 0 160 160" role="img" aria-label="orbit seen from above: Earth's path in blue, the asteroid's in orange">
+      ${ring(1, 'as-oearth')}${R > 1.7 ? ring(1.524, 'as-oplanet') : ''}${R > 4 ? ring(5.203, 'as-oplanet') : ''}<polygon points="${pts.join(' ')}" class="as-orock"/><circle cx="80" cy="80" r="3.5" class="as-osun"/></svg>`;
+  }
+  function orbitLine(des) {
+    const o = orbitFor(des);
+    if (!o || !(o.a > 0) || !(o.e >= 0 && o.e < 1)) return '';
+    const P = Math.pow(o.a, 1.5), [kind, how] = orbitKind(o), q = o.a * (1 - o.e), Q = o.a * (1 + o.e);
+    return `<div class="as-orow">${orbitSVG(o)}<div class="small"><b>Its orbit:</b> once round the Sun every <b>${P < 2 ? Math.round(P * 365.25) + ' days' : num(P, 1) + ' years'}</b>, swinging between ${num(q, 2)}× and ${num(Q, 2)}× Earth's distance from the Sun${isFinite(o.i) ? `, tilted ${num(o.i, 0)}° to Earth's path` : ''}.
+      It is an <b>${kind}</b> asteroid: it ${how}. <span class="muted">Blue: Earth's path. Orange: the asteroid's.${Q * 1.08 > 1.7 ? ' Grey: Mars' + (Q * 1.08 > 4 ? ' and Jupiter' : '') + '.' : ''}</span></div></div>`;
+  }
   function flybyCard(r) {
     const au = parseFloat(r.dist), v = parseFloat(r.v_rel), h = parseFloat(r.h), t = when(r.cd);
     if (!au) return '';
@@ -33,7 +53,8 @@
     return `<div class="as-fly"><div class="row"><b>${esc(r.des)}</b><span class="spacer"></span><span class="small muted">${t ? new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric' }) : esc(r.cd)}${dt !== null ? ` · ${dt > 1 ? 'in ' + Math.round(dt) + ' days' : dt > 0 ? 'within a day' : 'just passed'}` : ''}</span></div>
       ${distanceBar(ld)}
       <div class="small">${s0 ? `About <b>${fmtM(s0)}–${fmtM(s1)}</b> across: the size of ${likeA(Math.sqrt(s0 * s1))}. ` : ''}Passes <b>${num(ld, 1)}×</b> the Moon's distance (${Math.round(au * 1.496e8).toLocaleString()} km)${v ? ` at <b>${Math.round(v * 3600).toLocaleString()} km/h</b>, ${Math.round(v / 0.9)}× faster than a rifle bullet` : ''}.</div>
-      <div class="small"><a href="${jpl(r.des)}" target="_blank" rel="noopener">its orbit (NASA JPL) ↗</a>${w ? ` · <a href="${esc(w.url)}" target="_blank" rel="noopener">Wikipedia ↗</a>` : ''}</div></div>`;
+      ${orbitLine(r.des)}
+      <div class="small"><a href="${jpl(r.des)}" target="_blank" rel="noopener">${orbitFor(r.des) ? 'full orbit details' : 'its orbit'} (NASA JPL) ↗</a>${w ? ` · <a href="${esc(w.url)}" target="_blank" rel="noopener">Wikipedia ↗</a>` : ''}</div></div>`;
   }
   function famousCard(key, w) {
     return `<details class="as-famous"><summary><b>${esc(w.title)}</b> <span class="small muted">${esc(sentences(w.extract, 1))}</span></summary>

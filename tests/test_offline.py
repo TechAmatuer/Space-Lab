@@ -732,7 +732,7 @@ def events_and_calendar():
            'comets': [{'name': 'C/2026 X1', 'days_to_perihelion': 30, 'm1': 9, 'q_au': 0.5}, {'name': 'faint', 'days_to_perihelion': 10, 'm1': 16}]}
     ev = beyond.build_events(out, now)
     kinds = [e['kind'] for e in ev]
-    assert ev[0]['title'] == 'Leonids meteor shower peak' and kinds.count('moon') == 1 and 'launch' in kinds, ev[:4]
+    assert [e for e in ev if e['kind'] != 'mission'][0]['title'] == 'Leonids meteor shower peak' and kinds.count('moon') == 1 and 'launch' in kinds, ev[:4]
     assert sum(1 for e in ev if e['kind'] == 'comet') == 1, 'faint comets are left out'
     assert any(e['kind'] == 'eclipse' and e['date'] == '2027-08-02' for e in ev)
     assert all((e.get('t') or e.get('date')) >= '2026-11-08' for e in ev)
@@ -871,6 +871,43 @@ def suggestions_from_github():
         assert c['tess'] == {'123': {'Planet-like': 1}} and c['leaderboard'] == [{'user': 'b', 'reviews': 1}], c
     finally:
         net.fetch_json = old
+
+
+@test
+def missions_and_flyby_orbits():
+    from datetime import datetime, timezone
+    from spacelab import beyond, db, net, publish
+    m = beyond.missions()
+    assert m['checked'] and len(m['items']) >= 6, m
+    for it in m['items']:
+        assert all(it.get(k) for k in ('key', 'name', 'agency', 'status', 'what', 'here', 'url')), it
+        assert it['url'].startswith('https://') and len(it.get('date') or '2026-01-01') in (7, 10), it
+        assert ('date' in it) == ('next' in it), it
+    ev = beyond.build_events({}, now=datetime(2026, 11, 1, tzinfo=timezone.utc))
+    assert any(e['kind'] == 'mission' and e['date'] == '2026-11-12' and e['title'].startswith('Euclid') for e in ev), ev
+    assert not any(e['kind'] == 'mission' and 'PLATO' in e['title'] for e in ev)       # month-only dates are not calendar events
+    assert not any(e['kind'] == 'mission' for e in beyond.build_events({}, now=datetime(2030, 1, 1, tzinfo=timezone.utc)))
+    con = db.connect()
+    db.kv_set(con, 'neo_watch', {'cad': [{'des': '2099 AA', 'dist': '0.02'}, {'des': '2099 BB', 'dist': '0.01'}, {'des': '2099 CC', 'dist': '0.5'}]})
+    asked, old = [], net.fetch_json
+
+    def fake(url, params=None, **k):
+        asked.append(params['sstr'])
+        if params['sstr'] == '2099 CC':
+            raise OSError('offline')
+        return {'object': {'fullname': params['sstr']}, 'orbit': {'epoch': '2461000.5', 'elements': [
+            {'name': 'a', 'value': '1.8'}, {'name': 'e', 'value': '0.5'}, {'name': 'i', 'value': '7.2'}, {'name': 'om', 'value': '40'},
+            {'name': 'w', 'value': '100'}, {'name': 'q', 'value': '0.9'}]}}
+    try:
+        net.fetch_json = fake
+        o = beyond.flyby_orbits(con, lambda *_: None)
+    finally:
+        net.fetch_json = old
+    assert asked[0] == '2099 BB' and set(o) == {'2099 AA', '2099 BB'}, (asked, o)       # closest first; a failed lookup is skipped
+    assert o['2099 BB'] == {'a': 1.8, 'e': 0.5, 'i': 7.2, 'om': 40.0, 'w': 100.0, 'q': 0.9}, o
+    pub = publish._beyond_public({'missions': m, 'orbits': o, 'secret': 1})
+    assert 'missions' in pub and 'orbits' in pub and 'secret' not in pub
+    assert 'atlas.js' in publish.SITE_FILES and 'atlas-frame.html' in publish.SITE_FILES
 
 
 import urllib.error  # noqa: E402

@@ -199,7 +199,7 @@
   }
 
   // ------------------------------------------------------------------ events and calendar reminders
-  const ICON = { meteor: '☄️', moon: '🌕', eclipse: '🌘', launch: '🚀', comet: '💫' };
+  const ICON = { meteor: '☄️', moon: '🌕', eclipse: '🌘', launch: '🚀', comet: '💫', mission: '🛰️' };
   const icsEsc = t => String(t || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
   const icsDate = d => d.toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
   function icsFor(ev) {
@@ -219,7 +219,7 @@
       ${url ? `<div class="note small"><b>Get reminders:</b> subscribe once and meteor showers, eclipses, New and Full Moons and launches appear in your calendar, updated automatically.
         <div class="row" style="margin-top:6px"><a class="b primary" href="${esc(webcal)}">Subscribe (Apple / Outlook)</a><a class="b" target="_blank" rel="noopener" href="https://calendar.google.com/calendar/r?cid=${encodeURIComponent(webcal)}">Subscribe in Google Calendar ↗</a></div>
         <span class="muted">Or tap "Remind me" on any event below to add just that one, with an alert.</span></div>` : ''}
-      <div class="row sg-kinds"><button type="button" class="b ${filt ? '' : 'primary'} sg-kind" data-k="">All</button>${kinds.map(k => `<button type="button" class="b sg-kind ${filt === k ? 'primary' : ''}" data-k="${k}">${ICON[k] || ''} ${k === 'meteor' ? 'Meteor showers' : k === 'moon' ? 'Moon' : k === 'eclipse' ? 'Eclipses' : k === 'launch' ? 'Launches' : 'Comets'}</button>`).join('')}</div>
+      <div class="row sg-kinds"><button type="button" class="b ${filt ? '' : 'primary'} sg-kind" data-k="">All</button>${kinds.map(k => `<button type="button" class="b sg-kind ${filt === k ? 'primary' : ''}" data-k="${k}">${ICON[k] || ''} ${k === 'meteor' ? 'Meteor showers' : k === 'moon' ? 'Moon' : k === 'eclipse' ? 'Eclipses' : k === 'launch' ? 'Launches' : k === 'mission' ? 'Space telescopes' : 'Comets'}</button>`).join('')}</div>
       <ul class="list sg-events">${evs.filter(e => !filt || e.kind === filt).map((e, i) => `<li><span><b>${ICON[e.kind] || ''} ${esc(e.title)}</b><br><span class="small">${fmtDate(e)}${e.t ? '' : ' (all day)'}</span><br><span class="small muted">${esc(e.detail || '')}</span></span>
         <button type="button" class="b sg-remind" data-i="${evs.indexOf(e)}">Remind me</button></li>`).join('') || '<li class="muted">Nothing listed yet.</li>'}</ul>`;
     box.querySelectorAll('.sg-kind').forEach(b => b.addEventListener('click', () => { box.dataset.filter = b.dataset.k; eventsCard(box); }));

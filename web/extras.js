@@ -617,6 +617,41 @@
     }
   }
 
+  // ------------------------------------------------------------------ "We tried to disprove it": every test a candidate has faced
+  // Falsification first: a candidate is only as good as the attempts to kill it. Built from the checks the pipeline already ran.
+  function falsifyTests(c) {
+    const fl = (c.flags || []).join(' | '), has = re => re.test(fl), periodic = c.kind !== 'single' && !!c.period;
+    const cen = c.centroid, fpp = c.fpp, ai = c.ai, v = (D().community || {}).tess || {}, votes = v[c.tic] || v[String(c.tic)] || null;
+    const nVotes = votes ? Object.values(votes).reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0) : 0;
+    const ran = (flag, ok) => flag ? 'fail' : ok ? 'pass' : 'none';
+    return [
+      ['Odd and even dips are the same depth', ran(has(/odd and even/i), periodic), 'If every second dip is deeper, it is two stars eclipsing each other, not a planet.'],
+      ['No second dip halfway round', ran(has(/second dip/i), periodic), 'A dip between the dips means the companion gives off its own light: a star.'],
+      ['Small enough to be a planet', ran(has(/too big/i), !!c.rp), 'From the depth of the dip and the size of the star.'],
+      ['The dip lasts a sensible time', ran(has(/lasts longer/i), periodic), 'Too long for this star suggests a bigger, more distant pair of stars.'],
+      ['Seen at least three times', ran(has(/only (\d+|one) dips?/i), periodic), 'One or two dips can be a glitch; three evenly spaced dips are hard to fake.'],
+      ['Not a known eclipsing pair of stars', ran(has(/eclipsing-binary catalog/i), true), 'Checked against the TESS eclipsing-binary catalogue.'],
+      ['The star looks single to Gaia', ran(has(/Gaia (sees|lists)/i), c.gaia_ruwe !== null && c.gaia_ruwe !== undefined), 'A star that wobbles in Gaia\'s measurements probably has a hidden companion star.'],
+      ['The dip comes from this star, not a neighbour', ran(has(/nearby star \(|within 2 TESS pixels/i), !!cen && cen.verdict !== 'off target'), 'TESS pixels are big, so the pixel-level test checks where on the sky the light actually drops.'],
+      ['Statistics favour a planet', fpp ? (/planet/i.test(fpp.verdict || '') && !has(/TRICERATOPS/i) ? 'pass' : 'fail') : 'none', 'A calculation of how likely each kind of impostor is (TRICERATOPS).'],
+      ['The local AI\'s first look', ai ? (/planet/i.test(ai.verdict || '') ? 'pass' : 'fail') : 'none', 'A vision model looks at the plots. Helpful, but the weakest test here.'],
+      ['People have reviewed it', nVotes ? 'pass' : 'none', nVotes ? `${nVotes} review${nVotes === 1 ? '' : 's'} so far.` : 'Nobody yet. Yours could be the first.'],
+    ];
+  }
+  function falsify(el) {
+    for (const card of cardsIn(el)) {
+      if (card.querySelector('.sl-falsify')) continue;
+      const c = candBy(card.dataset.tic);
+      if (!c) continue;
+      const t = falsifyTests(c), n = k => t.filter(x => x[1] === k).length, failed = n('fail'), todo = n('none');
+      const icon = { pass: '✓', fail: '✗', none: '○' }, word = { pass: 'survived', fail: 'failed', none: 'not run yet' };
+      card.insertAdjacentHTML('beforeend', `<details class="sl-falsify"><summary>🧪 <b>We tried to disprove it:</b> survived ${n('pass')} of ${t.length - todo} tests run${failed ? `, <span class="sl-ft-fail">failed ${failed}</span>` : ''}${todo ? `, ${todo} still to run` : ''}</summary>
+        <p class="small muted">A good candidate is one that many attempts have failed to kill. Each line is one way this dip could be something other than a planet.</p>
+        <ul class="sl-ftests">${t.map(x => `<li title="${esc(x[2])}"><span class="sl-ft-${x[1]}" aria-label="${word[x[1]]}">${icon[x[1]]}</span><span>${esc(x[0])} <span class="small muted">${word[x[1]]}</span></span></li>`).join('')}</ul>
+        <p class="small muted">Passing every test still does not make it a planet. That takes follow-up by other telescopes.</p></details>`);
+    }
+  }
+
   // ------------------------------------------------------------------ wiring
   recordVisit();
   if (!embedMode()) {
@@ -624,7 +659,7 @@
     S.addTab('create', 'Create', createTab);
     S.addTab('mylist', 'My lab', myLab);
     S.onRender((tab, el) => {
-      if (tab === 'tess' && el) decorateTess(el);
+      if (tab === 'tess' && el) { decorateTess(el); falsify(el); }
       if (tab === 'asteroids' && el) precoveryStories(el);
       if (tab === 'tess' && el && !el.querySelector('.sl-newbanner')) {
         const last = LS.get('sl_seen_at', 0), fresh = last ? cands().filter(c => c.created * 1000 > last).length : 0;
@@ -633,6 +668,6 @@
     });
     addEventListener('pagehide', () => LS.set('sl_seen_at', Date.now()));
   }
-  window.SpaceLabExtras = { starRGB, spectral, altAz,
+  window.SpaceLabExtras = { starRGB, spectral, altAz, falsifyTests,
     level: () => { const pt = points(), i = LEVELS.filter(l => pt >= l[0]).length - 1; return { name: LEVELS[i][1], points: pt, next: LEVELS[i + 1] || null }; } };
 })();

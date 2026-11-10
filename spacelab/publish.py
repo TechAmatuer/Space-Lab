@@ -35,7 +35,7 @@ def _j(x):
 def _beyond_public(b):
     """Sky watch / Beyond astronomy data is all public and location-free already; drop anything unexpected."""
     keep = ('t', 'space_weather', 'fireballs', 'comets', 'gw', 'supernovae', 'launches', 'habitable', 'sky', 'earth', 'iss', 'quakes',
-            'satellites', 'events', 'darksky', 'zip', 'live', 'wiki')
+            'satellites', 'events', 'darksky', 'zip', 'live', 'wiki', 'missions', 'orbits')
     return {k: b[k] for k in keep if k in b}
 
 
@@ -110,7 +110,7 @@ def build_data(con, cfg):
                      'plot': f(c['plot']), 'lc': f(c.get('lc')), 'created': c['created'],
                      'ai': {k: ai.get(k) for k in ('verdict', 'confidence', 'reasons')} if ai else None,
                      'model_score': classifier.score(model, c),
-                     'fpp': _j(c.get('fpp')),
+                     'fpp': _j(c.get('fpp')), 'gaia_ruwe': (_j(c.get('metrics')) or {}).get('gaia_ruwe'),
                      'star': {'teff': st.get('teff'), 'radius_sun': st.get('rad'), 'dist_pc': st.get('dist'), 'tmag': st.get('tmag'), 'ra': st.get('ra'), 'dec': st.get('dec')},
                      'centroid': ({k: cen.get(k) for k in ('verdict', 'offset_arcsec', 'signif', 'snr')} | {'png': f(cen.get('png'))}) if cen else None})
     stats = {r['status']: r['n'] for r in db.rows(con, 'SELECT status, COUNT(*) AS n FROM tess_targets GROUP BY status')}

@@ -647,6 +647,9 @@ const CHECKS = {
     if (!/2026 VQ/.test(fl[0] ? fl[0].textContent : '') || !/across: the size of/.test(g.textContent) || !/km\/h/.test(g.textContent)) fails.push('closest first, with size comparison and speed');
     if (!fl[0] || !fl[0].querySelector('svg.as-dist') || !fl[0].querySelector('a[href*="ssd.jpl.nasa.gov"]')) fails.push('each flyby needs a distance picture and an orbit link');
     if (!fl[0] || !fl[0].querySelector('a[href*="wikipedia"]')) fails.push('link Wikipedia when there is an article');
+    const orb = fl[0] && fl[0].querySelector('.as-orow');
+    if (!orb || !orb.querySelector('svg.as-orbit polygon.as-orock') || !/every 2\.4 years/.test(orb.textContent) || !/between 0\.90× and 2\.70×/.test(orb.textContent) || !/Apollo/.test(orb.textContent)) fails.push('a flyby with orbit data shows its orbit drawing, period (a=1.8 AU → 2.4 years), range and kind (Apollo)');
+    if (fl[1] && fl[1].querySelector('.as-orow')) fails.push('no orbit drawing when there is no orbit data');
     const fam = g.querySelector('.as-famous');
     if (!fam || !/Apophis/.test(fam.textContent) || !fam.querySelector('a[href^="https://doi.org/"]')) fails.push('famous asteroids need the summary and the papers (DOI links)');
     report(22, 'Asteroid guide with sizes, speeds, orbits and citations', fails);
@@ -700,10 +703,34 @@ const CHECKS = {
     for (const [k, w] of Object.entries(env.w.SpaceLabAtlas.WORLDS)) for (const p of w.pins) if (!(Math.abs(p[1]) <= 90 && Math.abs(p[2]) <= 180)) fails.push(`bad pin on ${k}: ${p[0]}`);
     report(23, 'Space atlas: sky map, worlds, NASA photos, opt-in', fails);
   },
+  async 24() {
+    const fails = [], env = await boot();
+    const t = await env.tab('tess');
+    const m = t.querySelector('.hm-missions');
+    if (!m) fails.push('TESS tab needs "The bigger picture" card with the space telescopes');
+    else {
+      const rows = [...m.querySelectorAll('.hm-mission')];
+      if (rows.length !== 4) fails.push('one row per mission in the data (4 in the fixture)');
+      if (!/First release: .*2020.*✓/.test(rows[1] ? rows[1].textContent : '')) fails.push('a date in the past reads as done (✓), not as a countdown');
+      if (!/Launch planned for March 2099/.test(rows[2] ? rows[2].textContent : '')) fails.push('a month-only date shows the month, without a day countdown');
+      if (!/Data release 4 in [\d,]+ days/.test(rows[3] ? rows[3].textContent : '')) fails.push('an exact future date shows a countdown in days');
+      if (!/Dates checked 2026-01-01/.test(m.textContent) || !m.querySelector('a[href="https://example.org/tess"]')) fails.push('show when the dates were checked, and link each mission page from the data');
+    }
+    const one = t.querySelector('#tic-111111 .sl-falsify'), two = t.querySelector('#tic-222222 .sl-falsify'), three = t.querySelector('#tic-333333 .sl-falsify');
+    if (!one || !two || !three) { fails.push('every candidate card needs the "We tried to disprove it" scorecard'); return report(24, 'Missions and falsification', fails); }
+    if (!/survived 10 of 10 tests run, 1 still to run/.test(one.querySelector('summary').textContent)) fails.push('TIC 111111: all ten tests that ran were survived (Gaia not run): got "' + norm(one.querySelector('summary').textContent) + '"');
+    if (!/failed 2/.test(two.querySelector('summary').textContent)) fails.push('TIC 222222 failed the odd/even test and the AI look: got "' + norm(two.querySelector('summary').textContent) + '"');
+    if (two.querySelectorAll('.sl-ft-fail').length !== 3) fails.push('failed tests are marked in the list');
+    if (!/still to run/.test(three.querySelector('summary').textContent) || /undefined|NaN/.test(one.textContent + two.textContent + three.textContent)) fails.push('a single dip has tests that cannot run yet; no undefined/NaN');
+    if (!/does not make it a planet/.test(one.textContent)) fails.push('the scorecard must say that passing every test still does not make it a planet');
+    const tests = env.w.SpaceLabExtras.falsifyTests(Object.assign({}, FIXTURE.tess.cands[0], { gaia_ruwe: 1.0, flags: ['Gaia sees signs of a companion star (RUWE 2.1)', 'TRICERATOPS: likely comes from a nearby star (NFPP 0.3)'] }));
+    if (tests[6][1] !== 'fail' || tests[8][1] !== 'fail') fails.push('Gaia and TRICERATOPS flags must count as failed tests');
+    report(24, 'Missions card and the falsification scorecard', fails);
+  },
 };
 
 (async () => {
-  const order = ['G', '2', '3', '5', '6', '7', '8', '9', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23'];
+  const order = ['G', '2', '3', '5', '6', '7', '8', '9', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23', '24'];
   for (const k of order) {
     if (ONLY && k !== ONLY && k !== 'G') continue;
     try { await CHECKS[k](); } catch (e) { report(k, 'check crashed', ['the check itself crashed (usually because an expected element is missing): ' + e.message]); }

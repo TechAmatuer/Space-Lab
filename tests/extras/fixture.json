@@ -4735,6 +4735,70 @@
      "citations": []
     }
    }
+  },
+  "missions": {
+   "checked": "2026-01-01",
+   "items": [
+    {
+     "key": "tess",
+     "name": "TESS",
+     "agency": "NASA",
+     "since": 2018,
+     "status": "flying",
+     "what": "Watches stars.",
+     "here": "All data here.",
+     "counts": "200,000 stars",
+     "url": "https://example.org/tess"
+    },
+    {
+     "key": "euclid",
+     "name": "Euclid",
+     "agency": "ESA",
+     "since": 2023,
+     "status": "flying",
+     "date": "2020-01-02",
+     "next": "First release",
+     "what": "Maps galaxies.",
+     "here": "Wide view.",
+     "counts": "a billion galaxies",
+     "url": "https://example.org/euclid"
+    },
+    {
+     "key": "plato",
+     "name": "PLATO",
+     "agency": "ESA",
+     "status": "being built",
+     "date": "2099-03",
+     "next": "Launch planned",
+     "what": "Finds Earths.",
+     "here": "Successor.",
+     "counts": "200,000 stars",
+     "url": "https://example.org/plato"
+    },
+    {
+     "key": "gaia",
+     "name": "Gaia",
+     "agency": "ESA",
+     "since": 2013,
+     "status": "done",
+     "date": "2099-12-02",
+     "next": "Data release 4",
+     "what": "Star map.",
+     "here": "Companions.",
+     "counts": "1.8 billion stars",
+     "url": "https://example.org/gaia"
+    }
+   ]
+  },
+  "orbits": {
+   "2026 VQ": {
+    "a": 1.8,
+    "e": 0.5,
+    "i": 7.2,
+    "om": 40.0,
+    "w": 100.0,
+    "q": 0.9
+   }
   }
  },
  "daily": {
