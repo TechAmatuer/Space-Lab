@@ -1960,10 +1960,18 @@ def health_check_finds_problems_and_alerts_once():
     fake = lambda u: (table if 'idia' in u else '#RESOURCE=\n#Name:\n' if 'cfa' in u else 'Content-Type: text/html\n****\n' if 'vizier' in u else 'ok')
     sv = {s['name']: s for s in health.probe(fake)}
     assert sv['VizieR, South Africa mirror']['ok'] and not sv['VizieR, Harvard mirror']['ok'] and not sv['VizieR, Strasbourg (CDS)']['ok'] and sv['arXiv']['ok']
-    probs = health.problems(list(jobs.values()), list(sv.values()), {'free_gb': 12.0}, 20.0, {'VizieR, Harvard mirror': now - 7 * 3600, 'VizieR, India mirror': now - 3600}, now)
+    down = {'VizieR, Harvard mirror': now - 7 * 3600, 'VizieR, Strasbourg (CDS)': now - 9 * 3600, 'VizieR, India mirror': now - 3600, 'arXiv': now - 7 * 3600}
+    arx = dict(sv['arXiv'], ok=False, msg='HTTP 503')
+    probs = health.problems(list(jobs.values()), [x for x in sv.values() if x['name'] != 'arXiv'] + [arx], {'free_gb': 12.0}, 20.0, down, now)
     keys = {p['key'] for p in probs}
-    assert {'job:variables:failing', 'job:publish:overdue', 'site:stale', 'disk:low', 'service:VizieR, Harvard mirror'} <= keys, keys
-    assert 'service:VizieR, India mirror' not in keys and 'job:solar:overdue' not in keys                 # down for an hour only; on time
+    assert {'job:variables:failing', 'job:publish:overdue', 'site:stale', 'disk:low', 'service:arXiv'} <= keys, keys
+    assert not any(k.startswith('service:VizieR') for k in keys) and 'job:solar:overdue' not in keys       # one mirror still answers; on time
+    nov = health.problems(list(jobs.values()), [dict(x, ok=False) for x in sv.values() if x['name'].startswith('VizieR')],
+                          None, None, {x: now - 8 * 3600 for x in sv if x.startswith('VizieR')}, now)
+    assert [p['key'] for p in nov if p['key'].startswith('service:')] == ['service:VizieR (every mirror)'], nov
+    add('health', 0.01, 'running'); con.commit()                                                        # its own first run: not overdue
+    assert not {j['job']: j for j in health.job_report(con, cfg, now)}['health']['overdue']
+    con.execute("DELETE FROM runs WHERE job='health'"); con.commit()
     assert any('failed 2 times in a row' in p['text'] and 'no VizieR mirror answered' in p['text'] for p in probs)
     # alerts: each problem once, not again within a day, again after a day, and a "back to normal" when solved
     sink = []

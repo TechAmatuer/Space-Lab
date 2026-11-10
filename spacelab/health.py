@@ -90,7 +90,8 @@ def job_report(con, cfg, now=None):
             if r['status'] not in ('running', None):
                 fails += 1
         ok_age_h = (now - (last_ok['finished'] or last_ok['started'])) / 3600 if last_ok else None
-        overdue = bool(every) and rows and (ok_age_h is None or ok_age_h > 2 * every + 2)
+        first_h = (now - min(r['started'] for r in rows)) / 3600 if rows else 0     # a job that never succeeded: since its first try
+        overdue = bool(every) and bool(rows) and (ok_age_h > 2 * every + 2 if ok_age_h is not None else first_h > 2 * every + 2)
         out.append({'job': job, 'label': label, 'every_h': every, 'last': rows[0] if rows else None,
                     'last_ok': (last_ok['finished'] or last_ok['started']) if last_ok else None, 'ok_age_h': ok_age_h,
                     'fails_in_a_row': fails, 'overdue': bool(overdue)})
@@ -117,11 +118,15 @@ def problems(jobs, services, dk, site_age_h, svc_down_since, now=None):
         out.append({'key': 'site:stale', 'level': 'bad', 'text': f'The public website was last updated {site_age_h:.0f} hours ago.'})
     if dk and dk['free_gb'] < DISK_LOW_GB:
         out.append({'key': 'disk:low', 'level': 'bad', 'text': f"Only {dk['free_gb']} GB free on this Mac's disk; jobs will start failing when it is full."})
+    # the VizieR mirrors stand in for each other (the jobs need any one of them): only all of them down is a problem
+    groups = {}
     for s in services:
-        since = svc_down_since.get(s['name'])
-        if not s['ok'] and since and now - since >= SERVICE_DOWN_H * 3600:
-            out.append({'key': f"service:{s['name']}", 'level': 'warn',
-                        'text': f"{s['name']} has not answered properly for {(now - since) / 3600:.0f} hours ({s['msg']}). Jobs that use it: {', '.join(s['used_by'])}."})
+        groups.setdefault('VizieR (every mirror)' if s['name'].startswith('VizieR') else s['name'], []).append(s)
+    for g, ss in groups.items():
+        sinces = [svc_down_since.get(s['name']) for s in ss]
+        if all(not s['ok'] for s in ss) and all(sinces) and now - max(sinces) >= SERVICE_DOWN_H * 3600:
+            out.append({'key': f'service:{g}', 'level': 'warn',
+                        'text': f"{g} has not answered properly for {(now - max(sinces)) / 3600:.0f} hours ({ss[0]['msg']}). Jobs that use it: {', '.join(ss[0]['used_by'])}."})
     return out
 
 
