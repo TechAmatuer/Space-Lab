@@ -1123,6 +1123,7 @@ def plates_pure_helpers():
     assert not plates.already_reported(o, '675', o[0]['jd'] + 3.0)
     assert plates.already_reported([dict(o[0], stn='261')], '675', o[0]['jd']) and plates.already_reported([dict(o[0], stn='413')], '260', o[0]['jd'])   # same telescope, other code
     assert not plates.already_reported([dict(o[0], stn='260')], '675', o[0]['jd'])
+    assert plates.already_reported([dict(o[0], stn='262')], '809', o[0]['jd']) and plates.same_site('262', '809') and not plates.same_site('262', '260')   # La Silla-DSS
     # targets: bright distant objects first seen recently; manual ones first; done ones skipped
     rows = [{'pdes': '2026 ED138', 'full_name': '2026 ED138', 'H': '2.85', 'q': '36.9', 'a': '43.2', 'first_obs': '2016-02-25'},
             {'pdes': '2020 XX1', 'H': '9.5', 'q': '35', 'first_obs': '2020-01-01'},           # far too faint for plates
@@ -1240,6 +1241,22 @@ def radar_never_lists_the_same_story_twice():
     # without the embedding model the arXiv-id rules still work and nothing crashes
     fresh2, grew2, _ = radar.dedupe(radar.merge_duplicates(raw), recent, None)
     assert len(fresh2) == 3 and grew2 == {'old2': ['NASA']}, (len(fresh2), grew2)     # void (by arXiv id), dwarf planet (by words), Euclid
+    # a story already listed under nearly the same title is caught by its words alone (no model needed)
+    again = radar.merge_duplicates([mk('EarthSky', 'A stellar odd couple at an unusual stage of evolution', 'https://earthsky.org/o')])
+    fresh3, grew3, folded3 = radar.dedupe(again, [{'id': 'o1', 'title': 'A Stellar Odd Couple at an Unusual Stage of Evolution', 'summary': '',
+                                                    'sources': ['NASA'], 'arxiv': []}], None)
+    assert not fresh3 and grew3 == {'o1': ['EarthSky']} and folded3 == ['https://earthsky.org/o'], (fresh3, grew3)
+    # the stored list heals itself: repeats inside it are merged, the better-rated one stays and takes the other's sources
+    it = lambda i, title, score, src, arx=(): {'id': i, 'title': title, 'url': 'https://x/' + i, 'summary': '', 'sources': [src], 'links': ['https://x/' + i],
+                                                'arxiv': list(arx), 'score': score, 'found': 5.0, 'date': 5.0, 'lab': []}
+    stored = [it('a', 'Mysterious gas on Mars suggests magma below', 6, 'Phys.org'), it('b', 'Webb sees water on a hot planet', 7, 'NASA', ['2611.09999']),
+              it('c', 'Mars volcano gas: the dwarf planet link', 8, 'Space.com'), it('d', 'Water found by Webb in hot world air', 5, 'ESA', ['2611.09999']),
+              it('e', 'New dwarf planet candidate spotted', 4, 'EarthSky'), it('f', 'Euclid releases its first big data set', 6, 'ESA')]
+    out, gone = radar.tidy(stored, lambda texts: [topic(t) for t in texts])
+    assert gone == 2 and [x['id'] for x in out] == ['a', 'b', 'c', 'f'], (gone, [x['id'] for x in out])
+    assert next(x for x in out if x['id'] == 'b')['sources'] == ['NASA', 'ESA'] and next(x for x in out if x['id'] == 'c')['sources'] == ['Space.com', 'EarthSky']
+    out2, gone2 = radar.tidy([dict(x, sources=list(x['sources'])) for x in stored[:2]] + [it('g', 'Hot planet water seen by Webb', 3, 'BBC', ['2611.09999'])], None)
+    assert gone2 == 1 and len(out2) == 2 and 0.7 < radar.SAME < 0.85, (gone2, radar.SAME)
 
 
 @test

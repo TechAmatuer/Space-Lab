@@ -225,6 +225,12 @@ function setTab(tab) {
   runExtras(tab);
 }
 
+window.addEventListener('hashchange', () => {             // a link to another tab typed, pasted or clicked while the page is open
+  const id = (location.hash || '').slice(1);
+  const on = document.querySelector('nav.tabs button[aria-selected="true"]');
+  if (D && id && (R[id] || EXTRA_TABS[id]) && !(on && on.dataset.tab === id)) setTab(id);
+});
+
 document.addEventListener('click', async e => {
   const t = e.target.closest('button, img.plot, #zoom');
   if (!t) return;

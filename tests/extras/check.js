@@ -804,6 +804,10 @@ const CHECKS = {
     card = v.querySelector('.uv-card');
     if (!card || !/NGC 4993/.test(card.textContent) || !/GW170817/.test(card.textContent)) fails.push('a deep link ?sel=<2MASS ID> opens that galaxy\'s card');
     if (U.readCam('1,2,3,40,0,0,0,1').d !== 40 || U.readCam('1,2') !== null) fails.push('camera deep links are read safely');
+    env.w.location.hash = '#atlas';
+    env.w.dispatchEvent(new env.w.Event('hashchange'));
+    await sleep(20);
+    if (!env.$('#v-atlas').classList.contains('on') || env.$('#v-universe').classList.contains('on')) fails.push('a link to another tab opened while the page is showing (hash change) switches to that tab');
     report(25, '3D universe: data, search, identity cards, deep links', fails);
   },
 };

@@ -420,8 +420,9 @@ def _get_with_body(url, body):
         return r.read()
 
 
-# the same telescope can be filed under more than one MPC code (e.g. measurements made on DSS scans)
-SAME_SITE = [{'675', '261', '644'}, {'260', '413'}, {'809'}]
+# the same telescope can be filed under more than one MPC code: measurements made on Digitized Sky Survey scans have their
+# own codes (260 Siding Spring-DSS, 261 Palomar-DSS, 262 La Silla-DSS) next to the observatory's (413, 675 / 644, 809)
+SAME_SITE = [{'675', '261', '644'}, {'260', '413'}, {'809', '262'}]
 
 
 def same_site(a, b):

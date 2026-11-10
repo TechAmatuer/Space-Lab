@@ -43,6 +43,9 @@ KEYWORDS = {  # fallback scoring and topics when no AI is running
     'Earth from space': ('earth observation', 'climate', 'wildfire', 'hurricane'),
 }
 MAX_NEW = 120          # items the AI reads per run (about 15 short AI calls)
+# Two texts (title + summary, bge-m3) this alike are the same story. Set from the real list of 2026-11-10: the eight true
+# repeats in it scored 0.75 to 0.92 (also Spanish/English pairs), the most alike different stories 0.73 and below.
+SAME = 0.78
 KEEP_DAYS = 7
 
 
@@ -107,11 +110,12 @@ def _absorb(into, it):
     into['arxiv'] = sorted(set(into.get('arxiv') or []) | set(it.get('arxiv') or []))
 
 
-def dedupe(fresh, recent, embed=None, same=0.86):
+def dedupe(fresh, recent, embed=None, same=SAME):
     """Remove repeats the word check misses, so the local AI never reads or lists the same story twice:
     1. a news article that links the arXiv paper it reports on becomes one item with that paper;
     2. stories with the same meaning (bge-m3 embeddings, cosine >= `same`) become one item, within this run;
-    3. a story already listed in the last days is added to that item's sources instead of being listed again.
+    3. a story already listed in the last days (same paper, same words or same meaning) is added to that item's sources
+       instead of being listed again.
     Returns (new items to rate, {recent item id: [extra sources]}, links of stories folded into older ones)."""
     out = []
     for it in fresh:                                                         # 1. article <-> paper by arXiv id
@@ -127,8 +131,9 @@ def dedupe(fresh, recent, embed=None, same=0.86):
     grew, folded = {}, []
     old_by_arxiv = {a: r for r in recent for a in r.get('arxiv') or []}
     keep = []
-    for it in out:                                                           # 3a. already listed, same paper
+    for it in out:                                                           # 3a. already listed: same paper, or same words
         r = next((old_by_arxiv[a] for a in it.get('arxiv') or [] if a in old_by_arxiv), None)
+        r = r or next((x for x in recent if same_story(x['title'], it['title'])), None)
         if r:
             grew.setdefault(r['id'], []).extend(s for s in it['sources'] if s not in r['sources'])
             folded += it.get('links') or [it['url']]
@@ -153,6 +158,41 @@ def dedupe(fresh, recent, embed=None, same=0.86):
                 final.append(it); fv.append(v)
             keep = final
     return keep, grew, folded
+
+
+def tidy(items, embed=None, same=SAME):
+    """Merge repeats inside the stored list (stories listed before a check existed, or that a check missed): same paper,
+    same words or same meaning. The better-rated one stays and takes the other's sources. Returns (items, number merged)."""
+    vec = None
+    if embed and len(items) > 1:
+        try:
+            import numpy as np
+            v = embed([(x['title'] + '. ' + (x.get('summary') or ''))[:600] for x in items])
+            if v and len(v) == len(items):
+                v = np.asarray(v, float)
+                v /= np.maximum(np.linalg.norm(v, axis=1), 1e-12)[:, None]
+                vec = v @ v.T
+        except Exception:
+            vec = None
+    order = sorted(range(len(items)), key=lambda k: (-items[k].get('score', 0), items[k].get('found', 0)))
+    keep, gone = [], 0
+    for k in order:
+        it = items[k]
+        ids = set(it.get('arxiv') or [])
+        twin = next((j for j in keep if (ids & set(items[j].get('arxiv') or [])) or same_story(items[j]['title'], it['title'])
+                     or (vec is not None and vec[k, j] >= same)), None)
+        if twin is None:
+            keep.append(k)
+            continue
+        into = items[twin]
+        for src, url in zip(it.get('sources') or [], (it.get('links') or [it['url']]) + [it['url']] * 9):
+            if src not in into['sources']:
+                into['sources'].append(src)
+                into.setdefault('links', []).append(url)
+        into['arxiv'] = sorted(set(into.get('arxiv') or []) | ids)
+        into['lab'] = sorted(set(into.get('lab') or []) | set(it.get('lab') or []))
+        gone += 1
+    return [items[k] for k in sorted(keep)], gone
 
 
 def keyword_score(it):
@@ -217,7 +257,7 @@ def run(ctx):
     for u in folded:                                      # proven repeats of stories already listed: never read again
         seen[_id(u)] = time.time()
     log(f'{len(raw)} items from {len(ok)} sources; {len(fresh)} new after removing repeats'
-        + (f'; {sum(len(v) for v in grew.values())} more sources added to stories already listed' if grew else '')
+        + (f'; {len(folded)} were already listed under another title (their sources were added there)' if folded else '')
         + (f'; {len(bad)} sources failed' if bad else ''))
     rated = {}
     if llm.models():
@@ -245,6 +285,9 @@ def run(ctx):
             if src not in x['sources']:
                 x['sources'].append(src)
     items = [x for x in (kept + (old.get('items') or [])) if x['found'] > now - KEEP_DAYS * 86400]
+    items, n_tidy = tidy(items, llm.embed if llm.models() else None)
+    if n_tidy:
+        log(f'  {n_tidy} repeats inside the list merged into the story they repeat')
     items.sort(key=lambda x: (-x['score'], -x['date']))
     digest = old.get('digest')
     top = [x for x in kept if x['score'] >= 6][:6]
