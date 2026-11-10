@@ -1342,6 +1342,35 @@ def variable_stars_found_checked_and_prepared_for_vsx():
     assert not ok and res['Gaia DR3 variability'] is None
     res, ok = variables.known(0, 0, {'VSX': lambda: [{'name': 'V0001 Xyz', 'type': 'BY'}], 'X': lambda: []})
     assert ok and res['VSX'][0]['name'] == 'V0001 Xyz'
+    # a VizieR mirror whose database is down answers with an error page: that is no answer, the next mirror is asked
+    from spacelab import net as _net, catalogs
+    real, asked = _net.fetch_text, []
+    good = '#Name: II/366/catv2021\n#Table\tII_366_catv2021:\nID\tType\tPer\t_r\n \t \t \t \n--\t--\t--\t--\nASASSN-V J0001\tROT\t2.09\t1.2\n'
+
+    def fake(url, params=None, **kw):
+        asked.append(url)
+        if 'cds.unistra' in url:
+            raise OSError('unreachable')
+        if 'cfa.harvard' in url:
+            return 'Content-Type: text/html\n{\\html\n****\n**** -- no connection\n'
+        return good
+    _net.fetch_text = fake
+    try:
+        hit = variables._vizier('II/366/catv2021', 42.85, 13.38, 30)
+        assert hit[0]['name'] == 'ASASSN-V J0001' and hit[0]['type'] == 'ROT' and len(asked) == 3, (hit, asked)
+        _net.fetch_text = lambda url, params=None, **kw: 'Content-Type: text/html\n****\n'
+        try:
+            variables._vizier('II/366/catv2021', 42.85, 13.38, 30)
+            raise AssertionError('an error page must not count as "no match"')
+        except ConnectionError:
+            pass
+        try:
+            catalogs._asu({'-source': 'X'})
+            raise AssertionError('error pages are not answers')
+        except ConnectionError:
+            pass
+    finally:
+        _net.fetch_text = real
     # neighbours within two TESS pixels: an equally bright star 20" away could cause 5 ppt; a faint one 30" away could not
     g = {'ra': np.array([150.0, 150.0 + 20 / 3600, 150.0 - 30 / 3600]), 'dec': np.array([10.0, 10.0, 10.0]), 'g': np.array([12.0, 12.0, 19.0])}
     b = variables.blend_check(150.0, 10.0, 5.0, g)
@@ -1378,6 +1407,20 @@ def variable_stars_found_checked_and_prepared_for_vsx():
     r3 = db.one(con, 'SELECT * FROM tess_var WHERE tic=999003')
     assert variables.check_one(con, {}, lambda *a: None, None, r3, lookups={'VSX': lambda: None.x}) == 'new'
     assert variables.check_one(con, {}, lambda *a: None, None, r3, lookups={'VSX': lambda: [{'name': 'NSV 1'}]}) == 'known'
+    # a candidate checked by older code is checked again (its review task is withdrawn until then)
+    con.execute("UPDATE tess_var SET status='candidate', checks=? WHERE tic=999003", (json.dumps({'catalogues': {}}),))
+
+    class Ctx:
+        pass
+    cx = Ctx(); cx.con, cx.log, cx.cfg = con, (lambda *a: None), {'variables': {'backfill_min': 0}}
+    cx.time_left = lambda: 1e9
+    _k, variables.known = variables.known, (lambda ra, dec, lookups=None: ({'VSX': [{'name': 'NSV 1'}]}, True))
+    try:
+        variables.run(cx)
+    finally:
+        variables.known = _k
+    assert db.one(con, 'SELECT status FROM tess_var WHERE tic=999003')['status'] == 'known'
+    assert db.one(con, 'SELECT status FROM tess_var WHERE tic=999001')['status'] == 'candidate'          # checked by this code: kept
     s = variables.summary(con)
     assert s['candidates'] == 1 and s['known'] == 1 and s['clear'] == 2 and s['searched'] == 2, s
     # public page: nothing until you look; then counts and the star you called real

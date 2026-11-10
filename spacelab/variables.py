@@ -34,6 +34,7 @@ MATCH = 30.0               # arcsec: a catalogued variable this close is taken t
 BLEND_R = 42.0             # arcsec: two TESS pixels
 SERVICES = ('VSX', 'Gaia DR3 variability', 'ASAS-SN variables')
 VSX_API = 'https://www.aavso.org/vsx/index.php'
+CAT_V = 2                  # catalogue check version: 2 = a mirror's error page no longer counts as an answer
 
 
 def _f(x):
@@ -247,9 +248,21 @@ def _vsx_api(ra, dec, radius_arcsec):
 
 
 def _vizier(source, ra, dec, radius_arcsec):
-    from .catalogs import _asu, _rows
-    rows = _rows(_asu({'-source': source, '-c': f'{ra:.5f} {dec:+.5f}', '-c.rs': f'{radius_arcsec:.0f}', '-out.add': '_r',
-                       '-out.max': '20'}, timeout=90))
+    from . import net
+    from .catalogs import VIZIER, _rows, answered
+    params = {'-source': source, '-c': f'{ra:.5f} {dec:+.5f}', '-c.rs': f'{radius_arcsec:.0f}', '-out.add': '_r', '-out.max': '20'}
+    txt = None
+    for base in VIZIER:                                   # the first mirror whose database really answered
+        try:
+            t = net.fetch_text(base + '/viz-bin/asu-tsv', params=params, timeout=90)
+        except Exception:
+            continue
+        if answered(t, source):
+            txt = t
+            break
+    if txt is None:
+        raise ConnectionError(f'no VizieR mirror answered for {source}')
+    rows = _rows(txt)
     out = []
     for r in rows:
         name = next((r[k] for k in ('Name', 'ID', 'ASASSN-V', 'Source', 'GaiaDR3') if r.get(k)), '?')
@@ -264,7 +277,7 @@ def known(ra, dec, lookups=None):
     lookups = lookups or {
         'VSX': lambda: _try(lambda: _vsx_api(ra, dec, MATCH), lambda: _vizier('B/vsx/vsx', ra, dec, MATCH)),
         'Gaia DR3 variability': lambda: _vizier('I/358/vclassre', ra, dec, MATCH),
-        'ASAS-SN variables': lambda: _vizier('II/366/catalog', ra, dec, MATCH)}
+        'ASAS-SN variables': lambda: _vizier('II/366/catv2021', ra, dec, MATCH)}
     res = {}
     for name, fn in lookups.items():
         try:
@@ -431,7 +444,7 @@ def check_one(con, cfg, log, llm, row, gaia_fn=None, lookups=None):
         return 'new'
     res, answered = known(star['ra'], star['dec'], lookups)
     hits = {k: v for k, v in res.items() if v}
-    checks = {'catalogues': {k: (None if v is None else v[:3]) for k, v in res.items()}}
+    checks = {'catalogues': {k: (None if v is None else v[:3]) for k, v in res.items()}, 'cat_v': CAT_V}
     if hits:
         status = 'known'
     elif not answered:
@@ -446,8 +459,8 @@ def check_one(con, cfg, log, llm, row, gaia_fn=None, lookups=None):
             g = gaia_fn(star['ra'], star['dec']) if gaia_fn else gaia_cone(star['ra'], star['dec'], BLEND_R / 3600 * 1.2, gmax=21.0, log=lambda *a: None)
             ra2, de2 = propagate(g['ra'], g['dec'], g['pmra'], g['pmdec'], 2451545.0)
             checks['blend'] = blend_check(star['ra'], star['dec'], r.get('amp') or 0, {'ra': ra2, 'dec': de2, 'g': g['g']})
-        except Exception as e:
-            checks['blend'] = {'verdict': f'not checked ({str(e)[:80]})', 'suspects': []}
+        except Exception:
+            checks['blend'] = {'verdict': 'not checked yet (the Gaia star catalogue did not answer; tried again next run)', 'suspects': []}
         try:
             d = np.load(config.DATA / row['npz'])
             t, f = d['t'], d['f'].astype(float)
@@ -487,7 +500,14 @@ def run(ctx):
         llm = llm if llm.models() else None
     except Exception:
         llm = None
+    for c in db.rows(con, "SELECT tic, checks FROM tess_var WHERE status='candidate'"):     # checked by older code: again
+        if (json.loads(c['checks'] or '{}')).get('cat_v') != CAT_V:
+            con.execute("UPDATE tess_var SET status='new' WHERE tic=?", (c['tic'],))
+            db.close_task(con, f"var:{c['tic']}", 'dismissed')
+    redo = [c['tic'] for c in db.rows(con, "SELECT tic, checks FROM tess_var WHERE status='candidate'")
+            if str((json.loads(c['checks'] or '{}').get('blend') or {}).get('verdict', '')).startswith('not checked')]
     rows = db.rows(con, "SELECT * FROM tess_var WHERE status='new' ORDER BY snr DESC LIMIT ?", (int(vc.get('checks_per_run', 40)),))
+    rows += [r for r in db.rows(con, "SELECT * FROM tess_var WHERE status='candidate'") if r['tic'] in redo]   # neighbours not yet weighed
     got = {}
     for row in rows:
         if ctx.time_left() < 120:

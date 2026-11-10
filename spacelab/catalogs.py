@@ -10,16 +10,28 @@ import time
 
 from . import config, net
 
-VIZIER = ('https://vizier.cds.unistra.fr', 'https://vizier.cfa.harvard.edu')
+VIZIER = ('https://vizier.cds.unistra.fr', 'https://vizier.cfa.harvard.edu', 'https://vizier.iucaa.in')
+
+
+def answered(tsv, source):
+    """True when a VizieR reply really comes from that table (a mirror whose database is down sends an error page, which
+    must never be read as 'no stars here')."""
+    t = tsv or ''
+    return '****' not in t[:4000] and (f'#Name: {source}' in t or f'#Table\t{source.replace("/", "_")}' in t)
 
 
 def _asu(params, timeout=120):
     err = None
     for base in VIZIER:
         try:
-            return net.fetch_text(base + '/viz-bin/asu-tsv', params=params, timeout=timeout)
+            t = net.fetch_text(base + '/viz-bin/asu-tsv', params=params, timeout=timeout)
         except Exception as e:
             err = e
+            continue
+        if '****' in t[:4000]:                           # this mirror's database is down: its reply is an error page
+            err = ConnectionError(f'{base}: database not reachable')
+            continue
+        return t
     raise err
 
 
