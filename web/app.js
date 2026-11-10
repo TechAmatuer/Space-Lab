@@ -411,6 +411,16 @@ function tessExtras(c) {
   return out.join('');
 }
 // Variable stars found in the same TESS light curves (spacelab/variables.py). Nothing is submitted from here: VSX needs your login.
+function injCard(s, img) {
+  if (!s || !s.n) return '';
+  const lines = l => (l || []).map(x => `<li>${esc(x)}</li>`).join('');
+  return `<h2>What this search can find</h2><div class="card"><p class="small">To know what the planet search misses, fake planets are hidden in real TESS light curves and the same search is run on them.
+    So far <b>${Number(s.n).toLocaleString()}</b> fake planets, <b>${Number(s.found || 0).toLocaleString()}</b> found at the right period${s.alias ? ` (and ${s.alias} at half or double it)` : ''}.</p>
+    ${(s.headline_quiet || []).length ? `<p class="small" style="margin-bottom:2px"><b>Around quiet stars</b> it finds:</p><ul class="small">${lines(s.headline_quiet)}</ul>` : ''}
+    ${(s.headline_variable || []).length ? `<p class="small" style="margin-bottom:2px"><b>Around spotted, flaring stars</b> it finds:</p><ul class="small">${lines(s.headline_variable)}</ul>` : ''}
+    ${s.plot ? `<img class="plot" src="${img(s.plot)}" alt="Share of fake planets found, by period and depth of the dip" loading="lazy">` : ''}
+    <p class="small muted">${esc(s.note || '')}</p></div>`;
+}
 function renderVars(v) {
   if (!v || !v.summary) return;
   const s = v.summary, cs = v.cands || [];
@@ -442,7 +452,7 @@ function renderVars(v) {
       <b>Already catalogued</b><span>${s.known || 0} (VSX, Gaia DR3 or ASAS-SN)</span><b>Waiting for a catalogue check</b><span>${s.waiting || 0}</span>
       <b>New candidates</b><span>${s.candidates || 0} to look at, ${s.real || 0} you called real, ${s.submitted || 0} submitted</span></div>
       <p class="small muted">Every TESS light curve is also searched for repeating brightness changes: spotted stars rotating, eclipsing binaries, flares. One that no catalogue of variable stars has is a possible new variable star. Discovery credit comes from the AAVSO's Variable Star Index (VSX), and you submit it yourself; nothing is sent from here.</p></div>
-    ${cs.map(card).join('') || '<div class="card empty">No new candidates yet. The back-fill of stars checked earlier runs every 12 hours.</div>'}`;
+    ${cs.map(card).join('') || '<div class="card empty">No new candidates yet. The back-fill of stars checked earlier runs every 12 hours.</div>'}${injCard(v.injection, fileUrl)}`;
   const v0 = $('#v-tess');
   const box = document.createElement('div'); box.id = 'varstars'; box.innerHTML = html;
   const after = v0.querySelector('.card');

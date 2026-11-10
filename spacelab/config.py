@@ -56,6 +56,7 @@ DEFAULTS = {
         'variables': 'every 12h',  # variable stars in the TESS light curves: catalogue checks, back-fill of earlier stars
         'catalogs': 'every 168h',  # local copies of the catalogues the jobs depend on (spacelab/localcat.py)
         'health': 'every 1h',      # are the outside services answering, has a job failed twice, is the website current
+        'injection': 'every 720h', # fake planets hidden in real light curves: what the planet search can find
     },
     'arxiv': {
         'categories': ['astro-ph.EP', 'astro-ph.SR', 'astro-ph.IM', 'astro-ph.GA', 'astro-ph.HE', 'astro-ph.CO'],
@@ -89,6 +90,7 @@ DEFAULTS = {
     'variables': {               # variable stars in TESS light curves (spacelab/variables.py); never submitted from here
         'backfill_min': 25, 'checks_per_run': 40, 'time_budget_min': 45,
     },
+    'injection': {'trials_per_run': 400, 'time_budget_min': 60},   # fake-planet test of the planet search (spacelab/injection.py)
     'plates': {                  # old-plate precovery of distant objects (spacelab/plates.py)
         'manual': ['2026 ED138'],    # always searched first; objects already measured by others become accuracy tests
         'objects_per_run': 2, 'sigma': 3, 'max_ellipse_arcsec': 150, 'depth_margin_min': 0.0, 'plates_per_object': 8,

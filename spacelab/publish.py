@@ -229,6 +229,10 @@ def build_data(con, cfg):
                       'paper_news': _topics(((db.kv_get(con, 'paper_news') or {}).get('items') or [])[:40]),
                       'library': {k: lib.get(k) for k in ('papers', 'embedded', 'years', 'complete', 'topics')}}}
     data['tess']['variables'] = _variables_public(con, f)
+    inj = db.kv_get(con, 'injection') or {}
+    if inj.get('n'):                                   # what the planet search can find (spacelab/injection.py)
+        data['tess']['injection'] = {k: inj.get(k) for k in ('n', 'found', 'alias', 'n_quiet', 'quiet', 'variable', 'headline_quiet', 'headline_variable', 'note', 't')}
+        data['tess']['injection']['plot'] = f(inj.get('plot'))
     return data, files
 
 

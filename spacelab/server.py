@@ -356,7 +356,7 @@ def api_var():
             r[k] = j(r.get(k))
         r.pop('npz', None)
         out.append(r)
-    return {'summary': variables.summary(con), 'cands': out}
+    return {'summary': variables.summary(con), 'cands': out, 'injection': db.kv_get(con, 'injection')}
 
 
 def api_tess():

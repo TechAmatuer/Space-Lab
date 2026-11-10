@@ -97,6 +97,16 @@ function today() {
 }
 
 // Variable stars found in the same light curves (only the ones the owner has looked at are listed)
+function injCard(s, img) {
+  if (!s || !s.n) return '';
+  const lines = l => (l || []).map(x => `<li>${esc(x)}</li>`).join('');
+  return `<h2>What this search can find</h2><div class="card"><p class="small">To know what the planet search misses, fake planets are hidden in real TESS light curves and the same search is run on them.
+    So far <b>${Number(s.n).toLocaleString()}</b> fake planets, <b>${Number(s.found || 0).toLocaleString()}</b> found at the right period${s.alias ? ` (and ${s.alias} at half or double it)` : ''}.</p>
+    ${(s.headline_quiet || []).length ? `<p class="small" style="margin-bottom:2px"><b>Around quiet stars</b> it finds:</p><ul class="small">${lines(s.headline_quiet)}</ul>` : ''}
+    ${(s.headline_variable || []).length ? `<p class="small" style="margin-bottom:2px"><b>Around spotted, flaring stars</b> it finds:</p><ul class="small">${lines(s.headline_variable)}</ul>` : ''}
+    ${s.plot ? `<img class="plot" src="${img(s.plot)}" alt="Share of fake planets found, by period and depth of the dip" loading="lazy">` : ''}
+    <p class="small muted">${esc(s.note || '')}</p></div>`;
+}
 function varCard(v) {
   if (!v || !v.searched) return '';
   const rows = (v.stars || []).map(s => `<tr><td><a href="https://exofop.ipac.caltech.edu/tess/target.php?id=${s.tic}" target="_blank" rel="noopener">TIC ${s.tic}</a></td><td>${esc(s.type || '')}</td>
@@ -156,7 +166,7 @@ function tess() {
       <p><b>Bottom left: all dips stacked.</b> Every dip lined up on top of each other. The red box is the simple transit model. A flat-bottomed U or box suits a planet; a sharp V often means two stars eclipsing.</p>
       <p><b>Bottom right: odd vs even dips.</b> If odd and even dips have different depths, it's probably an eclipsing binary at twice the period. The dashed line is the brightness halfway between dips and should be flat (a dip there means a secondary eclipse, i.e. a star).</p></details></div>
     <div class="card"><details><summary>How this tab works</summary><p style="margin:0">A GPU-based Box Least Squares search finds repeating brightness dips in TESS light curves. Each candidate goes through false-positive checks (depth ratios, centroid test, star density) before being shown here. A local vision AI then reads the diagnostic plots to give a first verdict. Your personal ML model scores each one based on past decisions.</p></details></div>
-    ${cards || '<div class="card empty">No signals under review right now.</div>'}${more}${varCard(t.variables)}`;
+    ${cards || '<div class="card empty">No signals under review right now.</div>'}${more}${varCard(t.variables)}${injCard(t.injection, p => esc(p))}`;
 }
 
 function asteroids() {

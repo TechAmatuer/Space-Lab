@@ -1066,15 +1066,20 @@ const CHECKS = {
     // variable stars found in the same light curves
     const withVar = JSON.parse(JSON.stringify(FIXTURE));
     withVar.tess.variables = { searched: 3371, clear: 412, known: 380, candidates: 5, real: 1, submitted: 0,
-      stars: [{ tic: 777, period: 2.30012, amp: 5.1, kind: 'rotation', type: 'BY+UV', status: 'real', ra: 150, dec: 10, tmag: 11.2, plot: 'files/plots/variables/TIC777.png' }] };
+      stars: [{ tic: 777, period: 2.30012, amp: 5.1, kind: 'rotation', type: 'BY+UV', status: 'real', ra: 150, dec: 10, tmag: 11.2, plot: 'files/plots/variables/TIC777.png', ztf: true }] };
+    withVar.tess.injection = { n: 1200, found: 640, alias: 12, n_quiet: 700, headline_quiet: ['91% of deep dips <b>x</b> with periods of 0.5-4 days (200 trials)'], headline_variable: ['40% of shallow dips'],
+      note: 'Measured on half-hour light curves.', plot: 'files/plots/injection/completeness.png' };
     env = await boot({ data: withVar });
     t = await env.tab('tess');
     const vt = norm(t.textContent);
     if (!/3,371 light curves searched, 412 with a clear repeating signal, 380 of them already in catalogues/.test(vt) || !/5 possible new variable star\(s\) wait for a person's look/.test(vt)) fails.push('the TESS tab reports the variable-star search honestly: ' + vt.slice(-400));
     if (!t.querySelector('a[href="https://exofop.ipac.caltech.edu/tess/target.php?id=777"]') || !/BY\+UV/.test(vt) || !/2\.3001 d/.test(vt) || !t.querySelector('img[src="files/plots/variables/TIC777.png"]')) fails.push('a star the owner checked is listed with type, period and its folded light curve');
+    if (!/seen by ZTF too/.test(vt)) fails.push('a star a second telescope also sees says so');
+    if (!/What this search can find/.test(vt) || !/1,200 fake planets, 640 found at the right period \(and 12 at half or double it\)/.test(vt) || !/Around quiet stars it finds/.test(vt)
+        || !/91% of deep dips <b>x<\/b>/.test(vt) || t.querySelector('li b b, li > b + b') && /x/.test((t.querySelector('li b b') || {}).textContent || '') || !t.querySelector('img[src="files/plots/injection/completeness.png"]') || !/half-hour/.test(vt)) fails.push('the fake-planet test is shown with its numbers, its picture and its limit, as plain text');
     env = await boot();
     t = await env.tab('tess');
-    if (/Variable stars in the same light curves/.test(t.textContent)) fails.push('no variable-star card before the search has run');
+    if (/Variable stars in the same light curves/.test(t.textContent) || /What this search can find/.test(t.textContent)) fails.push('no variable-star or fake-planet card before those have run');
     report(26, 'TESS tab: a page at a time, and variable stars', fails);
   },
 };

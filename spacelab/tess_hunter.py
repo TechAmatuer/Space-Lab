@@ -462,6 +462,12 @@ def process_star(job):
         out.update(kind=kind, sectors=sectors)
         from . import variables                              # the same light curve, before flattening: a variable star?
         out['var'] = variables.from_lightcurve(tic, lc, star.get('teff'))
+        if int(tic) % 4 == 0 and not (out['var'] or {}).get('strong'):   # one quiet star in four: kept for the fake-planet test
+            try:
+                from . import injection
+                injection.keep_curve(tic, np.asarray(lc.time.value, float), np.asarray(getattr(lc.flux, 'value', lc.flux), float))
+            except Exception as ex:
+                msgs.append(f'could not keep the light curve for the fake-planet test: {ex}'[:160])
         t, y, e = detrend(lc)
         w = best_window(t)
         ts, ys, es = bin_lc(t[w], y[w], e[w], 10 / 1440)

@@ -26,6 +26,7 @@ JOBS = {
     'solar': ('spacelab.solar', 'Solar system map (planets and spacecraft, daily)'),
     'catalogs': ('spacelab.localcat', 'Local copies of the star and galaxy catalogues (weekly)'),
     'health': ('spacelab.health', 'System health check (hourly)'),
+    'injection': ('spacelab.injection', 'What the planet search can find (fake planets, monthly)'),
     'ai': ('spacelab.aicatchup', 'Local AI catch-up (while the Mac is idle)'),
     'selftest': ('spacelab.selftest', 'Self-test'),
     'report': ('spacelab.reanalyze', 'Maintenance & coverage report'),

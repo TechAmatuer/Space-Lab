@@ -2033,6 +2033,57 @@ def ztf_second_opinion_on_variable_stars():
     V.ztf_check(150.0, 20.0, 2.3, 30.0, fetch=lambda p: got.append(p) or csv_of(2.3, 0.03))
     assert got[0]['POS'] == 'CIRCLE 150.000000 20.000000 0.0014' and got[0]['FORMAT'] == 'csv'
 
+
+@test
+def fake_planets_measure_what_the_search_finds():
+    from spacelab import injection as I, db, config as cfgm
+    con = db.connect()
+    I.ensure(con)
+    con.execute('DELETE FROM injections')
+    rng = np.random.default_rng(11)
+    t = np.arange(1000.0, 1027.0, 30 / 1440)
+    t = t[(t < 1013.0) | (t > 1014.5)]                                       # the gap in the middle of a sector
+    f = 1200.0 * (1 + 0.002 * np.sin(2 * np.pi * t / 6.0) + rng.normal(0, 8e-4, t.size))   # a slow wave and noise, in e-/s
+    shp = I.transit_shape(np.array([0.0, 0.049, 0.5, 1.0]), 1.0, 0.0, 0.1, 0.01)
+    assert abs(shp[0] - 0.99) < 1e-12 and 0.99 < shp[1] < 1 and shp[2] == 1 and abs(shp[3] - 0.99) < 1e-12, shp
+    tc = dict(cfgm.DEFAULTS['tess'])
+    star = {'rad': 0.4, 'mass': 0.4}
+    big = I.trial(t, f, star, 3.1, 0.01, 1000.7, tc)                       # a 1% dip every 3.1 days: plainly found
+    assert big['found'] == 1 and abs(big['p_found'] - 3.1) < 0.03 and big['sde'] >= tc['sde_min'], big
+    small = I.trial(t, f, star, 3.1, 0.00005, 1000.7, tc)                  # 50 ppm in 800 ppm noise: not found
+    assert small['found'] == 0 and small['alias'] == 0, small
+    # cells, plain sentences, and the picture
+    rows = [{'quiet': 1, 'period': 1.5, 'depth': 3e-4, 'found': k < 3, 'alias': 0} for k in range(10)] + \
+           [{'quiet': 1, 'period': 3.0, 'depth': 3e-3, 'found': 1, 'alias': 0} for _ in range(12)] + \
+           [{'quiet': 0, 'period': 3.0, 'depth': 3e-3, 'found': k % 2, 'alias': 0} for k in range(12)]
+    g = I.grid(rows, 1)
+    assert g['n'][1][0] == 10 and g['found'][1][0] == 3 and g['n'][2][3] == 12 and sum(map(sum, g['n'])) == 22, g
+    h = I.headline(g)
+    assert h[0].startswith('30% of shallow dips') and h[-1].startswith('100% of deep dips') and '(12 trials)' in h[-1], h
+    png = I.plot(rows)
+    assert png.is_file() and png.stat().st_size > 10000
+    # a quiet star's light curve is kept; the job picks light curves, hides planets, stores and sums up
+    assert I.keep_curve(400, t, f) and (I.INJ_DIR / 'TIC400.npz').is_file() and I.keep_curve(404, t[:50], f[:50]) is None
+    con.execute('INSERT OR REPLACE INTO tess_targets(tic, ra, dec, tmag, rad, mass, status) VALUES (400, 1, 1, 11, 0.3, 0.3, "done")')
+    pool = I.curves(con)
+    assert any(x[0] == 400 and x[2] == 1 and x[3]['rad'] == 0.3 for x in pool)
+    calls = []
+    def fake_search(ts, ys, es, pmin, pmax, engine):
+        calls.append(len(ts))
+        return {'period': 2.0, 'sde': 12.0, 'snr': 9.0}
+    class C:
+        pass
+    c = C(); c.con = con; c.cfg = {'injection': {'trials_per_run': 6}}; c.logs = []; c.log = c.logs.append; c.time_left = lambda: 1e9
+    summ = I.run(c, search=fake_search, rng=np.random.default_rng(3))
+    n = db.one(con, 'SELECT COUNT(*) AS n FROM injections')['n']
+    assert n == 6 and len(calls) == 6 and '6 fake planets hidden this run' in summ, (n, summ)
+    s = db.kv_get(con, 'injection')
+    assert s['n'] == 6 and s['plot'] == 'plots/injection/completeness.png' and 'half-hour' in s['note'] and s['n_quiet'] >= 1
+    from spacelab import jobs as _jobs
+    assert 'injection' in _jobs.JOBS and cfgm.DEFAULTS['schedule']['injection'] == 'every 720h'
+    con.execute('DELETE FROM injections'); con.execute('DELETE FROM tess_targets WHERE tic=400'); con.commit()
+    (I.INJ_DIR / 'TIC400.npz').unlink()
+
 import urllib.error  # noqa: E402
 
 if __name__ == '__main__':
