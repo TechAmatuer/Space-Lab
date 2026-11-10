@@ -1557,6 +1557,31 @@ def universe_flow_model_matches_the_paper_and_behaves():
 
 
 @test
+def universe_never_replaces_the_map_with_a_broken_download():
+    from spacelab import universe, net as _net
+    universe.SITE_DIR.mkdir(parents=True, exist_ok=True)
+    (universe.SITE_DIR / 'galaxies.bin').write_bytes(b'GOOD')
+    real = _net.fetch_text
+    _net.fetch_text = lambda url, params=None, **kw: 'Content-Type: text/html\n{\\html\n****\n**** -- no connection\n'
+    try:
+        try:
+            universe.build(lambda *a: None)
+            raise AssertionError('an error page must stop the build')
+        except ConnectionError:
+            pass
+        head = '#Name: J/ApJS/199/26/table3\nID\tRAJ2000\n \t \n--\t--\n'
+        _net.fetch_text = lambda url, params=None, **kw: head + '00000000+0000000\t0.0\n'
+        try:
+            universe.build(lambda *a: None)
+            raise AssertionError('a download with one row must stop the build')
+        except RuntimeError as e:
+            assert 'left as it was' in str(e)
+    finally:
+        _net.fetch_text = real
+    assert (universe.SITE_DIR / 'galaxies.bin').read_bytes() == b'GOOD'
+
+
+@test
 def universe_build_collapses_clusters_and_finds_the_web():
     from spacelab import universe
     rng = np.random.default_rng(3)

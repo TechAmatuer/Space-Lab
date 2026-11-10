@@ -35,7 +35,7 @@ import numpy as np
 
 from . import config, db, net
 
-MIRRORS = ('https://vizier.cfa.harvard.edu', 'https://vizier.cds.unistra.fr')
+MIRRORS = ('https://vizier.cfa.harvard.edu', 'https://vizier.cds.unistra.fr', 'https://vizier.iucaa.in')
 H0 = 70.0
 OMEGA_M = 0.3
 C_KMS = 299792.458
@@ -167,13 +167,29 @@ LANDMARKS = [
 
 
 def _asu(params, timeout=300):
-    err = None
+    """A VizieR table from the first mirror whose database really answers (a mirror that is down sends an error page)."""
+    err = ConnectionError('no VizieR mirror answered')
     for base in MIRRORS:
         try:
-            return net.fetch_text(base + '/viz-bin/asu-tsv', params=params, timeout=timeout, retries=2)
+            t = net.fetch_text(base + '/viz-bin/asu-tsv', params=params, timeout=timeout, retries=2)
         except Exception as e:
             err = e
+            continue
+        if '****' in t[:4000] or '#Name:' not in t:
+            err = ConnectionError(f'{base}: the catalogue database is not reachable right now')
+            continue
+        return t
     raise err
+
+
+MIN_ROWS = {'2MRS': 40000, 'groups': 40000, 'Cosmicflows-4': 20000, 'Local Volume': 500}
+
+
+def _enough(name, rows, log):
+    """A download much shorter than the catalogue is a broken answer: the map is then left exactly as it was."""
+    if len(rows) < MIN_ROWS[name]:
+        raise RuntimeError(f'the {name} download came back with only {len(rows)} rows; the 3D map was left as it was')
+    return rows
 
 
 def _table(tsv):
@@ -539,26 +555,19 @@ def build(log, sources=None, famous_lookup=None):
     """Download, combine and write the files. sources / famous_lookup: optional pre-loaded tables (for tests)."""
     if sources is None:
         log('  downloading the 2MASS Redshift Survey (43,500 galaxies)...')
-        twomrs = _table(_asu({'-source': 'J/ApJS/199/26/table3', '-out': 'ID,RAJ2000,DEJ2000,GLON,GLAT,Ktmag,type,cz,CAT',
-                              '-out.max': '60000'}, timeout=600))
+        twomrs = _enough('2MRS', _table(_asu({'-source': 'J/ApJS/199/26/table3', '-out': 'ID,RAJ2000,DEJ2000,GLON,GLAT,Ktmag,type,cz,CAT',
+                                                '-out.max': '60000'}, timeout=600)), log)
         log(f'    {len(twomrs)} rows; now the 2MASS group catalogue...')
-        tully = _table(_asu({'-source': 'J/AJ/149/171/table5', '-out': 'PGC,GLON,GLAT,MType,Vcmba,Nest,Nmb,Dist,_RA.icrs,_DE.icrs',
-                             '-out.max': '60000'}, timeout=600))
+        tully = _enough('groups', _table(_asu({'-source': 'J/AJ/149/171/table5', '-out': 'PGC,GLON,GLAT,MType,Vcmba,Nest,Nmb,Dist,_RA.icrs,_DE.icrs',
+                                                '-out.max': '60000'}, timeout=600)), log)
         log(f'    {len(tully)} galaxies with group tags; now the measured distances (Cosmicflows-4)...')
-        try:
-            cf4 = _table(_asu({'-source': 'J/ApJ/944/94/table2', '-out': 'PGC,DM,e_DM,' + ','.join(METHODS) + ',RAJ2000,DEJ2000',
-                               '-out.max': '80000'}, timeout=600))
-            log(f'    {len(cf4)} galaxies with a measured distance')
-        except Exception as e:
-            cf4 = []
-            log(f'    measured distances not available this time ({e}); every galaxy is placed by redshift')
-        try:
-            lv = _table(_asu({'-source': 'J/AJ/145/101/catalog', '-out': 'Name,RAJ2000,DEJ2000,Dist,f_Dist', '-out.max': '3000'},
-                             timeout=300))
-            log(f'    {len(lv)} galaxies of the Local Volume catalogue (Karachentsev 2013)')
-        except Exception as e:
-            lv = []
-            log(f'    Local Volume catalogue not available this time ({e})')
+        # all four are needed for the map as it is now; if one cannot be had, the map stays as it was until next time
+        cf4 = _enough('Cosmicflows-4', _table(_asu({'-source': 'J/ApJ/944/94/table2', '-out': 'PGC,DM,e_DM,' + ','.join(METHODS) + ',RAJ2000,DEJ2000',
+                                                     '-out.max': '80000'}, timeout=600)), log)
+        log(f'    {len(cf4)} galaxies with a measured distance')
+        lv = _enough('Local Volume', _table(_asu({'-source': 'J/AJ/145/101/catalog', '-out': 'Name,RAJ2000,DEJ2000,Dist,f_Dist',
+                                                  '-out.max': '3000'}, timeout=300)), log)
+        log(f'    {len(lv)} galaxies of the Local Volume catalogue (Karachentsev 2013)')
     else:
         twomrs, tully, cf4, *rest = sources
         lv = rest[0] if rest else []
@@ -683,8 +692,9 @@ def build(log, sources=None, famous_lookup=None):
         blob += how[keep].tobytes() + meth[keep].tobytes()
         txt_name = 'galaxies.txt'
         lines = [f'{ids[i]}\t{names[i]}' for i in keep]
-    (SITE_DIR / 'galaxies.bin').write_bytes(blob)
-    (SITE_DIR / txt_name).write_text('\n'.join(lines) + '\n')
+    # written under temporary names and swapped in only at the very end, so a failure never leaves a broken map
+    (SITE_DIR / 'galaxies.bin.tmp').write_bytes(blob)
+    (SITE_DIR / (txt_name + '.tmp')).write_text('\n'.join(lines) + '\n')
     pos = {ids[i]: k for k, i in enumerate(keep)}
     by_name = {}
     for k, i in enumerate(keep):
@@ -741,6 +751,9 @@ def build(log, sources=None, famous_lookup=None):
                       f'Cosmicflows-4 measured distances replace it within {MEAS_MAX_DIST:g} Mpc when more precise. '
                       'Environment: T-web of the selection-weighted density, 5 Mpc smoothing, eigenvalue threshold 0.7 on '
                       'galaxy density (about 0.45 on matter).'}
+    import os
+    os.replace(SITE_DIR / 'galaxies.bin.tmp', SITE_DIR / 'galaxies.bin')
+    os.replace(SITE_DIR / (txt_name + '.tmp'), SITE_DIR / txt_name)
     return meta, pos
 
 
