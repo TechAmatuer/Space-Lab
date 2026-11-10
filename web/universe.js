@@ -25,17 +25,40 @@
 
   // ------------------------------------------------------------------ data
   const G = { ready: false };
+  const pad = (x, k) => String(x).padStart(k, '0');
   function parseBin(buf) {
     const dv = new DataView(buf);
     if (dv.getUint8(0) !== 83 || dv.getUint8(1) !== 76 || dv.getUint8(2) !== 85) throw new Error('not a Space Lab galaxy file');
     const n = dv.getUint32(4, true), o = 16;
+    if (dv.getUint8(3) === 50) {                                 // 'SLU2': compact. Position as written in the 2MASS ID (RA sorted,
+      const dra = new Uint32Array(buf, o, n), de2 = new Int32Array(buf, o + 4 * n, n);   // stored as steps), distance, speed
+      const dq = new Uint16Array(buf, o + 8 * n, n), cq = new Uint16Array(buf, o + 10 * n, n), b = o + 12 * n;
+      const xyz = new Float32Array(3 * n), cz = new Int32Array(n), ids = new Array(n);
+      let ra = 0;
+      for (let i = 0; i < n; i++) {
+        ra += dra[i];
+        const neg = de2[i] & 1, v = de2[i] >> 1, d = dq[i] * 0.02;
+        const h = Math.floor(ra / 360000), mi = Math.floor((ra % 360000) / 6000), dd = Math.floor(v / 36000), dm = Math.floor((v % 36000) / 600);
+        ids[i] = pad(h, 2) + pad(mi, 2) + pad(ra % 6000, 4) + (neg ? '-' : '+') + pad(dd, 2) + pad(dm, 2) + pad(v % 600, 3);
+        const a = ra / 360000 * 15 * Math.PI / 180, de = (neg ? -1 : 1) * v / 36000 * Math.PI / 180;
+        xyz[3 * i] = d * Math.cos(de) * Math.cos(a); xyz[3 * i + 1] = d * Math.cos(de) * Math.sin(a); xyz[3 * i + 2] = d * Math.sin(de);
+        cz[i] = cq[i] - 1000;
+      }
+      return { n, version: 2, xyz, cz, ids, env: new Uint8Array(buf, b, n), kb: new Uint8Array(buf, b + n, n), mt: new Uint8Array(buf, b + 2 * n, n),
+               nmb: new Uint8Array(buf, b + 3 * n, n), how: new Uint8Array(buf, b + 4 * n, n), meth: new Uint8Array(buf, b + 5 * n, n) };
+    }
     const more = buf.byteLength >= o + 26 * n;                   // how each distance was found, and by which methods
     return { n, xyz: new Float32Array(buf, o, 3 * n), env: new Uint8Array(buf, o + 12 * n, n), kb: new Uint8Array(buf, o + 13 * n, n),
              mt: new Uint8Array(buf, o + 14 * n, n), nmb: new Uint8Array(buf, o + 15 * n, n), cz: new Int32Array(buf, o + 16 * n, n),
              nest: new Uint32Array(buf, o + 20 * n, n),
              how: more ? new Uint8Array(buf, o + 24 * n, n) : new Uint8Array(n), meth: more ? new Uint8Array(buf, o + 25 * n, n) : new Uint8Array(n) };
   }
-  function parseTxt(t) {
+  function parseTxt(t, n) {
+    if (n) {                                                     // compact format: "index<TAB>name", only galaxies that have a name
+      const names = new Array(n).fill('');
+      for (const ln of String(t || '').split('\n')) { const k = ln.indexOf('\t'); if (k > 0) { const i = +ln.slice(0, k); if (i >= 0 && i < n) names[i] = ln.slice(k + 1); } }
+      return { names };
+    }
     const ids = [], names = [];
     for (const ln of String(t || '').split('\n')) { if (!ln) continue; const k = ln.indexOf('\t'); ids.push(k < 0 ? ln : ln.slice(0, k)); names.push(k < 0 ? '' : ln.slice(k + 1)); }
     return { ids, names };
@@ -113,6 +136,7 @@
         ${p ? `<tr><th>J2000</th><td class="mono">RA ${p.hms} · Dec ${p.dms}</td></tr>` : ''}</table>
       <div class="row uv-acts">${p ? `<button class="b uv-copy" data-c="${esc(p.stellarium)}">Copy for Stellarium</button>` : ''}
         <a href="${ned}" target="_blank" rel="noopener">NED ↗</a><a href="${sim}" target="_blank" rel="noopener">SIMBAD ↗</a>
+        ${p ? `<button class="b uv-atlas" data-ra="${p.ra.toFixed(5)}" data-dec="${p.dec.toFixed(5)}" data-fov="${photoFov(i).toFixed(3)}" title="Opens the Space atlas on this galaxy: real survey pictures, zoomable">See its picture</button>` : ''}
         <button class="b uv-go" data-i="${i}">Fly here</button><button class="b uv-share" data-sel="${esc(id)}">Share link</button></div></div>`;
   }
   // where a galaxy's distance comes from, in plain words (how: 0 own redshift, 1 its group's redshift, 2 measured, 3 its group's measured)
@@ -125,11 +149,20 @@
       return `Measured${m.length ? ' with ' + m.join(', ').replace(/, ([^,]*)$/, ' and $1') : ''} (Cosmicflows-4), not taken from its redshift.`;
     }
     if (how === 3) return 'The measured distance of its group (Cosmicflows-4): the middle value of the members that have one.';
+    if (how === 4) {
+      const m = METHODS.filter((_, k) => G.meth[i] & (1 << k));
+      return `Measured${m.length ? ' with ' + m.join(', ') : ''} (Local Volume catalogue, Karachentsev et al. 2013), not taken from its redshift.`;
+    }
+    if (how === 5) return 'The distance of the group it belongs to (Local Volume catalogue, Karachentsev et al. 2013), not taken from its own redshift.';
     const rough = d < 25 ? ' Rough this close to home: a galaxy\'s own motion can shift it by a few Mpc (about 10 million light-years).' : '';
     return (how === 1 ? 'From the redshift of its group.' : 'From its redshift.') + rough;
   }
+  // how much sky to show around a galaxy in the atlas: brighter (in infrared) galaxies are bigger on the sky
+  const photoFov = i => Math.max(0.04, Math.min(2.5, 0.05 * Math.pow(10, 0.15 * (11.75 - kmag(i)))));
   function landmarkCard(k) {
     const l = (U().landmarks || [])[k];
+    if (l.kind === 'zoa') return `<div class="uv-card"><div class="row"><h3>${esc(l.name)}</h3><span class="spacer"></span><button class="b uv-x" aria-label="Close">✕</button></div>
+      <p class="small">${esc(l.note)}</p></div>`;
     return `<div class="uv-card"><div class="row"><h3>${esc(l.name)}</h3><span class="spacer"></span><button class="b uv-x" aria-label="Close">✕</button></div>
       <p class="small">${esc(l.note)}</p><p class="small muted">${fmtDist(l.dist)} · RA ${fmtRa(l.ra)} · Dec ${fmtDec(l.dec)} · ${l.measured ? 'centre of the matching galaxy group' : 'approximate centre from the literature'}</p>
       <div class="row uv-acts"><button class="b uv-golm" data-k="${k}">Fly here</button></div></div>`;
@@ -211,7 +244,10 @@
     // distance rings in the supergalactic plane, every 100 Mpc, and the Milky Way's plane at home
     const m = (U() || {}).eq_to_sg || [[1, 0, 0], [0, 1, 0], [0, 0, 1]], ring = [];
     for (const R of [100, 200, 300]) for (let a = 0; a < 128; a++) for (const t of [a, a + 1]) { const ang = t / 128 * 2 * Math.PI; for (let j = 0; j < 3; j++) ring.push(R * (Math.cos(ang) * m[0][j] + Math.sin(ang) * m[1][j])); }
-    return { gl, pts, lines, pos: buf(G.xyz), col: buf(colorsFor(LS.get('sl_uv_color', 'env'))), size: buf(size), ring: buf(new Float32Array(ring)), nring: ring.length / 3 };
+    const gal = [];                                    // the Milky Way's plane, out to the edge of the map
+    for (const R of [120, 240]) for (let a = 0; a < 128; a++) for (const t of [a, a + 1]) gal.push(...galPoint(t / 128 * 360, R));
+    return { gl, pts, lines, pos: buf(G.xyz), col: buf(colorsFor(LS.get('sl_uv_color', 'env'))), size: buf(size), ring: buf(new Float32Array(ring)), nring: ring.length / 3,
+             gal: buf(new Float32Array(gal)), ngal: gal.length / 3 };
   }
   function draw() {
     if (!V || !V.glx) return;
@@ -227,6 +263,9 @@
     gl.uniform4f(gl.getUniformLocation(lines, 'col'), 0.25, 0.3, 0.4, 1);
     gl.bindBuffer(gl.ARRAY_BUFFER, V.glx.ring); let a = gl.getAttribLocation(lines, 'p'); gl.enableVertexAttribArray(a); gl.vertexAttribPointer(a, 3, gl.FLOAT, false, 0, 0);
     if (LS.get('sl_uv_rings', true)) gl.drawArrays(gl.LINES, 0, V.glx.nring);
+    gl.uniform4f(gl.getUniformLocation(lines, 'col'), 0.45, 0.3, 0.16, 1);
+    gl.bindBuffer(gl.ARRAY_BUFFER, V.glx.gal); gl.vertexAttribPointer(a, 3, gl.FLOAT, false, 0, 0);
+    if (LS.get('sl_uv_rings', true)) gl.drawArrays(gl.LINES, 0, V.glx.ngal);
     gl.disableVertexAttribArray(a);
     gl.useProgram(pts);
     gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
@@ -258,6 +297,10 @@
         html += `<button class="uv-lm uv-${l.kind}" data-k="${k}" style="transform:translate(${p[0].toFixed(0)}px,${p[1].toFixed(0)}px)">${esc(l.name)}</button>`;
       });
     }
+    (G.sn || []).forEach((s, k) => {
+      const i = s.host, p = project(M, [G.xyz[3 * i], G.xyz[3 * i + 1], G.xyz[3 * i + 2]], w, h);
+      if (p && p[0] > -10 && p[0] < w + 10 && p[1] > -10 && p[1] < h + 10) html += `<button class="uv-sn" data-s="${k}" style="transform:translate(${p[0].toFixed(0)}px,${p[1].toFixed(0)}px)" title="Possible supernova ${esc(s.id)}">✷</button>`;
+    });
     if (V.sel !== null && V.sel !== undefined) {
       const i = V.sel, p = project(M, [G.xyz[3 * i], G.xyz[3 * i + 1], G.xyz[3 * i + 2]], w, h);
       if (p) html += `<div class="uv-sel" style="transform:translate(${p[0].toFixed(0)}px,${p[1].toFixed(0)}px)"></div>`;
@@ -338,6 +381,94 @@
     wireCard();
     if (fly) flyTo(l.xyz, l.kind === 'void' ? 70 : l.kind === 'region' ? 90 : 25);
   }
+  // ------------------------------------------------------------------ the picture: the Space atlas, opened on this galaxy
+  function openAtlas(ra, dec, fov) {
+    LS.set('sl_atlas_view', [+ra.toFixed(4), +dec.toFixed(4), +fov.toFixed(3)]);
+    LS.set('sl_atlas_mode', 'sky');
+    const b = document.querySelector('nav.tabs button[data-tab="atlas"]');
+    if (b) b.click();
+    S.track('universe/atlas', true);
+  }
+
+  // ------------------------------------------------------------------ the Milky Way's plane: where galaxies are hidden
+  // galactic centre (l = 0) and l = 90 deg, as unit vectors in equatorial coordinates (J2000)
+  const GAL_X = (() => { const a = 266.40499 * Math.PI / 180, d = -28.93617 * Math.PI / 180; return [Math.cos(d) * Math.cos(a), Math.cos(d) * Math.sin(a), Math.sin(d)]; })();
+  const GAL_Y = (() => { const a = 318.00438 * Math.PI / 180, d = 48.32964 * Math.PI / 180; return [Math.cos(d) * Math.cos(a), Math.cos(d) * Math.sin(a), Math.sin(d)]; })();
+  const galPoint = (l, R) => { const c = Math.cos(l * Math.PI / 180), s = Math.sin(l * Math.PI / 180); return [0, 1, 2].map(j => R * (c * GAL_X[j] + s * GAL_Y[j])); };
+  const ZOA_NOTE = 'Hardly any galaxies are drawn in this band. It is not empty space: it is the plane of our own Milky Way, seen from inside. Its dust and crowded stars hide the galaxies behind it, so surveys in visible and near-infrared light miss many of them. Radio and X-ray surveys find clusters there, like the Norma Cluster near the Great Attractor.';
+  function addZoa(u) {
+    if (!u.landmarks || u.landmarks.some(l => l.kind === 'zoa')) return;
+    for (const l of [90, 270]) u.landmarks.push({ name: 'Hidden behind the Milky Way', kind: 'zoa', xyz: galPoint(l, 160), note: ZOA_NOTE, dist: 160, ra: 0, dec: 0 });
+  }
+
+  // ------------------------------------------------------------------ recent supernovae, pinned on the galaxy they went off in
+  // The candidates come from the ALeRCE broker (the Sky watch tab). Most are far beyond this map; one counts only when a galaxy
+  // of this map lies within a minute of arc (a chance hit is about one in a thousand).
+  function supernovae() {
+    if (G.sn) return G.sn;
+    const list = ((D().beyond || {}).supernovae || []).filter((s, k, a) => isFinite(s.ra) && isFinite(s.dec) && a.findIndex(x => x.id === s.id) === k);
+    const lim = Math.cos(60 / 3600 * Math.PI / 180), out = [];
+    for (const s of list) {
+      const a = s.ra * Math.PI / 180, d = s.dec * Math.PI / 180, v = [Math.cos(d) * Math.cos(a), Math.cos(d) * Math.sin(a), Math.sin(d)];
+      let best = -1, bd = lim;
+      for (let i = 0; i < G.n; i++) {
+        const x = G.xyz[3 * i], y = G.xyz[3 * i + 1], z = G.xyz[3 * i + 2], r = Math.hypot(x, y, z) || 1;
+        const c = (x * v[0] + y * v[1] + z * v[2]) / r;
+        if (c > bd) { bd = c; best = i; }
+      }
+      if (best >= 0) out.push(Object.assign({}, s, { host: best }));
+    }
+    G.sn = out;
+    G.snAll = list.length;
+    return out;
+  }
+  function snCard(k) {
+    const s = G.sn[k], i = s.host, first = isFinite(s.first_mjd) ? new Date((s.first_mjd - 40587) * 86400000).toISOString().slice(0, 10) : '';
+    return `<div class="uv-card"><div class="row"><h3>✷ Possible supernova ${esc(s.id)}</h3><span class="spacer"></span><button class="b uv-x" aria-label="Close">✕</button></div>
+      <p class="small">A star that may have exploded in <b>${esc(nameOf(i))}</b>, ${fmtDist(dist(i))} away. Its light left that galaxy about ${num(dist(i) * MLY, dist(i) * MLY < 10 ? 1 : 0)} million years ago.</p>
+      <table class="small uv-facts"><tr><th>Chance it is a supernova</th><td>${num((s.prob || 0) * 100, 0)}% (the ALeRCE broker's machine classifier)</td></tr>
+        ${first ? `<tr><th>First seen</th><td>${first} (Zwicky Transient Facility)</td></tr>` : ''}</table>
+      <div class="row uv-acts">${/^https:\/\/alerce\.online\//.test(s.url || '') ? `<a href="${esc(s.url)}" target="_blank" rel="noopener">ALeRCE ↗</a>` : ''}<button class="b uv-snhost" data-i="${i}">Show the galaxy</button></div></div>`;
+  }
+
+  // ------------------------------------------------------------------ guided tour
+  const TOUR = [['home', 'Home: the Milky Way', 'We are here, in the Local Group with Andromeda and about 80 smaller galaxies. Everything on this map is seen from this spot.', 8],
+    ['Virgo Cluster', null, null, 30], ['Local Void', null, null, 60], ['Fornax Cluster', null, null, 30], ['Great Attractor', null, null, 90],
+    ['Perseus-Pisces Supercluster', null, null, 110], ['Coma Cluster', null, null, 60], ['CfA2 Great Wall', null, null, 140],
+    ['Shapley Supercluster', null, null, 160], ['Boötes Void', null, null, 160], ['Sloan Great Wall', null, null, 220],
+    ['home', 'Back home', 'That is the local universe as 43,000 galaxies show it. Search any galaxy by name, or fly through it yourself with F.', 420]];
+  function tourStop(k) {
+    const T = V.tour;
+    if (!T) return;
+    clearTimeout(T.timer);
+    T.k = Math.max(0, Math.min(TOUR.length - 1, k));
+    const [key, title, text, d] = TOUR[T.k], marks = U().landmarks || [];
+    const li = key === 'home' ? -1 : marks.findIndex(l => l.name === key);
+    const l = li >= 0 ? marks[li] : null;
+    if (key !== 'home' && !l) { tourStop(T.k + 1); return; }
+    flyTo(l ? l.xyz : [0, 0, 0], d);
+    V.sel = null;
+    V.el.querySelector('.uv-cardbox').innerHTML = '';
+    const box = V.el.querySelector('.uv-tour');
+    box.hidden = false;
+    box.innerHTML = `<div class="small muted">Tour · stop ${T.k + 1} of ${TOUR.length}</div><b>${esc(title || l.name)}</b>
+      ${l ? `<span class="small muted"> · ${fmtDist(l.dist)}</span>` : ''}<p class="small">${esc(text || l.note)}</p>
+      <div class="row"><button class="b uv-tprev" ${T.k ? '' : 'disabled'}>◀ Back</button><button class="b uv-tpause">${T.paused ? '▶ Play' : '❚❚ Pause'}</button>
+        <button class="b primary uv-tnext">${T.k === TOUR.length - 1 ? 'Finish' : 'Next ▶'}</button><span class="spacer"></span><button class="b uv-tend" aria-label="End the tour">✕</button></div>`;
+    box.querySelector('.uv-tprev').addEventListener('click', () => { T.paused = true; tourStop(T.k - 1); });
+    box.querySelector('.uv-tnext').addEventListener('click', () => (T.k === TOUR.length - 1 ? tourEnd() : tourStop(T.k + 1)));
+    box.querySelector('.uv-tpause').addEventListener('click', () => { T.paused = !T.paused; tourStop(T.k); });
+    box.querySelector('.uv-tend').addEventListener('click', tourEnd);
+    if (!T.paused && T.k < TOUR.length - 1) T.timer = setTimeout(() => tourStop(T.k + 1), 11000);
+  }
+  function tourStart() { tourEnd(); V.tour = { k: 0, paused: false }; S.track('universe/tour', true); tourStop(0); }
+  function tourEnd() {
+    if (!V || !V.tour) return;
+    clearTimeout(V.tour.timer);
+    V.tour = null;
+    const box = V.el.querySelector('.uv-tour'); box.hidden = true; box.innerHTML = '';
+  }
+
   function shareUrl(params) {
     const base = ((D().site || {}).url) || (location.origin + location.pathname);
     return base + '?' + params + '#universe';
@@ -356,6 +487,8 @@
     box.querySelectorAll('.uv-x').forEach(b => b.addEventListener('click', () => { box.innerHTML = ''; V.sel = null; redraw(); }));
     box.querySelectorAll('.uv-copy').forEach(b => b.addEventListener('click', () => copy(b.dataset.c, b)));
     box.querySelectorAll('.uv-go').forEach(b => b.addEventListener('click', () => select(+b.dataset.i, true)));
+    box.querySelectorAll('.uv-atlas').forEach(b => b.addEventListener('click', () => openAtlas(+b.dataset.ra, +b.dataset.dec, +b.dataset.fov)));
+    box.querySelectorAll('.uv-snhost').forEach(b => b.addEventListener('click', () => select(+b.dataset.i, true)));
     box.querySelectorAll('.uv-golm').forEach(b => b.addEventListener('click', () => showLandmark(+b.dataset.k, true)));
     box.querySelectorAll('.uv-share').forEach(b => b.addEventListener('click', () => copy(shareUrl('sel=' + encodeURIComponent(b.dataset.sel)), b)));
   }
@@ -458,7 +591,8 @@
     const u = U();
     G.loading = (async () => {
       const [buf, txt] = await Promise.all([S.loadBytes(u.bin), S.load(u.txt)]);
-      Object.assign(G, parseBin(buf), parseTxt(txt));
+      const bin = parseBin(buf);
+      Object.assign(G, bin, parseTxt(txt, bin.version === 2 ? bin.n : 0));
       if (G.ids.length !== G.n) throw new Error('the galaxy files do not match; they will be rebuilt');
       G.famousByI = {}; (u.famous || []).forEach(f => { G.famousByI[f.i] = f; });
       G.ready = true;
@@ -476,17 +610,19 @@
         <div class="row uv-bar"><div class="uv-search"><input type="search" class="uv-q" placeholder="Search: Whirlpool, M87, NGC 4993, Coma, Boötes Void, 2MASS ID" aria-label="Search galaxies, clusters and voids"><ul class="uv-results"></ul></div>
           <button class="b uv-mode">Orbit mode (F)</button>
           <select class="uv-color" aria-label="Colour the galaxies by"><option value="env">Colour: cosmic web</option><option value="dist">Colour: distance</option><option value="type">Colour: galaxy type</option></select>
-          <button class="b uv-home-btn">Home (H)</button><button class="b uv-view">Share this view</button></div></div>
+          <button class="b uv-home-btn">Home (H)</button><button class="b uv-view">Share this view</button><button class="b primary uv-tour-btn">▶ Take the tour</button></div></div>
       <div class="uv-wrap"><canvas class="uv-canvas" aria-label="3D map of about 43,500 galaxies. Use search to find one."></canvas><div class="uv-labels"></div>
-        <div class="uv-read small mono"></div><div class="uv-joy" hidden><span></span></div><div class="uv-cardbox"></div>
+        <div class="uv-read small mono"></div><div class="uv-joy" hidden><span></span></div><div class="uv-cardbox"></div><div class="uv-tour" hidden></div>
         <div class="uv-loading small">Loading ${Number(u.n).toLocaleString()} galaxies…</div></div>
       <div class="card small uv-legend"><b>Colours (cosmic web):</b> ${ENV.map(e => `<span class="uv-dot" style="background:${e[3]}"></span>${e[0]} (${Number(c[e[0]] || 0).toLocaleString()})`).join(' · ')}.
-        <span class="muted">Rings: 100, 200 and 300 Mpc (about 330, 650 and 980 million light-years) in the supergalactic plane.</span>
+        <span class="muted">Grey rings: 100, 200 and 300 Mpc (about 330, 650 and 980 million light-years) in the supergalactic plane. Brown rings: the plane of our Milky Way, where its dust hides the galaxies behind it.</span>
+        <span class="muted uv-snnote"></span>
         <details><summary>How the galaxies are placed, and what is missing</summary>
           <p><b>Most galaxies are placed by redshift.</b> The expansion of the universe carries a galaxy away faster the farther it is, so its speed gives its distance (here with a Hubble constant of ${num(u.h0, 0)} km/s per Mpc). First the speed is cleaned up. Near home, our own motion and the pull of the Virgo Cluster, the Great Attractor and the Shapley Supercluster are taken out (the flow model of Mould et al. 2000, the one NASA's NED database uses). Far away, speeds are measured against the cosmic microwave background. Members of a group or cluster share their group's average speed (Tully 2015), which removes the "Fingers of God": clusters stretched along the line of sight by their galaxies' orbits.</p>
           <p><b>${Number(u.n_measured || 0).toLocaleString()} nearby galaxies are placed by a measured distance instead</b> (and ${Number(u.n_group_measured || 0).toLocaleString()} more by their group's), from Cosmicflows-4: red giant stars, Cepheids, masers, surface brightness fluctuations and supernovae. A measured distance is used within ${num(45 * MLY, 0)} million light-years, when it is more precise than the redshift. It is how Andromeda is on the map at all: it moves towards us, so its redshift gives no distance. Each galaxy's card says which kind of distance it shows.</p>
           <p><b>What is missing or rough.</b> A redshift distance is off by the galaxy's own motion, typically 3 to 4 Mpc (about 12 million light-years): small far away, large near home. ${u.n_left_out ? `${Number(u.n_left_out).toLocaleString()} galaxies with almost no speed and no good measured distance are left out. ` : ''}The empty band is the plane of our own Milky Way, whose dust and stars hide the galaxies behind it. Fainter galaxies drop out with distance, so the far regions look emptier than they are. Cosmic-web classes come from the tidal field of the smoothed galaxy density (T-web), and are less certain far away.</p>
           <p class="muted">Data: 2MASS Redshift Survey (Huchra et al. 2012); 2MASS group catalogue (Tully 2015); Cosmicflows-4 (Tully et al. 2023), all through VizieR. Inspired by Know the Universe (knowtheuniverse.com).</p></details></div>`;
+    addZoa(u);
     V = { el, canvas: el.querySelector('.uv-canvas'), cam: defaultCam(), keys: {}, sel: null, touch: !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches) };
     el.querySelector('.uv-color').value = LS.get('sl_uv_color', 'env');
     wireSearch();
@@ -502,7 +638,15 @@
       el.querySelector('.uv-home-btn').addEventListener('click', () => { V.cam = defaultCam(); redraw(); });
       el.querySelector('.uv-view').addEventListener('click', e => copy(shareUrl(camParam()), e.currentTarget));
       el.querySelector('.uv-color').addEventListener('change', e => { LS.set('sl_uv_color', e.target.value); if (V.glx) { const gl = V.glx.gl; gl.bindBuffer(gl.ARRAY_BUFFER, V.glx.col); gl.bufferData(gl.ARRAY_BUFFER, colorsFor(e.target.value), gl.STATIC_DRAW); } redraw(); });
-      el.querySelector('.uv-labels').addEventListener('click', e => { const b = e.target.closest('.uv-lm'); if (b) showLandmark(+b.dataset.k, true); });
+      el.querySelector('.uv-labels').addEventListener('click', e => {
+        const b = e.target.closest('.uv-lm'), sn = e.target.closest('.uv-sn');
+        if (b) { tourEnd(); showLandmark(+b.dataset.k, true); }
+        if (sn) { tourEnd(); V.el.querySelector('.uv-cardbox').innerHTML = snCard(+sn.dataset.s); wireCard(); }
+      });
+      el.querySelector('.uv-tour-btn').addEventListener('click', tourStart);
+      const sn = supernovae(), note = el.querySelector('.uv-snnote');
+      if (note) note.textContent = G.snAll ? ` ✷ ${sn.length} of the ${G.snAll} newest supernova candidates (ALeRCE) went off in a galaxy of this map; the rest are farther away.`
+        + ' Gravitational-wave alerts are not pinned: each comes with a patch of sky hundreds of square degrees wide and no galaxy. The one that had a galaxy, GW170817, is NGC 4993: search for it.' : '';
       redraw();
     }).catch(e => { const l = el.querySelector('.uv-loading'); if (l) l.textContent = 'The galaxy files could not be loaded: ' + e.message; });
     S.track('universe/open', true);

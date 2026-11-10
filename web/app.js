@@ -30,6 +30,7 @@ function runExtras(tab) {
 window.SpaceLab = {
   get data() { return PUB; },
   esc: s => esc(s), num: (x, d) => num(x, d), local: true,
+  showTic: tic => document.getElementById('tic-' + tic) || document.querySelector(`.card[data-tic="${tic}"]`),
   // Cloud forecast for a place, only when a visitor asks for it: the free Open-Meteo service gets the place rounded to ~10 km.
   weather: (lat, lon) => fetch(`https://api.open-meteo.com/v1/forecast?latitude=${(+lat).toFixed(1)}&longitude=${(+lon).toFixed(1)}&hourly=cloud_cover&forecast_days=2&timeformat=unixtime&timezone=auto`)
     .then(r => (r.ok ? r.json() : Promise.reject(new Error('weather service: HTTP ' + r.status)))),

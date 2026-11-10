@@ -207,3 +207,8 @@ button.b.at-mode.on,button.b.at-layer.on,button.b.at-alt.on{background:var(--acc
 .uv-joy span{position:absolute;left:34px;top:34px;width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,.45)}
 .uv-copyfield{width:100%;font:inherit}
 @media (max-width: 600px){ .uv-wrap{height:64vh} .uv-cardbox{max-width:none} }
+.uv-sn{all:unset;position:absolute;left:0;top:0;pointer-events:auto;cursor:pointer;margin:-11px 0 0 -7px;color:#ff6b5e;font-size:18px;line-height:1;padding:2px;text-shadow:0 0 6px #000}
+.uv-lm.uv-zoa{color:#d9a86c;font-style:italic}
+.uv-tour{position:absolute;left:10px;bottom:10px;max-width:min(440px,calc(100% - 20px));background:rgba(12,16,26,.94);border:1px solid #2a3140;border-radius:10px;padding:10px 12px;z-index:4}
+.uv-tour p{margin:4px 0 8px}
+@media (max-width:600px){.uv-tour{left:6px;right:6px;bottom:6px;max-width:none}}

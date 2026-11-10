@@ -35,7 +35,8 @@ window.SpaceLab = {
   // the same, as raw bytes (the 3D universe's galaxy file)
   loadBytes: p => /^[A-Za-z0-9_./-]+$/.test(p) && !p.includes('..') && !p.startsWith('/')
     ? fetch(p).then(r => (r.ok ? r.arrayBuffer() : Promise.reject(new Error('HTTP ' + r.status)))) : Promise.reject(new Error('only files from this site')),
-  onRender(fn) { HOOKS.push(fn); },                   // fn(tabName, viewElement, data) after every tab render
+  onRender(fn) { HOOKS.push(fn); },
+  showTic: tic => showTic(tic),                      // the card of TESS candidate `tic`, shown even if it was on a later page                   // fn(tabName, viewElement, data) after every tab render
   addTab(id, title, render) {                          // render(viewElement, data)
     if (R[id] || EXTRA_TABS[id]) return;
     EXTRA_TABS[id] = render;
@@ -95,12 +96,28 @@ function today() {
     <div class="grid g2">${jobs || '<div class="card empty">No runs yet.</div>'}</div>`;
 }
 
+// The TESS tab shows the strongest candidates first, a page at a time: 120 full cards with plots are heavy on a phone.
+const TESS_PAGE = 20;
+let tessShown = TESS_PAGE, wantTic = null;
+function showTic(tic) {                                 // make sure a candidate's card is on the page (deep links, "go to" links)
+  const all = (D && D.tess && D.tess.cands) || [];
+  const k = all.findIndex(c => String(c.tic) === String(tic));
+  if (k >= tessShown) {
+    tessShown = k + 1;
+    if ($('#v-tess').classList.contains('on')) { tess(); runExtras('tess'); }
+  }
+  return document.getElementById('tic-' + tic);
+}
+
 function tess() {
   const t = D?.tess, m = t?.model || {};
   if (t && !t.stats) t.stats = {};
   if (!t) { $('#v-tess').innerHTML = VIEWER_ERR + '<div class="card"><h3>Looking for new planets in NASA TESS data</h3><p>The TESS data hasn\'t loaded yet. It should appear once the overnight pipeline runs.</p></div>'; return; }
 
-  const cards = t.cands.map(c => {
+  if (wantTic) { const k = t.cands.findIndex(c => 'tic-' + c.tic === wantTic); if (k >= tessShown) tessShown = k + 1; wantTic = null; }
+  const rest = t.cands.length - tessShown;
+  const more = rest > 0 ? `<div class="row" style="justify-content:center;margin:12px 0"><button class="b" data-tess-more>Show ${Math.min(40, rest)} more candidates (${rest} not shown yet)</button></div>` : '';
+  const cards = t.cands.slice(0, tessShown).map(c => {
     const ai = c.ai, cen = c.centroid;
     const what = c.kind === 'periodic' ? `dips every <b class="mono">${num(c.period, 4)} days</b>` : 'one lone dip (period unknown)';
     return `<div class="card" id="tic-${c.tic}" data-tic="${c.tic}"><div class="row"><h3>TIC ${c.tic}</h3><span class="chip">${esc(c.status)}</span>${c.known ? `<span class="chip ok">known: ${esc(c.known)}</span>` : ''}<span class="spacer"></span><span class="small muted">found ${day(c.created)}</span></div>
@@ -127,7 +144,7 @@ function tess() {
       <p><b>Bottom left: all dips stacked.</b> Every dip lined up on top of each other. The red box is the simple transit model. A flat-bottomed U or box suits a planet; a sharp V often means two stars eclipsing.</p>
       <p><b>Bottom right: odd vs even dips.</b> If odd and even dips have different depths, it's probably an eclipsing binary at twice the period. The dashed line is the brightness halfway between dips and should be flat (a dip there means a secondary eclipse, i.e. a star).</p></details></div>
     <div class="card"><details><summary>How this tab works</summary><p style="margin:0">A GPU-based Box Least Squares search finds repeating brightness dips in TESS light curves. Each candidate goes through false-positive checks (depth ratios, centroid test, star density) before being shown here. A local vision AI then reads the diagnostic plots to give a first verdict. Your personal ML model scores each one based on past decisions.</p></details></div>
-    ${cards || '<div class="card empty">No signals under review right now.</div>'}`;
+    ${cards || '<div class="card empty">No signals under review right now.</div>'}${more}`;
 }
 
 function asteroids() {
@@ -234,6 +251,7 @@ window.addEventListener('hashchange', () => {             // a link to another t
 document.addEventListener('click', async e => {
   const t = e.target.closest('button, img.plot, #zoom');
   if (!t) return;
+  if (t.matches('[data-tess-more]')) { tessShown += 40; tess(); runExtras('tess'); return; }
   if (t.matches('nav.tabs button')) return setTab(t.dataset.tab);
   if (t.dataset.go) { const el = document.getElementById(t.dataset.go); if (el && el.scrollIntoView) return el.scrollIntoView({ behavior: 'smooth', block: 'start' }); return setTab(t.dataset.go); }
   if (t.id === 'pubGo') return adsSearch();
@@ -293,6 +311,7 @@ Promise.all([fetch('data.json', { cache: 'no-store' }).then(r => r.json()), read
     layoutNav();
     const start = (location.hash || '#today').slice(1);
     const deep = /^tic-\d+$/.test(start) ? start : null;
+    wantTic = deep;
     setTab(deep ? 'tess' : R[start] || EXTRA_TABS[start] ? start : 'today');
     if (deep) setTimeout(() => { const el = document.getElementById(deep); if (el) { el.scrollIntoView({ block: 'start' }); el.classList.add('flash'); } }, 300);
   })

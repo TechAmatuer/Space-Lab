@@ -1153,7 +1153,13 @@ def plates_pure_helpers():
     assert plates.due_again('A', {'t': now - 7 * 3600, 'plates': [{'result': 'not found (not enough Gaia stars could be matched for a plate solution)'}]}, [], 120 * 86400, now)
     fine = {'t': now - 7 * 3600, 'plates': [{'result': 'not found (nothing above 4 sigma)'}]}
     assert not plates.due_again('A', fine, [], 120 * 86400, now) and plates.due_again('A', dict(fine, t=now - 121 * 86400), [], 120 * 86400, now)
-    assert plates.due_again('M', dict(fine, t=now - 21 * 3600), ['M'], 120 * 86400, now) and not plates.due_again('M', dict(fine, t=now - 19 * 3600), ['M'], 120 * 86400, now)
+    # your own list: daily while something is open; once settled (all at the MPC / empty / unservable) the normal cycle
+    open_ = dict(fine, plates=[{'result': 'detected'}], v=plates.PLATES_V)
+    assert plates.due_again('M', dict(open_, t=now - 21 * 3600), ['M'], 120 * 86400, now) and not plates.due_again('M', dict(open_, t=now - 19 * 3600), ['M'], 120 * 86400, now)
+    done_ = {'t': now - 3 * 86400, 'v': plates.PLATES_V, 'plates': [{'result': 'already reported by others: used as an accuracy test'},
+                                                                   {'result': 'the cutout server gave plate 10257 instead; skipped'}]}
+    assert plates.settled(done_) and not plates.due_again('M', done_, ['M'], 120 * 86400, now) and plates.due_again('M', dict(done_, t=now - 121 * 86400), ['M'], 120 * 86400, now)
+    assert plates.due_again('M', dict(done_, v=1), ['M'], 120 * 86400, now)                 # measured before the sidereal-time fix: once more
     # the star catalogue: the ESA copy first, then IRSA's; an empty answer is a failure, never "no stars there"
     from spacelab import net as _net
     real_fetch, calls = _net.fetch_text, []
@@ -1278,6 +1284,32 @@ def mpc_send_needs_review_test_email_sarc_and_confirmation():
 
 
 @test
+def publish_makes_smaller_webp_pictures():
+    from spacelab import publish
+    from PIL import Image
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    root = Path(tempfile.mkdtemp())
+    (root / 'files' / 'plots').mkdir(parents=True)
+    fig, ax = plt.subplots(figsize=(8, 5))
+    x = np.linspace(0, 10, 4000)
+    ax.plot(x, np.sin(x) + 0.05 * np.random.default_rng(1).normal(size=x.size), '.', ms=1)
+    ax.set_title('TIC 1 light curve')
+    fig.savefig(root / 'files' / 'plots' / 'a.png', dpi=100)
+    plt.close(fig)
+    Image.new('RGB', (40, 40), 'white').save(root / 'files' / 'plots' / 'unused.png')
+    data = {'tess': {'cands': [{'tic': 1, 'plot': 'files/plots/a.png'}]}, 'note': 'files/plots/a.png is a plot'}
+    n, saved = publish.webp_copies(root, data)
+    assert n == 1 and saved > 0 and data['tess']['cands'][0]['plot'] == 'files/plots/a.webp', (n, data)
+    assert data['note'] == 'files/plots/a.png is a plot'                     # only whole file references change
+    assert (root / 'files' / 'plots' / 'a.png').is_file() and (root / 'files' / 'plots' / 'a.webp').is_file()   # PNG kept for link previews
+    assert not (root / 'files' / 'plots' / 'unused.webp').exists()
+    with Image.open(root / 'files' / 'plots' / 'a.webp') as im:
+        assert im.size == (800, 500)
+
+
+@test
 def radar_never_lists_the_same_story_twice():
     from spacelab import radar, news
     # arXiv ids are read from the article's own text and links (Universe Today links the paper it covers)
@@ -1394,6 +1426,7 @@ def universe_build_collapses_clusters_and_finds_the_web():
     from spacelab import universe
     rng = np.random.default_rng(3)
     rows, tully, cf4, intended = [], [], [], {}
+    used = set()
     from astropy.coordinates import SkyCoord
     import astropy.units as u
     vgrid = np.linspace(0, 40000, 4001)
@@ -1417,7 +1450,10 @@ def universe_build_collapses_clusters_and_finds_the_web():
             cz = helio(float(np.interp(d, dgrid, vgrid)), ra, dec, c.l.deg, c.b.deg)
             if not nest and not meas:
                 intended[i] = d
-        rid = f'{i:08d}+{i % 90:02d}00000'
+        rid = universe.units_id(int(ra / 15 * 360000), int(abs(dec) * 36000) * 2 + (dec < 0))   # a 2MASS-style ID of its own position
+        while rid in used:                                                                       # two fake galaxies in the same 0.01 s
+            rid = universe.units_id(universe.id_units(rid)[0] + 1, universe.id_units(rid)[1])
+        used.add(rid)
         rows.append({'ID': rid, 'RAJ2000': f'{ra:.5f}', 'DEJ2000': f'{dec:.5f}', 'GLON': f'{c.l.deg:.5f}', 'GLAT': f'{c.b.deg:.5f}',
                      'Ktmag': '10.5', 'type': ' 3A2s', 'cz': f'{cz:.1f}', 'CAT': name})
         tully.append({'PGC': str(i + 1), '_RA.icrs': f'{ra:.4f}', '_DE.icrs': f'{dec:+.4f}', 'MType': '3', 'Vcmba': str(int(cz)),
@@ -1452,8 +1488,14 @@ def universe_build_collapses_clusters_and_finds_the_web():
     add(197.4487, -23.3840, cz=2961, name='g1309477-232302')              # NGC 4993 under a coordinate-style survey name
     ngc4993 = rows[-1]['ID']
     ant = add(180.4721, -18.8772, 22.0, name='ARP_244')                   # the Antennae: one survey entry, two NGC numbers
+    m81 = add(148.8882, 69.0653, cz=-34, name='NGC_3031')                 # blueshifted, not in Cosmicflows-4: the Local Volume catalogue places it
+    lvmem = add(150.4851, 55.6807, 12.0, name='NGC_3077x')                # its group's distance in the Local Volume catalogue
+    lvh = add(155.0, 40.0, 11.0)                                          # Local Volume distance from its redshift only: not used
+    lv = [{'Name': 'NGC3031', 'RAJ2000': '09 55 33.2', 'DEJ2000': '+69 03 55', 'Dist': '3.61', 'f_Dist': 'TRGB'},
+          {'Name': 'X', 'RAJ2000': '10 01 56.4', 'DEJ2000': '+55 40 50', 'Dist': '3.82', 'f_Dist': 'mem'},
+          {'Name': 'Y', 'RAJ2000': '10 20 00.0', 'DEJ2000': '+40 00 00', 'Dist': '2.00', 'f_Dist': 'h'}]
     logs = []
-    meta, pos = universe.build(logs.append, (rows, tully, cf4), famous_lookup={
+    meta, pos = universe.build(logs.append, (rows, tully, cf4, lv), famous_lookup={
         'NGC 4993': {'id': ngc4993, 'pos': None},
         'NGC 5194': {'id': None, 'pos': (float(rows[5]['RAJ2000']) + 2e-3, float(rows[5]['DEJ2000']))},
         'NGC 4038': {'id': '12015300-1852033', 'pos': (180.47084, -18.86759)}, 'NGC 4039': {'id': None, 'pos': (180.47296, -18.88619)}})
@@ -1462,8 +1504,8 @@ def universe_build_collapses_clusters_and_finds_the_web():
     assert np_['NGC 224']['why'] == 'blue' and np_['NGC 224']['name'] == 'Andromeda Galaxy' and 'blueshifted' in meta['blueshift_note'], np_
     assert np_['NGC 6946']['why'] == 'near' and np_['NGC 6946']['name'] == 'Fireworks Galaxy' and 'almost no speed' in meta['near_note'], np_
     f4993 = next(f for f in meta['famous'] if f['cat'] == 'NGC 4993')
-    txt0 = (universe.SITE_DIR / 'galaxies.txt').read_text().splitlines()
-    assert txt0[f4993['i']].startswith(ngc4993) and txt0[f4993['i']].endswith('\t'), txt0[f4993['i']]     # matched by 2MASS id; junk name hidden
+    G0 = universe.read_bin(universe.SITE_DIR / 'galaxies.bin', universe.SITE_DIR / 'galaxies-names.txt')
+    assert G0['ids'][f4993['i']] == ngc4993 and G0['names'][f4993['i']] == '', f4993     # matched by 2MASS id; junk name hidden
     assert any(f['cat'] == 'NGC 5194' for f in meta['famous'])                                          # matched by position
     antf = next(f for f in meta['famous'] if f['cat'] == 'NGC 4038')
     assert antf['i'] == pos[rows[ant]['ID']] and antf['also'] == ['NGC 4039'] and antf['name'] == 'Antennae Galaxies', antf
@@ -1472,14 +1514,11 @@ def universe_build_collapses_clusters_and_finds_the_web():
     assert sid == '13094770-2323017' and abs(sp[0] - 197.4487) < 1e-3 and sp[1] < -23
     assert universe.clean_name('g1309477-232302') == '' and universe.clean_name('A0627-1719') == '' and universe.clean_name('ARP 244') == 'ARP 244'
     blob = (universe.SITE_DIR / 'galaxies.bin').read_bytes()
-    assert blob[:4] == b'SLU1' and int.from_bytes(blob[4:8], 'little') == meta['n'] and len(blob) == 16 + meta['n'] * 26
     n = meta['n']
-    xyz = np.frombuffer(blob, '<f4', 3 * n, 16).reshape(n, 3)
-    env = np.frombuffer(blob, np.uint8, n, 16 + 12 * n)
-    nmb = np.frombuffer(blob, np.uint8, n, 16 + 15 * n)
-    czs = np.frombuffer(blob, '<i4', n, 16 + 16 * n)
-    how = np.frombuffer(blob, np.uint8, n, 16 + 24 * n)
-    meth = np.frombuffer(blob, np.uint8, n, 16 + 25 * n)
+    assert blob[:4] == b'SLU2' and int.from_bytes(blob[4:8], 'little') == n and len(blob) == 16 + n * 18 and meta['txt'].endswith('galaxies-names.txt')
+    G = universe.read_bin(universe.SITE_DIR / 'galaxies.bin', universe.SITE_DIR / 'galaxies-names.txt')
+    xyz, env, nmb, czs, how, meth = G['xyz'], G['env'], G['nmb'], G['cz'], G['how'], G['meth']
+    assert all(G['ids'][k] == i for i, k in pos.items()), 'the IDs rebuilt from the compact file are the survey IDs'
     rr = np.linalg.norm(xyz, axis=1)
     # the field galaxies sit where they were put: the velocity corrections were undone exactly, nothing else moved them
     d_out = np.array([rr[pos[rows[i]['ID']]] for i in sorted(intended)[:400]])
@@ -1496,17 +1535,27 @@ def universe_build_collapses_clusters_and_finds_the_web():
     assert fil.sum() > 800 and np.isin(env[fil], [2, 3]).mean() > 0.7, (fil.sum(), np.bincount(env[fil], minlength=5))   # the filament
     # measured distances
     k32, kscl, krough = pos[rows[m32]['ID']], pos[rows[scl]['ID']], pos[rows[rough]['ID']]
-    assert abs(rr[k32] - 0.79) < 0.01 and how[k32] == 2 and meth[k32] == 1 and czs[k32] == -200, (rr[k32], how[k32], meth[k32])
-    assert abs(rr[kscl] - 3.61) < 0.01 and how[kscl] == 2, rr[kscl]
+    assert abs(rr[k32] - 0.79) < 0.015 and how[k32] == 2 and meth[k32] == 1 and czs[k32] == -200, (rr[k32], how[k32], meth[k32])
+    assert abs(rr[kscl] - 3.61) < 0.015 and how[kscl] == 2, rr[kscl]
     assert abs(rr[krough] - 30.0) < 0.2 and how[krough] == 0 and meth[krough] == 0, (rr[krough], how[krough])
     kg = [pos[rows[i]['ID']] for i in grp]
     assert abs(rr[kg[0]] - 10.0) < 0.02 and abs(rr[kg[1]] - 10.4) < 0.02 and how[kg[0]] == 2 and meth[kg[0]] == 8
     assert abs(rr[kg[2]] - 10.2) < 0.02 and abs(rr[kg[3]] - 10.2) < 0.02 and how[kg[2]] == 3 == how[kg[3]], rr[kg]
     assert meta['n_measured'] == 4 and meta['n_group_measured'] == 2, (meta['n_measured'], meta['n_group_measured'])
     assert rows[m31]['ID'] not in pos and any('check NGC 4889' in x for x in logs), logs[-6:]
-    txt = (universe.SITE_DIR / 'galaxies.txt').read_text().splitlines()
-    assert len(txt) == n and any(l.endswith('\tNGC 4889') for l in txt)
-    assert any(f['name'] == 'NGC 4889' and txt[f['i']].endswith('NGC 4889') for f in meta['famous']), meta['famous']
+    k81, kmem, kh = pos[rows[m81]['ID']], pos[rows[lvmem]['ID']], pos[rows[lvh]['ID']]
+    assert abs(rr[k81] - 3.61) < 0.015 and how[k81] == 4 and meth[k81] == 1 and czs[k81] == -34, (rr[k81], how[k81], meth[k81])
+    assert abs(rr[kmem] - 3.82) < 0.015 and how[kmem] == 5 and meth[kmem] == 0, (rr[kmem], how[kmem])
+    assert abs(rr[kh] - 11.0) < 0.1 and how[kh] == 0 and meta['n_local_volume'] == 2, (rr[kh], how[kh], meta['n_local_volume'])
+    assert len(G['names']) == n and 'NGC 4889' in G['names']
+    assert any(f['name'] == 'NGC 4889' and G['names'][f['i']] == 'NGC 4889' for f in meta['famous']), meta['famous']
+    assert bool(np.all(np.diff([universe.id_units(i)[0] for i in G['ids']]) >= 0))   # sorted by RA
+    # positions in the compact file: within 0.02 Mpc in distance and a fraction of an arcsecond in direction
+    rows_by_id = {r['ID']: r for r in rows}
+    for k in range(0, n, 97):
+        r = rows_by_id[G['ids'][k]]
+        w_dir = universe.unit([float(r['RAJ2000'])], [float(r['DEJ2000'])])[0]
+        assert math.degrees(math.acos(min(1.0, float(xyz[k] @ w_dir) / rr[k]))) * 3600 < 1.0, (k, G['ids'][k])
     coma_mark = next(m for m in meta['landmarks'] if m['name'] == 'Coma Cluster')
     assert coma_mark['measured'] and abs(coma_mark['dist'] - want) < 0.3 and '150 galaxies' in coma_mark['note'], coma_mark
     assert not next(m for m in meta['landmarks'] if m['name'] == 'Virgo Cluster')['measured'] and meta['virgo_dist'] is None
@@ -1518,8 +1567,8 @@ def universe_build_collapses_clusters_and_finds_the_web():
     db.kv_set(con, 'universe', meta)
     data, files = publish.build_data(con, {})
     uv = data['beyond']['universe']
-    assert uv['bin'] == 'files/plots/universe/galaxies.bin' and uv['txt'] == 'files/plots/universe/galaxies.txt' and uv['n'] == n, uv.keys()
-    assert {'plots/universe/galaxies.bin', 'plots/universe/galaxies.txt'} <= set(files) and not publish.validate(data)
+    assert uv['bin'] == 'files/plots/universe/galaxies.bin' and uv['txt'] == 'files/plots/universe/galaxies-names.txt' and uv['n'] == n, uv.keys()
+    assert {'plots/universe/galaxies.bin', 'plots/universe/galaxies-names.txt'} <= set(files) and not publish.validate(data)
     assert 'universe.js' in publish.SITE_FILES
 
 

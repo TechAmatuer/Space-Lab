@@ -1335,6 +1335,24 @@
     "last_mjd": 61348.1,
     "prob": 0.81,
     "url": "https://alerce.online/object/ZTF26aaaaaaa"
+   },
+   {
+    "id": "ZTF26virgoaa",
+    "ra": 191.3156275698762,
+    "dec": 12.709477581238044,
+    "first_mjd": 61345.5,
+    "last_mjd": 61350.0,
+    "prob": 0.72,
+    "url": "https://alerce.online/object/ZTF26virgoaa"
+   },
+   {
+    "id": "ZTF26virgoaa",
+    "ra": 191.3156275698762,
+    "dec": 12.709477581238044,
+    "first_mjd": 61345.5,
+    "last_mjd": 61350.0,
+    "prob": 0.72,
+    "url": "https://alerce.online/object/ZTF26virgoaa"
    }
   ],
   "launches": {

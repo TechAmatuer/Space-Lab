@@ -578,7 +578,7 @@
     const cp = el.querySelector('.sl-copy');
     if (cp) cp.addEventListener('click', () => { const t = el.querySelector('.sl-contrib'); t.select(); try { navigator.clipboard && navigator.clipboard.writeText(t.value); } catch (_) {} cp.textContent = 'Copied ✓'; });
     el.querySelectorAll('textarea[data-note]').forEach(t => t.addEventListener('input', () => { const n = LS.get('sl_notes', {}); n[t.dataset.note] = t.value.slice(0, 1000); LS.set('sl_notes', n); }));
-    el.querySelectorAll('[data-goto]').forEach(a => a.addEventListener('click', () => setTimeout(() => { const x = document.getElementById(a.dataset.goto) || document.querySelector(`.card[data-tic="${a.dataset.goto.slice(4)}"]`); if (x && x.scrollIntoView) x.scrollIntoView({ block: 'center' }); }, 400)));
+    el.querySelectorAll('[data-goto]').forEach(a => a.addEventListener('click', () => setTimeout(() => { const x = (window.SpaceLab.showTic && window.SpaceLab.showTic(a.dataset.goto.slice(4))) || document.getElementById(a.dataset.goto) || document.querySelector(`.card[data-tic="${a.dataset.goto.slice(4)}"]`); if (x && x.scrollIntoView) x.scrollIntoView({ block: 'center' }); }, 400)));
     // remember what saved candidates look like now, so the next visit can show what changed
     const ns = {}; favs.forEach(t => { const c = candBy(t); if (c) ns[t] = favSig(c); }); LS.set('sl_fav_snap', Object.assign({}, snap, ns));
   }

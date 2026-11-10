@@ -29,6 +29,7 @@ from . import config, db, net
 SBDB_Q = 'https://ssd-api.jpl.nasa.gov/sbdb_query.api'
 GAIA_TAP = 'https://gea.esac.esa.int/tap-server/tap/sync'
 IRSA_TAP = 'https://irsa.ipac.caltech.edu/TAP/sync'
+PLATES_V = 2                                   # measurement version: 2 = plate times by the sidereal day
 DATE_FIX = 1.0                                 # days SpaceRockSuite adds to SuperCOSMOS dates (they are usually one day early)
 SIDEREAL_LAG = 1.0 - 0.99726957                # days: a sidereal day is 3 min 56 s shorter than a day
 SKYBOT = 'https://ssp.imcce.fr/webservices/skybot/api/conesearch.php'
@@ -847,11 +848,22 @@ def timing_audit(objs, mpc_for):
     return out
 
 
+def settled(o):
+    """Nothing left to learn from this object's plates: every plate is already at the MPC, empty, or one the archive cannot
+    serve. Nothing found, nothing waiting for you, no failures to retry."""
+    ps = o.get('plates') or []
+    open_ = ('detected', 'marginal', 'error:')
+    return bool(ps) and not any(str(p.get('result') or '').startswith(open_) or 'Gaia' in str(p.get('result') or '') for p in ps)
+
+
 def due_again(des, o, manual, redo, now=None):
-    """Search this object again? Your own list: daily. One whose last search hit a failure that was not the sky's fault (a server
-    or the star catalogue down): after six hours, up to three more times. Everything else: after `redo` seconds."""
+    """Search this object again? Measured with older code: now. Your own list: daily until settled. One whose last search hit a
+    failure that was not the sky's fault (a server or the star catalogue down): after six hours, up to three more times.
+    Everything else: after `redo` seconds."""
     age = (now or time.time()) - (o.get('t') or 0)
-    if des in manual:
+    if des in manual and (o.get('v') or 1) < PLATES_V:
+        return True
+    if des in manual and not settled(o):
         return age >= 20 * 3600
     flaky = any(str(p.get('result') or '').startswith('error:') or 'Gaia' in (str(p.get('result') or '') + str(p.get('why') or ''))
                 for p in o.get('plates') or [])
@@ -886,7 +898,7 @@ def search_object(ctx, llm, t, mpc, plates_cfg):
     from .precovery import horizons_predict
     con, log = ctx.con, ctx.log
     des = t['des']
-    summ = {'des': des, 'name': t.get('name') or des, 'why': t.get('why'), 't': time.time(), 'plates': [], 'note': ''}
+    summ = {'des': des, 'name': t.get('name') or des, 'why': t.get('why'), 't': time.time(), 'plates': [], 'note': '', 'v': PLATES_V}
     try:
         track = get_track(des, '1949-01-01', '2003-12-31', step_days=float(plates_cfg.get('step_days', 2)))
     except Exception as e:

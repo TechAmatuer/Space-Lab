@@ -28,6 +28,7 @@ the survey seeing fewer faint galaxies far away.
 import json
 import math
 import struct
+from pathlib import Path
 import time
 
 import numpy as np
@@ -49,7 +50,12 @@ FLOW_FULL, FLOW_NONE = 3500.0, 7000.0          # km/s: flow model alone below, C
 SIGMA_Z = 250.0 / H0                           # Mpc: typical error of a redshift distance (a galaxy's own motion)
 MEAS_MAX_ERR, MEAS_MAX_DIST = 0.20, 45.0       # measured distances used: error in distance modulus (mag), and how far (Mpc)
 METHODS = ('DMtrgb', 'DMceph', 'DMmas', 'DMsbf', 'DMsnIa', 'DMsnII', 'DMtf', 'DMfp')      # bit order of the method mask
-HOW = ('redshift', 'group redshift', 'measured', 'group measured')
+HOW = ('redshift', 'group redshift', 'measured', 'group measured', 'measured (Local Volume)', 'its group (Local Volume)')
+LV_MATCH = 45.0                                # arcsec: Local Volume catalogue positions are given to about a second
+# Local Volume catalogue (Karachentsev et al. 2013) distance methods -> bit of METHODS ('mem': the distance of its group)
+LV_BITS = {'trgb': 0, 'cep': 1, 'mas': 2, 'sbf': 3, 'sn': 4, 'snii': 5, 'tf': 6, 'fp': 7}
+LV_SKIP = ('h', 'txt', '')                     # 'h': from its redshift (no better than this map), 'txt': not stated
+BIN_DIST, BIN_CZ0 = 0.02, 1000                 # compact file: distance step (Mpc) and the offset that keeps blueshifts positive
 SITE_DIR = config.PLOTS / 'universe'
 ENV = ['void', 'sheet', 'filament', 'knot', 'unknown']
 
@@ -433,6 +439,102 @@ def measured_distances(cf4, pgc, ra, dec):
     return d, meth
 
 
+ID_RE = re.compile(r'^(\d{2})(\d{2})(\d{4})([+-])(\d{2})(\d{2})(\d{3})$')
+
+
+def id_units(s):
+    """The position written in a 2MASS ID, as whole numbers: RA in 0.01 s of time, Dec in 0.1 arcsec (times 2, plus 1 when
+    negative, so -00 00 00.0 stays negative). The page rebuilds the ID, the J2000 position and the direction from these."""
+    m = ID_RE.match(s or '')
+    if not m:
+        return None
+    h, mi, s100, sign, d, dm, s10 = m.groups()
+    if int(h) >= 24 or int(mi) >= 60 or int(s100) >= 6000 or int(d) > 90 or int(dm) >= 60 or int(s10) >= 600:
+        return None
+    ra = (int(h) * 3600 + int(mi) * 60) * 100 + int(s100)
+    de = (int(d) * 3600 + int(dm) * 60) * 10 + int(s10)
+    return ra, de * 2 + (1 if sign == '-' else 0)
+
+
+def units_id(ra, de2):
+    h, r = divmod(int(ra), 360000)
+    mi, s100 = divmod(r, 6000)
+    v, neg = divmod(int(de2), 2)
+    d, r = divmod(v, 36000)
+    dm, s10 = divmod(r, 600)
+    return f"{h:02d}{mi:02d}{s100:04d}{'-' if neg else '+'}{d:02d}{dm:02d}{s10:03d}"
+
+
+def read_bin(bin_path, txt_path):
+    """The galaxy files as the page reads them (both formats): xyz (Mpc), env, kb, mt, nmb, cz, how, meth, ids, names."""
+    blob = Path(bin_path).read_bytes()
+    n = int.from_bytes(blob[4:8], 'little')
+    lines = [ln.split('\t', 1) for ln in Path(txt_path).read_text().splitlines() if ln]
+    if blob[:4] == b'SLU2':
+        o = 16
+        ra = np.cumsum(np.frombuffer(blob, '<u4', n, o).astype(np.int64))
+        de2 = np.frombuffer(blob, '<i4', n, o + 4 * n)
+        d = np.frombuffer(blob, '<u2', n, o + 8 * n) * BIN_DIST
+        cz = np.frombuffer(blob, '<u2', n, o + 10 * n).astype(np.int32) - BIN_CZ0
+        b = o + 12 * n
+        ids = [units_id(r, x) for r, x in zip(ra, de2)]
+        rad = ra / 100.0 / 3600.0 * 15.0
+        ded = np.where(de2 % 2 == 1, -1.0, 1.0) * (de2 // 2) / 36000.0
+        xyz = unit(rad, ded) * d[:, None]
+        names = [''] * n
+        for k, nm in lines:
+            names[int(k)] = nm
+        cols = {k: np.frombuffer(blob, np.uint8, n, b + j * n) for j, k in enumerate(('env', 'kb', 'mt', 'nmb', 'how', 'meth'))}
+    else:
+        o = 16
+        xyz = np.frombuffer(blob, '<f4', 3 * n, o).reshape(n, 3).astype(float)
+        cz = np.frombuffer(blob, '<i4', n, o + 16 * n)
+        cols = {k: np.frombuffer(blob, np.uint8, n, o + (12 + j) * n) for j, k in enumerate(('env', 'kb', 'mt', 'nmb'))}
+        more = len(blob) >= o + 26 * n
+        cols['how'] = np.frombuffer(blob, np.uint8, n, o + 24 * n) if more else np.zeros(n, np.uint8)
+        cols['meth'] = np.frombuffer(blob, np.uint8, n, o + 25 * n) if more else np.zeros(n, np.uint8)
+        ids = [x[0] for x in lines]
+        names = [x[1] if len(x) > 1 else '' for x in lines]
+    return dict(n=n, xyz=xyz, cz=cz, ids=ids, names=names, **cols)
+
+
+def _sexa(s, hours):
+    try:
+        p = [float(x) for x in str(s).replace(':', ' ').split()]
+        sign = -1.0 if str(s).strip().startswith('-') else 1.0
+        v = abs(p[0]) + (p[1] if len(p) > 1 else 0) / 60 + (p[2] if len(p) > 2 else 0) / 3600
+        return sign * v * (15.0 if hours else 1.0)
+    except (ValueError, IndexError):
+        return float('nan')
+
+
+def local_volume(lv, ra, dec):
+    """Distances of nearby galaxies from the Local Volume catalogue (Karachentsev et al. 2013), matched by position.
+    Returns (distance in Mpc or nan, method bits, True where the distance is the galaxy's group's)."""
+    d = np.full(len(ra), np.nan)
+    bits = np.zeros(len(ra), np.uint8)
+    mem = np.zeros(len(ra), bool)
+    rows = [r for r in lv or [] if (_f(r.get('Dist')) or 0) > 0 and str(r.get('f_Dist') or '').strip().lower() not in LV_SKIP]
+    if not rows:
+        return d, bits, mem
+    l_ra = np.array([_sexa(r.get('RAJ2000'), True) for r in rows])
+    l_de = np.array([_sexa(r.get('DEJ2000'), False) for r in rows])
+    good = np.isfinite(l_ra) & np.isfinite(l_de)
+    if not good.any():
+        return d, bits, mem
+    gi = np.flatnonzero(good)
+    j = match_sky(ra, dec, l_ra[gi], l_de[gi], LV_MATCH)
+    for i in np.flatnonzero(j >= 0):
+        r = rows[gi[j[i]]]
+        f = str(r.get('f_Dist') or '').strip().lower()
+        d[i] = _f(r.get('Dist'))
+        mem[i] = f.startswith('mem')
+        key = 'snii' if f.startswith('snii') else next((k for k in LV_BITS if f.startswith(k)), None)
+        if key:
+            bits[i] = 1 << LV_BITS[key]
+    return d, bits, mem
+
+
 def build(log, sources=None, famous_lookup=None):
     """Download, combine and write the files. sources / famous_lookup: optional pre-loaded tables (for tests)."""
     if sources is None:
@@ -450,8 +552,16 @@ def build(log, sources=None, famous_lookup=None):
         except Exception as e:
             cf4 = []
             log(f'    measured distances not available this time ({e}); every galaxy is placed by redshift')
+        try:
+            lv = _table(_asu({'-source': 'J/AJ/145/101/catalog', '-out': 'Name,RAJ2000,DEJ2000,Dist,f_Dist', '-out.max': '3000'},
+                             timeout=300))
+            log(f'    {len(lv)} galaxies of the Local Volume catalogue (Karachentsev 2013)')
+        except Exception as e:
+            lv = []
+            log(f'    Local Volume catalogue not available this time ({e})')
     else:
-        twomrs, tully, cf4 = sources
+        twomrs, tully, cf4, *rest = sources
+        lv = rest[0] if rest else []
     ra = np.array([_f(r.get('RAJ2000')) for r in twomrs], float)
     dec = np.array([_f(r.get('DEJ2000')) for r in twomrs], float)
     l = np.array([_f(r.get('GLON')) for r in twomrs], float)
@@ -523,6 +633,13 @@ def build(log, sources=None, famous_lookup=None):
             n_grp += len(rest)
     dist[own], how[own] = d_meas[own], 2
     meth[~own] = 0
+    # nearby galaxies Cosmicflows-4 does not have (M81, NGC 3109...): the Local Volume catalogue
+    d_lv, m_lv, mem_lv = local_volume(lv, ra, dec)
+    use = np.isfinite(d_lv) & ~own
+    dist[use], meth[use] = d_lv[use], m_lv[use]
+    how[use] = np.where(mem_lv[use], 5, 4)
+    if use.any():
+        log(f'  {int(use.sum())} nearby galaxies placed with the Local Volume catalogue (Karachentsev et al. 2013)')
     placed = np.isfinite(dist) & (dist > 0)
     left = ok & ~placed
     log(f'  {placed.sum()} galaxies placed: {int(np.sum(placed & (how == 2)))} at their own measured distance, {n_grp} at their '
@@ -540,17 +657,34 @@ def build(log, sources=None, famous_lookup=None):
     marks = place_landmarks(gr, log)
     # files: binary arrays for the viewer and a text index for names and search
     keep = np.flatnonzero(placed)
+    units = [id_units(ids[i]) for i in keep]
+    compact = (all(units) and float(np.nanmax(dist[keep], initial=0)) < 65535 * BIN_DIST
+               and float(np.nanmin(np.nan_to_num(cz[keep]), initial=0)) > -BIN_CZ0 and float(np.nanmax(np.nan_to_num(cz[keep]), initial=0)) < 65535 - BIN_CZ0)
+    if compact:                                          # sorted by RA, so the RA column is small steps that pack well
+        order = np.argsort([u[0] for u in units], kind='stable')
+        keep, units = keep[order], [units[k] for k in order]
     N = len(keep)
     SITE_DIR.mkdir(parents=True, exist_ok=True)
     kbyte = np.clip(np.round((kt[keep] - 3.0) * 20), 0, 255).astype(np.uint8)
-    blob = b'SLU1' + struct.pack('<I', N) + b'\0' * 8
-    blob += xyz[keep].astype('<f4').tobytes()
-    blob += env[keep].astype(np.uint8).tobytes() + kbyte.tobytes() + mt[keep].tobytes() + np.minimum(nmb[keep], 255).astype(np.uint8).tobytes()
-    blob += np.nan_to_num(cz[keep]).astype('<i4').tobytes() + nest[keep].astype('<u4').tobytes()
-    blob += how[keep].tobytes() + meth[keep].tobytes()       # added later, at the end: older pages simply do not read them
+    small = (env[keep].astype(np.uint8).tobytes() + kbyte.tobytes() + mt[keep].tobytes() + np.minimum(nmb[keep], 255).astype(np.uint8).tobytes())
+    if compact:
+        ra_u = np.array([u[0] for u in units], np.int64)
+        blob = b'SLU2' + struct.pack('<I', N) + b'\0' * 8
+        blob += np.diff(ra_u, prepend=0).astype('<u4').tobytes() + np.array([u[1] for u in units], '<i4').tobytes()
+        blob += np.round(dist[keep] / BIN_DIST).astype('<u2').tobytes()
+        blob += (np.round(np.nan_to_num(cz[keep])) + BIN_CZ0).astype('<u2').tobytes()
+        blob += small + how[keep].tobytes() + meth[keep].tobytes()
+        txt_name = 'galaxies-names.txt'
+        lines = [f'{k}\t{names[i]}' for k, i in enumerate(keep) if names[i]]
+    else:                                                # a 2MASS ID this code cannot read: the older, bigger format
+        blob = b'SLU1' + struct.pack('<I', N) + b'\0' * 8
+        blob += xyz[keep].astype('<f4').tobytes() + small
+        blob += np.nan_to_num(cz[keep]).astype('<i4').tobytes() + nest[keep].astype('<u4').tobytes()
+        blob += how[keep].tobytes() + meth[keep].tobytes()
+        txt_name = 'galaxies.txt'
+        lines = [f'{ids[i]}\t{names[i]}' for i in keep]
     (SITE_DIR / 'galaxies.bin').write_bytes(blob)
-    lines = [f'{ids[i]}\t{names[i]}' for i in keep]
-    (SITE_DIR / 'galaxies.txt').write_text('\n'.join(lines) + '\n')
+    (SITE_DIR / txt_name).write_text('\n'.join(lines) + '\n')
     pos = {ids[i]: k for k, i in enumerate(keep)}
     by_name = {}
     for k, i in enumerate(keep):
@@ -593,7 +727,8 @@ def build(log, sources=None, famous_lookup=None):
     sg = SkyCoord(x=np.eye(3)[:, 0], y=np.eye(3)[:, 1], z=np.eye(3)[:, 2], representation_type='cartesian', frame='icrs')
     m = np.array(sg.transform_to(Supergalactic()).cartesian.xyz).T          # rows: equatorial axes in supergalactic coords
     virgo = next((x for x in marks if x['name'] == 'Virgo Cluster'), None)
-    meta = {'n': N, 'made': time.time(), 'h0': H0, 'omega_m': OMEGA_M, 'bin': 'plots/universe/galaxies.bin', 'txt': 'plots/universe/galaxies.txt',
+    meta = {'n': N, 'made': time.time(), 'h0': H0, 'omega_m': OMEGA_M, 'bin': 'plots/universe/galaxies.bin', 'txt': 'plots/universe/' + txt_name,
+            'n_local_volume': int(np.sum(placed & (how >= 4))),
             'env_counts': counts, 'landmarks': marks, 'famous': famous, 'blueshift': blue[:60], 'blueshift_note': BLUESHIFT_NOTE,
             'near_note': NEAR_NOTE,
             'messier': {f'M{k}': f'NGC {v}' for k, v in MESSIER.items()}, 'eq_to_sg': [[round(float(x), 6) for x in r] for r in m.T],

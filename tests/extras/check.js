@@ -804,16 +804,96 @@ const CHECKS = {
     card = v.querySelector('.uv-card');
     if (!card || !/NGC 4993/.test(card.textContent) || !/GW170817/.test(card.textContent)) fails.push('a deep link ?sel=<2MASS ID> opens that galaxy\'s card');
     if (U.readCam('1,2,3,40,0,0,0,1').d !== 40 || U.readCam('1,2') !== null) fails.push('camera deep links are read safely');
+    // compact galaxy file (SLU2): position from the 2MASS ID digits, RA stored as steps, distance and speed packed
+    const two = (() => {
+      const ids = [[4524420, 1484147 * 2], [4718869, 842017 * 2 + 1]], d = [21.3, 39.34], cz = [-244, 2961], n = 2;   // RA in 0.01 s, Dec in 0.1 arcsec x2 (+1: south)
+      const buf = new ArrayBuffer(16 + 18 * n), dv = new DataView(buf);
+      [83, 76, 85, 50].forEach((c, i) => dv.setUint8(i, c)); dv.setUint32(4, n, true);
+      new Uint32Array(buf, 16, n).set([ids[0][0], ids[1][0] - ids[0][0]]); new Int32Array(buf, 16 + 4 * n, n).set([ids[0][1], ids[1][1]]);
+      new Uint16Array(buf, 16 + 8 * n, n).set(d.map(x => Math.round(x / 0.02))); new Uint16Array(buf, 16 + 10 * n, n).set(cz.map(x => x + 1000));
+      new Uint8Array(buf, 16 + 12 * n, 6 * n).set([3, 2, 40, 120, 1, 2, 180, 8, 2, 4, 1, 8]);
+      return buf;
+    })();
+    const P2 = U.parseBin(two);
+    const r0 = Math.hypot(P2.xyz[0], P2.xyz[1], P2.xyz[2]), r1 = Math.hypot(P2.xyz[3], P2.xyz[4], P2.xyz[5]);
+    if (P2.version !== 2 || P2.ids[0] !== '12340420+4113347' || P2.ids[1] !== '13062869-2323217' || Math.abs(r0 - 21.3) > 0.011 || Math.abs(r1 - 39.34) > 0.011 || P2.cz[0] !== -244 || P2.cz[1] !== 2961 || P2.how[1] !== 4 || P2.meth[1] !== 8)
+      fails.push('the compact galaxy file is read back exactly: ' + JSON.stringify([P2.ids, r0, r1, Array.from(P2.cz), Array.from(P2.how)]));
+    const rd0 = U.idRaDec(P2.ids[0]), v0 = [P2.xyz[0] / r0, P2.xyz[1] / r0, P2.xyz[2] / r0], rv = U.vecRaDec(v0);
+    if (Math.abs(rv.ra - rd0.ra) * 3600 > 0.2 || Math.abs(rv.dec - rd0.dec) * 3600 > 0.2) fails.push('direction from the compact file matches its ID position');
+    const nm = U.parseTxt('1\tNGC 4993\n', 2).names;
+    if (nm[0] !== '' || nm[1] !== 'NGC 4993') fails.push('the names file of the compact format is read by index');
+    // supernova pins: only those in a galaxy of the map; one pin per supernova even if listed twice
+    env = await boot({ hash: '#universe' });
+    v = env.$('#v-universe');
+    for (let i = 0; i < 40 && v.querySelector('.uv-loading'); i++) await sleep(10);
+    const snn = norm((v.querySelector('.uv-snnote') || { textContent: '' }).textContent);
+    if (!/1 of the 2 newest supernova candidates/.test(snn) || !/GW170817, is NGC 4993/.test(snn)) fails.push('the legend says how many supernovae are pinned and why gravitational-wave alerts are not: ' + snn);
+    if (!env.w.SpaceLabUniverse.data.sn || env.w.SpaceLabUniverse.data.sn.length !== 1 || env.w.SpaceLabUniverse.data.sn[0].host !== 0) fails.push('the supernova 20 arcseconds from M87 is pinned on M87');
+    // the Milky Way band has its own explained labels
+    const zoa = (FIXTURE.beyond.universe.landmarks || []).length;
+    const lmk = env.w.SpaceLab.data.beyond.universe.landmarks;
+    if (lmk.length !== zoa + 2 || !lmk.slice(-2).every(l => l.kind === 'zoa' && /dust and crowded stars hide the galaxies/.test(l.note))) fails.push('two labels explain the empty band of the Milky Way');
+    // the tour
+    const tb = v.querySelector('.uv-tour-btn');
+    if (!tb) fails.push('a "Take the tour" button');
+    else {
+      tb.click(); await sleep(5);
+      let box = v.querySelector('.uv-tour');
+      if (box.hidden || !/stop 1 of 12/.test(box.textContent) || !/Home: the Milky Way/.test(box.textContent)) fails.push('the tour starts at home: ' + norm(box.textContent).slice(0, 120));
+      box.querySelector('.uv-tnext').click(); await sleep(5);
+      if (!/stop 2 of 12/.test(box.textContent) || !/Virgo Cluster/.test(box.textContent)) fails.push('next goes to the Virgo Cluster: ' + norm(box.textContent).slice(0, 160));
+      box.querySelector('.uv-tnext').click(); await sleep(5);
+      if (!/stop 7 of 12/.test(box.textContent) || !/Coma Cluster/.test(box.textContent)) fails.push('stops whose landmark is not in the data are skipped (fixture has Virgo, Coma, Boötes): ' + norm(box.textContent).slice(0, 160));
+      box.querySelector('.uv-tend').click(); await sleep(5);
+      if (!box.hidden) fails.push('the tour can be ended');
+    }
+    // see its picture: opens the Space atlas on the galaxy
+    let rr = [...(await (async () => { const q2 = v.querySelector('.uv-q'); q2.value = 'M87'; q2.dispatchEvent(new env.w.Event('input')); await sleep(200); return v.querySelectorAll('.uv-results li'); })())];
+    if (rr[0]) { rr[0].querySelector('.uv-res').click(); await sleep(5); }
+    const at = v.querySelector('.uv-card .uv-atlas');
+    if (!at) fails.push('the galaxy card has a "See its picture" button');
+    else {
+      at.click(); await sleep(30);
+      const saved = JSON.parse(env.w.localStorage.getItem('sl_atlas_view') || 'null');
+      if (!env.$('#v-atlas').classList.contains('on') || !saved || Math.abs(saved[0] - 187.7059) > 0.001 || Math.abs(saved[1] - 12.3911) > 0.001 || !(saved[2] > 0.1 && saved[2] < 1.5)) fails.push('"See its picture" opens the atlas on the galaxy: ' + JSON.stringify(saved));
+    }
     env.w.location.hash = '#atlas';
     env.w.dispatchEvent(new env.w.Event('hashchange'));
     await sleep(20);
     if (!env.$('#v-atlas').classList.contains('on') || env.$('#v-universe').classList.contains('on')) fails.push('a link to another tab opened while the page is showing (hash change) switches to that tab');
     report(25, '3D universe: data, search, identity cards, deep links', fails);
   },
+  async 26() {
+    const fails = [];
+    const many = JSON.parse(JSON.stringify(FIXTURE));
+    const base = many.tess.cands[0];
+    many.tess.cands = Array.from({ length: 65 }, (_, k) => Object.assign({}, base, { tic: 900000 + k }));
+    let env = await boot({ data: many });
+    let t = await env.tab('tess');
+    const n = () => t.querySelectorAll('.card[id^="tic-"]').length;
+    if (n() !== 20) fails.push('the TESS tab shows the first 20 candidates, not all at once (shows ' + n() + ')');
+    let more = t.querySelector('[data-tess-more]');
+    if (!more || !/Show 40 more candidates \(45 not shown yet\)/.test(more.textContent)) fails.push('a "show more" button says how many are left: ' + (more ? more.textContent : 'none'));
+    if (more) { more.click(); await sleep(20); t = env.$('#v-tess'); }
+    if (n() !== 60 || !t.querySelector('#tic-900059 .sl-falsify')) fails.push('show more adds 40, and the extras (scorecards) run on the new cards too (' + n() + ')');
+    more = t.querySelector('[data-tess-more]');
+    if (!more || !/Show 5 more/.test(more.textContent)) fails.push('the last page shows what is left');
+    if (more) { more.click(); await sleep(20); t = env.$('#v-tess'); }
+    if (n() !== 65 || t.querySelector('[data-tess-more]')) fails.push('with everything shown the button goes away');
+    env = await boot({ data: many, hash: '#tic-900050' });
+    await sleep(400);
+    if (!env.$('#tic-900050')) fails.push('a link to a candidate on a later page (#tic-900050) still opens it');
+    env = await boot({ data: many });
+    await env.tab('tess');
+    const card = env.w.SpaceLab.showTic(900033);
+    if (!card || card.id !== 'tic-900033') fails.push('SpaceLab.showTic brings a later candidate onto the page for "go to" links');
+    if (env.rec.errors.length) fails.push('errors: ' + env.rec.errors.slice(0, 3).join(' | '));
+    report(26, 'TESS tab: a page at a time', fails);
+  },
 };
 
 (async () => {
-  const order = ['G', '2', '3', '5', '6', '7', '8', '9', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23', '24', '25'];
+  const order = ['G', '2', '3', '5', '6', '7', '8', '9', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23', '24', '25', '26'];
   for (const k of order) {
     if (ONLY && k !== ONLY && k !== 'G') continue;
     try { await CHECKS[k](); } catch (e) { report(k, 'check crashed', ['the check itself crashed (usually because an expected element is missing): ' + e.message]); }

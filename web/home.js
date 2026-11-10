@@ -289,7 +289,7 @@
     if (anchor) anchor.after(box); else el.prepend(box);
     tickCounts(box);
     box.querySelectorAll('[data-tic-go]').forEach(a => a.addEventListener('click', ev => {
-      const card = el.querySelector(`.card[data-tic="${a.dataset.ticGo}"]`);
+      const card = (window.SpaceLab.showTic && window.SpaceLab.showTic(a.dataset.ticGo)) || el.querySelector(`.card[data-tic="${a.dataset.ticGo}"]`);
       if (card) { ev.preventDefault(); if (card.scrollIntoView) card.scrollIntoView({ block: 'start' }); card.classList.add('flash'); }
     }));
   }

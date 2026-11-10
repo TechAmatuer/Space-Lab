@@ -192,7 +192,7 @@ def build_data(con, cfg):
     if f(uv.get('bin')) and f(uv.get('txt')):          # the 3D universe (spacelab/universe.py): files on this site, details in data.json
         beyond['universe'] = {**{k: uv.get(k) for k in ('n', 'made', 'h0', 'env_counts', 'landmarks', 'famous', 'blueshift', 'blueshift_note',
                                                          'messier', 'eq_to_sg', 'max_dist', 'n_in_groups', 'method', 'near_note', 'omega_m',
-                                                         'n_measured', 'n_group_measured', 'n_left_out', 'virgo_dist')},
+                                                         'n_measured', 'n_group_measured', 'n_left_out', 'virgo_dist', 'n_local_volume')},
                               'bin': f(uv['bin']), 'txt': f(uv['txt'])}
     for k in ('darksky', 'zip'):                     # map the saved files to their public address
         if isinstance(beyond.get(k), dict):
@@ -293,6 +293,45 @@ def scan(folder, cfg):
     return hits
 
 
+def webp_copies(root, data, quality=86):
+    """Smaller pictures for visitors: a WebP copy of every PNG the page shows, used when it is clearly smaller. The PNGs
+    stay for link previews (some apps only read PNG). Returns (count, bytes saved)."""
+    try:
+        from PIL import Image, features
+        if not features.check('webp'):
+            return 0, 0
+    except Exception:
+        return 0, 0
+    text = json.dumps(data, default=str, separators=(',', ':'))
+    swap, saved = {}, 0
+    for png in sorted((root / 'files').rglob('*.png')):
+        rel = 'files/' + png.relative_to(root / 'files').as_posix()
+        if f'"{rel}"' not in text:
+            continue
+        out = png.with_suffix('.webp')
+        try:
+            with Image.open(png) as im:
+                im = im.convert('RGBA') if im.mode in ('P', 'LA') else im
+                im.save(out, 'WEBP', quality=quality, method=6)
+        except Exception:
+            continue
+        a, b = png.stat().st_size, out.stat().st_size
+        if b < 0.8 * a:
+            swap[rel] = rel[:-4] + '.webp'
+            saved += a - b
+        else:
+            out.unlink()
+    if swap:
+        def fix(x):
+            if isinstance(x, dict):
+                return {k: fix(v) for k, v in x.items()}
+            if isinstance(x, list):
+                return [fix(v) for v in x]
+            return swap.get(x, x) if isinstance(x, str) else x
+        data.update(fix(data))
+    return len(swap), saved
+
+
 def build_site(con, cfg):
     data, files = build_data(con, cfg)
     errs = validate(data)
@@ -313,7 +352,11 @@ def build_site(con, cfg):
     (SITE / 'data.json').write_text(json.dumps(data, default=str, separators=(',', ':')))
     (SITE / '.nojekyll').write_text('')
     from . import site
-    site.build(SITE, data, cfg, SITE, TITLE)
+    site.build(SITE, data, cfg, SITE, TITLE)              # link previews use the PNGs
+    n_webp, saved = webp_copies(SITE, data)
+    if n_webp:
+        (SITE / 'data.json').write_text(json.dumps(data, default=str, separators=(',', ':')))
+    data['_webp'] = (n_webp, saved)
     hits = scan(SITE, cfg)
     if hits:
         shutil.rmtree(SITE, ignore_errors=True)
@@ -517,6 +560,9 @@ def run(ctx):
     except Exception as e:
         log(f'  candidate of the day skipped: {e}')
     data = build_site(con, cfg)
+    n_webp, saved = data.pop('_webp', (0, 0))
+    if n_webp:
+        log(f'{n_webp} pictures also saved as WebP for visitors ({saved / 1e6:.1f} MB smaller in total)')
     n = len(data['tess']['cands']) + len(data['asteroids']['cands']) + len(data['exowatch']['results'])
     log(f'public copy built: {n} results, scanned for private information: clean')
     out = [f'public copy built ({n} results)']
