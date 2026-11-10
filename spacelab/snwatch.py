@@ -114,7 +114,7 @@ def check(con, cfg, log, prev=None, fetch=None, gal=None, now=None, sink=None, l
         return prev
     cands = candidates(fetch, now_mjd)
     seen = set(db.kv_get(con, 'sn_seen') or [])
-    keep = {x['id']: x for x in (prev or []) if now_mjd - (x.get('first_mjd') or 0) <= KEEP_DAYS}
+    keep = {x['id']: x for x in (prev or []) if isinstance(x, dict) and x.get('id') and now_mjd - (x.get('first_mjd') or 0) <= KEEP_DAYS}
     new_near = 0
     for c in cands:
         m = match(c, gal)

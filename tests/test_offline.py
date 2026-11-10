@@ -531,7 +531,7 @@ def beyond_run_keeps_last_good_copy():
     saved = {n: getattr(beyond, n) for n in ('space_weather', 'fireballs', 'comets', 'gravitational_waves', 'supernovae',
                                             'launches', 'habitable_worlds', 'sky_week', 'earth_images', 'iss_track', 'earthquakes',
                                             'satellites', 'dark_sky_map', 'zip_index', 'live_images', 'asteroid_wiki',
-                                            'community', 'backup_db', 'clean_and_measure')}
+                                            'community', 'backup_db', 'clean_and_measure', 'sn_nearby', 'flyby_orbits')}
     try:
         for n in saved:
             setattr(beyond, n, fail)
@@ -2131,7 +2131,13 @@ def supernova_watch_alerts_for_nearby_galaxies():
     assert not sink and [x['id'] for x in out2] == ['ZTF26near', 'ZTF26mid']                   # one alert per supernova
     later = W.check(con, {}, logs.append, out2, fetch=lambda p: {'items': []}, gal=gal, now=now + 70 * 86400, sink=sink, light=light)
     assert later == []                                                                             # forgotten after 60 days
-    assert W.check(con, {}, logs.append, ['x'], fetch=fetch, gal=None, now=now) == ['x']                   # no galaxy map yet: keep the last list
+    real_load = W.load_galaxies
+    W.load_galaxies = lambda: None
+    try:
+        assert W.check(con, {}, logs.append, [{'id': 'kept'}], fetch=fetch, gal=None, now=now) == [{'id': 'kept'}]    # no galaxy map yet: keep the last list
+    finally:
+        W.load_galaxies = real_load
+    assert W.check(con, {}, logs.append, ['junk', None], fetch=lambda p: {'items': []}, gal=gal, now=now, sink=[]) == []
     con.execute("DELETE FROM kv WHERE k='sn_seen'"); con.execute("DELETE FROM tasks WHERE key LIKE 'sn:%'"); con.commit()
 
 import urllib.error  # noqa: E402
