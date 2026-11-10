@@ -3,12 +3,23 @@
 Built once a month (the catalogues do not change), from two public catalogues:
   * 2MRS (Huchra et al. 2012, ApJS 199, 26): position, brightness, morphology and redshift of every galaxy with Ks < 11.75
     over 91% of the sky. The survey's own input name (NGC, UGC, ESO...) is kept so people can search for it.
-  * The 2MASS group catalogue (Tully 2015, AJ 149, 171): which group each galaxy belongs to and the group's velocity in the
-    cosmic-microwave-background frame. Placing every member at its group's velocity removes the "Fingers of God" (clusters
-    stretched along the line of sight by their galaxies' orbital motions).
-Distance = group (or galaxy) velocity / H0, H0 = 70 km/s/Mpc, using Tully's cosmologically adjusted velocities.
-Not done (yet): subtracting the large-scale infall (e.g. towards Virgo and the Great Attractor), so Virgo sits near 21 Mpc
-instead of its measured 16.5 Mpc. The page says so.
+  * The 2MASS group catalogue (Tully 2015, AJ 149, 171): which group each galaxy belongs to. Placing every member at its
+    group's mean velocity removes the "Fingers of God" (clusters stretched along the line of sight by their galaxies'
+    orbital motions).
+A redshift only gives a distance once the galaxy's own motion is taken out, so the velocity is corrected first:
+  * near home, with the flow model of Mould et al. 2000 (ApJ 529, 786; the one NED uses): the Local Group frame plus the
+    infall of us and of the galaxy towards the Virgo Cluster, the Great Attractor and the Shapley Supercluster. Without it
+    the nearest galaxies come out two to three times too far (they share our own 600 km/s motion);
+  * far away (beyond about 100 Mpc) the velocity against the cosmic microwave background is used, which is the right frame
+    there; in between the two are blended.
+Distance = comoving distance for that velocity (flat universe, H0 = 70 km/s/Mpc, matter 0.3).
+A redshift distance is still off by a galaxy's own motion (about 250 km/s, 3.6 Mpc), which is a lot near home, and a galaxy
+with almost no velocity (the Local Group) cannot be placed by redshift at all. So a third catalogue is used where it is
+better than that:
+  * Cosmicflows-4 (Tully et al. 2023, ApJ 944, 94): distances measured with red-giant stars, Cepheids, masers, surface
+    brightness fluctuations and supernovae. A galaxy within 45 Mpc whose measured distance is more precise than its
+    redshift distance is placed at the measured one, and so is the rest of its group when enough members are measured.
+Each galaxy's card says which kind of distance it shows.
 
 Each galaxy also gets its cosmic environment - void, sheet, filament or knot (cluster) - from the tidal field of the
 smoothed galaxy density (the "T-web" method, Hahn et al. 2007; Forero-Romero et al. 2009), with each galaxy weighted for
@@ -25,7 +36,20 @@ from . import config, db, net
 
 MIRRORS = ('https://vizier.cfa.harvard.edu', 'https://vizier.cds.unistra.fr')
 H0 = 70.0
+OMEGA_M = 0.3
 C_KMS = 299792.458
+V_MIN = 150.0                                  # km/s: slower than this, a redshift says nothing about distance (Local Group)
+# Flow model of Mould et al. 2000, Table A1: attractor, RA, Dec (J2000; the paper lists B1950), its velocity in the Local
+# Group frame and the infall of the Local Group towards it (km/s). Density profile r^-2 as in the paper.
+ATTRACTORS = (('Virgo Cluster', 187.712, 12.391, 957.0, 200.0),
+              ('Great Attractor', 200.735, -44.261, 4380.0, 400.0),
+              ('Shapley Supercluster', 203.206, -31.257, 13600.0, 85.0))
+VIRGO_CONE = (10.0, -600.0, 2300.0)            # the paper's mask: radius (deg) and Local Group velocity range of the cluster
+FLOW_FULL, FLOW_NONE = 3500.0, 7000.0          # km/s: flow model alone below, CMB frame alone above, blended in between
+SIGMA_Z = 250.0 / H0                           # Mpc: typical error of a redshift distance (a galaxy's own motion)
+MEAS_MAX_ERR, MEAS_MAX_DIST = 0.20, 45.0       # measured distances used: error in distance modulus (mag), and how far (Mpc)
+METHODS = ('DMtrgb', 'DMceph', 'DMmas', 'DMsbf', 'DMsnIa', 'DMsnII', 'DMtf', 'DMfp')      # bit order of the method mask
+HOW = ('redshift', 'group redshift', 'measured', 'group measured')
 SITE_DIR = config.PLOTS / 'universe'
 ENV = ['void', 'sheet', 'filament', 'knot', 'unknown']
 
@@ -102,11 +126,13 @@ FAMOUS = {
     'NGC 3077': ('NGC 3077', 'A small galaxy disturbed by M81 and M82.'),
     'NGC 2976': ('NGC 2976', 'A small spiral in the M81 group.'),
 }
-BLUESHIFT_NOTE = ('It is moving towards us, so its light is blueshifted. This map places galaxies using their redshift '
-                  '(how fast they move away with the expansion of the universe), so a galaxy coming towards us has no '
-                  'place on it. It is in the Local Group, right next to home.')
-NEAR_NOTE = ('It is so close (a few million light-years) that its own motion matters more than the expansion of the '
-             'universe, so its redshift cannot give a distance, and this map leaves it out. It sits just beyond the Local Group.')
+BLUESHIFT_NOTE = ('It is moving towards us, so its light is blueshifted, not redshifted. A redshift only gives a distance '
+                  'when the expansion of the universe carries a galaxy away, and no measured distance precise enough is '
+                  'in the catalogue used here, so the map cannot place it. Almost every galaxy like this is one of the '
+                  'Milky Way\'s closest neighbours, right next to Home.')
+NEAR_NOTE = ('The survey measures almost no speed away from us for it. So close to home a galaxy\'s own motion matters more '
+             'than the expansion of the universe, so its redshift cannot give a distance, and no measured distance precise '
+             'enough is in the catalogue used here. It is left out; it sits in or just outside the Local Group, right next to Home.')
 # landmarks: clusters are snapped to the richest group of the 2MASS group catalogue near the given direction and velocity;
 # the others are approximate centres from the literature, shown as such
 LANDMARKS = [
@@ -201,6 +227,55 @@ def cmb_velocity(cz, l_deg, b_deg):
 def unit(ra, dec):
     r, d = np.radians(ra), np.radians(dec)
     return np.column_stack([np.cos(d) * np.cos(r), np.cos(d) * np.sin(r), np.sin(d)])
+
+
+# ------------------------------------------------------------------ from redshift to distance
+def lg_velocity(cz, l_deg, b_deg):
+    """Heliocentric velocity -> Local Group frame (Mould et al. 2000, eq. A1)."""
+    l, b = np.radians(l_deg), np.radians(b_deg)
+    return np.asarray(cz, float) - 79.0 * np.cos(l) * np.cos(b) + 296.0 * np.sin(l) * np.cos(b) - 36.0 * np.sin(b)
+
+
+def flow_velocity(v_lg, ra, dec):
+    """Local Group velocity -> velocity of the expansion alone, with the infall model of Mould et al. 2000 (eq. 1, density
+    r^-2): for each attractor, add our own infall along the line of sight and take out the object's.
+
+    One change from the paper: its infall speed grows without limit towards an attractor's centre, which the paper masks
+    with a cone. Here it is softened inside the attractor's turn-around radius (where infall equals expansion) and scaled
+    to stay exact at the Local Group, so an object at home still shares our motion and gets no correction."""
+    n = unit(np.atleast_1d(ra), np.atleast_1d(dec))
+    v_o = np.atleast_1d(np.asarray(v_lg, float))
+    out = v_o.copy()
+    for _, a_ra, a_dec, v_a, v_fid in ATTRACTORS:
+        cos_t = n @ unit([a_ra], [a_dec])[0]
+        r2 = v_o ** 2 + v_a ** 2 - 2.0 * v_o * v_a * cos_t           # (distance object - attractor)^2, as velocities
+        rc2 = v_fid * v_a                                            # turn-around radius^2
+        out += v_fid * cos_t + v_fid * (v_o - v_a * cos_t) * (v_a ** 2 + rc2) / (v_a * (r2 + rc2))
+    return out
+
+
+def cosmic_velocity(cz, l_deg, b_deg, ra, dec):
+    """Heliocentric velocity -> the part due to the expansion: the flow model near home, the CMB frame far away."""
+    v_lg = lg_velocity(cz, l_deg, b_deg)
+    w = np.clip((FLOW_NONE - v_lg) / (FLOW_NONE - FLOW_FULL), 0.0, 1.0)
+    w = w * w * (3.0 - 2.0 * w)                                      # smooth step
+    return w * flow_velocity(v_lg, ra, dec) + (1.0 - w) * cmb_velocity(cz, l_deg, b_deg)
+
+
+def comoving_mpc(v):
+    """Comoving distance (Mpc) for a cosmic velocity cz, flat universe with H0 and OMEGA_M."""
+    zz = np.linspace(0.0, 0.6, 6001)
+    e = 1.0 / np.sqrt(OMEGA_M * (1.0 + zz) ** 3 + 1.0 - OMEGA_M)
+    d = np.concatenate([[0.0], np.cumsum(0.5 * (e[1:] + e[:-1]) * np.diff(zz))]) * C_KMS / H0
+    return np.interp(np.asarray(v, float) / C_KMS, zz, d)
+
+
+def eq_to_gal(ra, dec):
+    """(l, b) in degrees for J2000 positions."""
+    from astropy.coordinates import SkyCoord
+    import astropy.units as u
+    g = SkyCoord(ra=np.atleast_1d(ra) * u.deg, dec=np.atleast_1d(dec) * u.deg).galactic
+    return np.asarray(g.l.deg), np.asarray(g.b.deg)
 
 
 def match_sky(ra1, dec1, ra2, dec2, tol_arcsec=6.0):
@@ -320,7 +395,7 @@ def place_landmarks(groups, log=print):
                 snapped = True
                 note = f"{note} {int(groups['n'][j])} galaxies of this catalogue are members."
         if not snapped:
-            d = v / H0
+            d = float(comoving_mpc(v))
         out.append({'name': name, 'kind': kind, 'xyz': [round(float(x), 2) for x in unit([ra], [dec])[0] * d],
                     'ra': round(ra, 3), 'dec': round(dec, 3), 'dist': round(d, 1), 'note': note, 'measured': snapped})
         if kind == 'cluster' and not snapped:
@@ -329,6 +404,34 @@ def place_landmarks(groups, log=print):
 
 
 # ------------------------------------------------------------------ the job
+def measured_distances(cf4, pgc, ra, dec):
+    """Per galaxy: its measured distance in Mpc (nan when there is none, or the redshift does better) and the bit mask of
+    the methods behind it (METHODS). cf4: rows of the Cosmicflows-4 table of individual galaxies."""
+    d = np.full(len(ra), np.nan)
+    meth = np.zeros(len(ra), np.uint8)
+    if not cf4:
+        return d, meth
+    c_pgc = np.array([int(_f(r.get('PGC')) or 0) for r in cf4])
+    c_dm = np.array([_f(r.get('DM')) or np.nan for r in cf4], float)
+    c_e = np.array([_f(r.get('e_DM')) or np.nan for r in cf4], float)
+    c_ra = np.array([_f(r.get('RAJ2000')) if _f(r.get('RAJ2000')) is not None else np.nan for r in cf4], float)
+    c_de = np.array([_f(r.get('DEJ2000')) if _f(r.get('DEJ2000')) is not None else np.nan for r in cf4], float)
+    c_m = np.array([sum(1 << k for k, m in enumerate(METHODS) if _f(r.get(m)) is not None) for r in cf4], np.uint8)
+    c_d = 10 ** ((c_dm - 25.0) / 5.0)
+    with np.errstate(invalid='ignore'):
+        good = np.isfinite(c_d) & (c_e > 0) & (c_e <= MEAS_MAX_ERR) & (c_d <= MEAS_MAX_DIST) & (0.4605 * c_e * c_d < SIGMA_Z)
+    by = {int(q): k for k, q in enumerate(c_pgc) if q and good[k]}
+    idx = np.array([by.get(int(q), -1) if q else -2 for q in pgc])       # -2: no PGC number known, try the position
+    need = np.flatnonzero(idx == -2)
+    g = np.flatnonzero(good & np.isfinite(c_ra) & np.isfinite(c_de))
+    if len(need) and len(g):
+        j = match_sky(ra[need], dec[need], c_ra[g], c_de[g], 20.0)
+        idx[need] = np.where(j >= 0, g[np.clip(j, 0, len(g) - 1)], -1)
+    has = idx >= 0
+    d[has], meth[has] = c_d[idx[has]], c_m[idx[has]]
+    return d, meth
+
+
 def build(log, sources=None, famous_lookup=None):
     """Download, combine and write the files. sources / famous_lookup: optional pre-loaded tables (for tests)."""
     if sources is None:
@@ -338,11 +441,16 @@ def build(log, sources=None, famous_lookup=None):
         log(f'    {len(twomrs)} rows; now the 2MASS group catalogue...')
         tully = _table(_asu({'-source': 'J/AJ/149/171/table5', '-out': 'PGC,GLON,GLAT,MType,Vcmba,Nest,Nmb,Dist,_RA.icrs,_DE.icrs',
                              '-out.max': '60000'}, timeout=600))
-        groups = _table(_asu({'-source': 'J/AJ/149/171/table3', '-out': 'Nest,Nmb,PGC1,<Vcmba>,DM,sigV,_RA.icrs,_DE.icrs',
-                              '-out.max': '60000'}, timeout=600))
-        log(f'    {len(tully)} galaxies with group tags, {len(groups)} groups')
+        log(f'    {len(tully)} galaxies with group tags; now the measured distances (Cosmicflows-4)...')
+        try:
+            cf4 = _table(_asu({'-source': 'J/ApJ/944/94/table2', '-out': 'PGC,DM,e_DM,' + ','.join(METHODS) + ',RAJ2000,DEJ2000',
+                               '-out.max': '80000'}, timeout=600))
+            log(f'    {len(cf4)} galaxies with a measured distance')
+        except Exception as e:
+            cf4 = []
+            log(f'    measured distances not available this time ({e}); every galaxy is placed by redshift')
     else:
-        twomrs, tully, groups = sources
+        twomrs, tully, cf4 = sources
     ra = np.array([_f(r.get('RAJ2000')) for r in twomrs], float)
     dec = np.array([_f(r.get('DEJ2000')) for r in twomrs], float)
     l = np.array([_f(r.get('GLON')) for r in twomrs], float)
@@ -356,25 +464,69 @@ def build(log, sources=None, famous_lookup=None):
     j = match_sky(ra, dec, t_ra, t_de) if len(tully) else np.full(len(ra), -1)
     have = j >= 0
     log(f'  {have.sum()} of {len(ra)} galaxies matched to the group catalogue')
-    dist = np.full(len(ra), np.nan)
     nest = np.zeros(len(ra), np.uint32)
     nmb = np.zeros(len(ra), np.uint16)
+    pgc = np.zeros(len(ra), np.int64)
     mt = np.array([morph(r.get('type')) for r in twomrs], np.uint8)
     for i in np.flatnonzero(have):
         t = tully[j[i]]
-        d = _f(t.get('Dist'))
-        if d:
-            dist[i] = d * 100.0 / H0                         # Tully's distances are in Mpc/h (H0 = 100)
         nest[i] = int(_f(t.get('Nest')) or 0)
         nmb[i] = int(_f(t.get('Nmb')) or 0)
+        pgc[i] = int(_f(t.get('PGC')) or 0)
         if not mt[i]:
             mt[i] = morph(t.get('MType'))
-    lone = ~np.isfinite(dist) & np.isfinite(cz)
-    vc = cmb_velocity(cz, l, b)
-    dist[lone] = np.where(vc[lone] > 0, vc[lone] / H0, np.nan)
-    placed = np.isfinite(dist) & (dist > 0.3) & (np.nan_to_num(cz, nan=-1) > 0)
-    log(f'  {placed.sum()} galaxies placed; {np.sum(np.nan_to_num(cz, nan=1) <= 0)} move towards us (blueshift) and are left out')
-    xyz = unit(ra, dec) * dist[:, None]
+    ok = np.isfinite(cz)
+    u3 = unit(ra, dec)
+    # --- redshift distances. Every member of a group takes the group's mean velocity and direction (no Fingers of God)
+    v_cos = np.full(len(ra), np.nan)
+    v_cos[ok] = cosmic_velocity(cz[ok], l[ok], b[ok], ra[ok], dec[ok])
+    sel = np.flatnonzero((nest > 0) & ok)
+    keys, inv, cnt = (np.unique(nest[sel], return_inverse=True, return_counts=True) if len(sel)
+                      else (np.zeros(0, np.uint32), np.zeros(0, int), np.zeros(0, int)))
+    g_cz = np.bincount(inv, cz[sel], len(keys)) / np.maximum(cnt, 1)
+    c = np.column_stack([np.bincount(inv, u3[sel, k], len(keys)) for k in range(3)]) if len(keys) else np.zeros((0, 3))
+    c = c / np.maximum(np.linalg.norm(c, axis=1), 1e-12)[:, None]
+    g_ra = np.degrees(np.arctan2(c[:, 1], c[:, 0])) % 360.0
+    g_de = np.degrees(np.arcsin(np.clip(c[:, 2], -1, 1)))
+    g_l, g_b = eq_to_gal(g_ra, g_de) if len(keys) else (np.zeros(0), np.zeros(0))
+    g_v = cosmic_velocity(g_cz, g_l, g_b, g_ra, g_de) if len(keys) else np.zeros(0)
+    # the Virgo Cluster is the flow model's first attractor: its members sit at the model's own Virgo distance (the paper's mask)
+    v_ra, v_de, v_a = ATTRACTORS[0][1:4]
+    if len(keys):
+        sep = np.degrees(np.arccos(np.clip(c @ unit([v_ra], [v_de])[0], -1, 1)))
+        g_lg = lg_velocity(g_cz, g_l, g_b)
+        cand = (sep < VIRGO_CONE[0]) & (g_lg > VIRGO_CONE[1]) & (g_lg < VIRGO_CONE[2]) & (cnt >= 20)
+        if cand.any():
+            k = np.flatnonzero(cand)[np.argmax(cnt[cand])]
+            g_v[k] = flow_velocity([v_a], [v_ra], [v_de])[0]
+    multi = cnt[inv] >= 2 if len(sel) else np.zeros(0, bool)
+    v_cos[sel[multi]] = g_v[inv[multi]]
+    how = np.zeros(len(ra), np.uint8)
+    how[sel[multi]] = 1
+    with np.errstate(invalid='ignore'):
+        dist = np.where(np.isfinite(v_cos) & (v_cos >= V_MIN), comoving_mpc(np.nan_to_num(v_cos)), np.nan)
+    g_dist = comoving_mpc(g_v) if len(keys) else np.zeros(0)
+    # --- measured distances, where they do better than the redshift
+    d_meas, meth = measured_distances(cf4, pgc, ra, dec)
+    own = np.isfinite(d_meas)
+    n_grp = 0
+    if own.any() and len(sel):
+        m_in = own[sel]
+        n_meas = np.bincount(inv[m_in], minlength=len(keys))
+        for k in np.flatnonzero((n_meas >= 5) | ((n_meas >= 1) & (2 * n_meas >= cnt) & (cnt >= 2))):
+            mem = sel[inv == k]
+            med = float(np.median(d_meas[mem][own[mem]]))
+            g_dist[k] = med
+            rest = mem[~own[mem]]
+            dist[rest], how[rest] = med, 3
+            n_grp += len(rest)
+    dist[own], how[own] = d_meas[own], 2
+    meth[~own] = 0
+    placed = np.isfinite(dist) & (dist > 0)
+    left = ok & ~placed
+    log(f'  {placed.sum()} galaxies placed: {int(np.sum(placed & (how == 2)))} at their own measured distance, {n_grp} at their '
+        f"group's measured distance, the rest by redshift; {int(left.sum())} too close to home for a redshift distance are left out")
+    xyz = u3 * np.nan_to_num(dist)[:, None]
     w = selection_weights(dist[placed])
     env = np.full(len(ra), 4, np.uint8)
     dens = np.full(len(ra), np.nan)
@@ -383,11 +535,7 @@ def build(log, sources=None, famous_lookup=None):
     env[far] = 4                                             # too few galaxies that far to tell
     counts = {ENV[k]: int(np.sum(env[placed] == k)) for k in range(5)}
     log(f"  cosmic web: {counts}")
-    g_ra = np.array([_f(g.get('_RA.icrs')) for g in groups], float)
-    g_de = np.array([_f(g.get('_DE.icrs')) for g in groups], float)
-    g_dm = np.array([_f(g.get('DM')) or np.nan for g in groups], float)
-    gr = {'ra': g_ra, 'dec': g_de, 'v': np.array([_f(g.get('<Vcmba>')) or np.nan for g in groups], float),
-          'n': np.array([_f(g.get('Nmb')) or 0 for g in groups], float), 'dist': 10 ** ((g_dm - 25) / 5) * 100.0 / H0}
+    gr = {'ra': g_ra, 'dec': g_de, 'v': cmb_velocity(g_cz, g_l, g_b) if len(keys) else np.zeros(0), 'n': cnt.astype(float), 'dist': g_dist}
     marks = place_landmarks(gr, log)
     # files: binary arrays for the viewer and a text index for names and search
     keep = np.flatnonzero(placed)
@@ -398,6 +546,7 @@ def build(log, sources=None, famous_lookup=None):
     blob += xyz[keep].astype('<f4').tobytes()
     blob += env[keep].astype(np.uint8).tobytes() + kbyte.tobytes() + mt[keep].tobytes() + np.minimum(nmb[keep], 255).astype(np.uint8).tobytes()
     blob += np.nan_to_num(cz[keep]).astype('<i4').tobytes() + nest[keep].astype('<u4').tobytes()
+    blob += how[keep].tobytes() + meth[keep].tobytes()       # added later, at the end: older pages simply do not read them
     (SITE_DIR / 'galaxies.bin').write_bytes(blob)
     lines = [f'{ids[i]}\t{names[i]}' for i in keep]
     (SITE_DIR / 'galaxies.txt').write_text('\n'.join(lines) + '\n')
@@ -414,31 +563,48 @@ def build(log, sources=None, famous_lookup=None):
         hit = look.get(n) or {}
         if k is None and hit.get('id') in pos:
             k = pos[hit['id']]
-        if k is None and hit.get('pos'):
-            j2 = match_sky([hit['pos'][0]], [hit['pos'][1]], kra, kde, 20.0)[0]
+        if k is None and hit.get('pos'):                     # a big galaxy's catalogue centre can sit well off the survey's
+            j2 = match_sky([hit['pos'][0]], [hit['pos'][1]], kra, kde, 60.0)[0]
             k = int(j2) if j2 >= 0 else None
         if k is not None:
-            famous.append({'i': int(k), 'name': nm, 'cat': n, 'note': note})
+            prev = next((f for f in famous if f['i'] == int(k)), None)
+            if prev:                                         # two catalogue names, one survey entry (the Antennae)
+                prev.setdefault('also', []).append(n)
+            else:
+                famous.append({'i': int(k), 'name': nm, 'cat': n, 'note': note})
             continue
         i0 = ids.index(hit['id']) if hit.get('id') in ids else next((i for i, x in enumerate(names) if x == n), None)
         if i0 is not None and not placed[i0]:
             not_placed.append({'name': nm, 'cat': n, 'id': ids[i0], 'cz': int(np.nan_to_num(cz[i0])),
                                'why': 'blue' if np.nan_to_num(cz[i0], nan=1) <= 0 else 'near'})
-    seen = {b['id'] for b in not_placed}
-    blue = not_placed + [{'name': names[i] or ids[i], 'cat': names[i], 'id': ids[i], 'cz': int(cz[i]), 'why': 'blue'}
-                         for i in np.flatnonzero(np.nan_to_num(cz, nan=1) <= 0) if ids[i] not in seen]
-    log(f'  {len(famous)} of {len(FAMOUS)} famous galaxies found; {len(not_placed)} famous ones not placeable (too close or moving towards us)')
+    seen = {x['id'] for x in not_placed}
+    blue = not_placed + [{'name': names[i] or ids[i], 'cat': names[i], 'id': ids[i], 'cz': int(cz[i]), 'why': 'blue' if cz[i] <= 0 else 'near'}
+                         for i in np.flatnonzero(left) if ids[i] not in seen]
+    n_names = len(famous) + sum(len(f.get('also', [])) for f in famous)
+    log(f'  {n_names} of {len(FAMOUS)} famous galaxies found; {len(not_placed)} famous ones cannot be placed')
+    for want in ('NGC 224', 'NGC 3031', 'NGC 5128', 'NGC 4594', 'NGC 4258', 'NGC 4486', 'NGC 1399', 'NGC 4993', 'NGC 1275', 'NGC 4889'):
+        f = next((x for x in famous if x['cat'] == want), None)
+        if f:
+            i = keep[f['i']]
+            log(f"    check {f['name']}: {dist[i]:.1f} Mpc ({HOW[how[i]]}); its redshift alone gives "
+                f"{float(comoving_mpc(max(v_cos[i], 0))) if np.isfinite(v_cos[i]) else float('nan'):.1f} Mpc")
     from astropy.coordinates import SkyCoord, Supergalactic
     sg = SkyCoord(x=np.eye(3)[:, 0], y=np.eye(3)[:, 1], z=np.eye(3)[:, 2], representation_type='cartesian', frame='icrs')
     m = np.array(sg.transform_to(Supergalactic()).cartesian.xyz).T          # rows: equatorial axes in supergalactic coords
-    meta = {'n': N, 'made': time.time(), 'h0': H0, 'bin': 'plots/universe/galaxies.bin', 'txt': 'plots/universe/galaxies.txt',
+    virgo = next((x for x in marks if x['name'] == 'Virgo Cluster'), None)
+    meta = {'n': N, 'made': time.time(), 'h0': H0, 'omega_m': OMEGA_M, 'bin': 'plots/universe/galaxies.bin', 'txt': 'plots/universe/galaxies.txt',
             'env_counts': counts, 'landmarks': marks, 'famous': famous, 'blueshift': blue[:60], 'blueshift_note': BLUESHIFT_NOTE,
             'near_note': NEAR_NOTE,
             'messier': {f'M{k}': f'NGC {v}' for k, v in MESSIER.items()}, 'eq_to_sg': [[round(float(x), 6) for x in r] for r in m.T],
             'max_dist': round(float(np.percentile(dist[placed], 99.5)), 0), 'n_in_groups': int(np.sum(nmb[keep] >= 2)),
-            'method': 'CMB-frame velocities (Tully 2015 adjusted), group members placed at their group velocity, distance = v/H0 '
-                      f'with H0 = {H0:g}; no infall correction yet. Environment: T-web of the selection-weighted density, '
-                      '5 Mpc smoothing, eigenvalue threshold 0.7 on galaxy density (about 0.45 on matter).'}
+            'n_measured': int(np.sum(placed & (how == 2))), 'n_group_measured': int(n_grp), 'n_left_out': int(left.sum()),
+            'virgo_dist': virgo['dist'] if virgo and virgo.get('measured') else None,
+            'method': 'Redshift corrected for our own motion and for infall towards Virgo, the Great Attractor and Shapley '
+                      f'(Mould et al. 2000) below {FLOW_FULL:g} km/s, CMB frame above {FLOW_NONE:g} km/s, blended between; group '
+                      f'members share the group mean velocity (Tully 2015); comoving distance with H0 = {H0:g}, matter {OMEGA_M:g}. '
+                      f'Cosmicflows-4 measured distances replace it within {MEAS_MAX_DIST:g} Mpc when more precise. '
+                      'Environment: T-web of the selection-weighted density, 5 Mpc smoothing, eigenvalue threshold 0.7 on '
+                      'galaxy density (about 0.45 on matter).'}
     return meta, pos
 
 

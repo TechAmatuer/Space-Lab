@@ -74,14 +74,16 @@ async function boot({ extras = true, storage = {}, data = FIXTURE, hash = '', se
   const NASA = { collection: { metadata: { total_hits: 30 }, items: [1, 2, 3].map(i => ({ data: [{ nasa_id: 'PIA0000' + i, title: 'Test photo ' + i + ' <b>', description: 'A <i>described</i> picture.', date_created: '2020-01-0' + i + 'T00:00:00Z', center: 'JPL' }],
     links: [{ href: i === 3 ? 'https://evil.example/x~thumb.jpg' : 'https://images-assets.nasa.gov/image/PIA0000' + i + '/PIA0000' + i + '~thumb.jpg' }] })) } };
   rec.fetches = [];
-  const UV_IDS = ['12304942+1223279\tNGC 4486', '12000000+0000000\t', '13094770-2323017\tNGC 4993', '15000000-1000000\tUGC 9999'];
-  const uvBin = () => {
-    const n = 4, buf = new ArrayBuffer(16 + 24 * n), dv = new DataView(buf);
+  const UV_IDS = ['12304942+1223279\tNGC 4486', '12000000+0000000\t', '13094770-2323017\tNGC 4993', '15000000-1000000\tUGC 9999',
+                  '00424433+4116074\tNGC 224', '09553318+6903549\tNGC 3031'];
+  const uvBin = () => {                                           // six galaxies; the last two bytes per galaxy say where its distance comes from
+    const n = 6, buf = new ArrayBuffer(16 + 26 * n), dv = new DataView(buf);
     [83, 76, 85, 49].forEach((c, i) => dv.setUint8(i, c)); dv.setUint32(4, n, true);
-    new Float32Array(buf, 16, 3 * n).set([-20, -4, 4.6, -60, 0, 0, -40, -15, -20, -30, -50, -10]);
-    new Uint8Array(buf, 16 + 12 * n, n).set([3, 1, 2, 3]); new Uint8Array(buf, 16 + 13 * n, n).set([40, 150, 120, 160]);
-    new Uint8Array(buf, 16 + 14 * n, n).set([1, 4, 2, 0]); new Uint8Array(buf, 16 + 15 * n, n).set([180, 1, 6, 1]);
-    new Int32Array(buf, 16 + 16 * n, n).set([1284, 4200, 2961, 3500]); new Uint32Array(buf, 16 + 20 * n, n).set([100002, 0, 200300, 0]);
+    new Float32Array(buf, 16, 3 * n).set([-20, -4, 4.6, -60, 0, 0, -40, -15, -20, -30, -50, -10, 0.55, 0.1, 0.5, -1.0, 0.2, 2.5]);
+    new Uint8Array(buf, 16 + 12 * n, n).set([3, 1, 2, 3, 2, 1]); new Uint8Array(buf, 16 + 13 * n, n).set([40, 150, 120, 160, 10, 20]);
+    new Uint8Array(buf, 16 + 14 * n, n).set([1, 4, 2, 0, 3, 3]); new Uint8Array(buf, 16 + 15 * n, n).set([180, 1, 6, 1, 0, 3]);
+    new Int32Array(buf, 16 + 16 * n, n).set([1284, 4200, 2961, 3500, -300, -34]); new Uint32Array(buf, 16 + 20 * n, n).set([100002, 0, 200300, 0, 0, 101368]);
+    new Uint8Array(buf, 16 + 24 * n, n).set([3, 0, 2, 1, 2, 1]); new Uint8Array(buf, 16 + 25 * n, n).set([0, 0, 8, 0, 11, 0]);
     return buf;
   };
   w.fetch = async u => { rec.fetches.push(String(u));
@@ -755,7 +757,9 @@ const CHECKS = {
     if (!v.querySelector('.uv-canvas') || v.querySelector('.uv-loading')) { fails.push('the 3D universe tab must load its galaxy files: ' + norm(v.textContent).slice(0, 200)); return report(25, '3D universe', fails); }
     if (!/cannot draw 3D/.test(v.textContent)) fails.push('without WebGL the page says so, and search still works');
     const U = env.w.SpaceLabUniverse;
-    if (!U.data.ready || U.data.n !== 4 || U.data.ids[2] !== '13094770-2323017' || U.data.env[0] !== 3) fails.push('galaxy file and name index read correctly');
+    if (!U.data.ready || U.data.n !== 6 || U.data.ids[2] !== '13094770-2323017' || U.data.env[0] !== 3 || U.data.how[2] !== 2 || U.data.meth[4] !== 11) fails.push('galaxy file and name index read correctly');
+    const oldFile = (await (await env.w.fetch('files/plots/universe/galaxies.bin')).arrayBuffer()).slice(0, 16 + 24 * 6);
+    if (U.parseBin(oldFile).how.length !== 6 || U.parseBin(oldFile).how[2] !== 0 || U.parseBin(oldFile).cz[4] !== -300) fails.push('an older galaxy file (no distance-source bytes) still loads');
     const q = v.querySelector('.uv-q'), find = async t => { q.value = t; q.dispatchEvent(new env.w.Event('input')); await sleep(200); return [...v.querySelectorAll('.uv-results li')]; };
     let r = await find('M87');
     if (!r.length || !/Virgo A \(M87\)/.test(r[0].textContent)) fails.push('search for a Messier number finds the galaxy (M87 -> NGC 4486): ' + r.map(x => norm(x.textContent)).join(' | '));
@@ -765,12 +769,28 @@ const CHECKS = {
     if (card && (!card.querySelector('a[href^="https://ned.ipac.caltech.edu/byname?objname=2MASX%20J12304942%2B1223279"]') || !card.querySelector('a[href^="https://simbad.cds.unistra.fr/simbad/sim-id?Ident=2MASX"]'))) fails.push('the card links NED and SIMBAD by the 2MASS name');
     if (card) { const a = ((card.querySelector('.uv-copy') || { getAttribute: () => '' }).getAttribute('data-c') === '12h30m49.42s +12d23m27.9s'), b = /RA 12h30m49\.42s · Dec \+12°23′27\.9″/.test(card.textContent); if (!a || !b) fails.push('the card gives J2000 coordinates from the 2MASS ID, and a Stellarium copy button (' + a + ',' + b + ')'); }
     if (card && !/about 6[6-9] million light-years/.test(card.textContent)) fails.push('distance in Mpc and light-years: ' + norm(card.textContent).slice(0, 300));
+    if (card && (!/The measured distance of its group \(Cosmicflows-4\)/.test(card.textContent) || !/Moving away\s*1,284 km\/s/.test(norm(card.textContent)))) fails.push('the card says where the distance comes from (its group, measured): ' + norm(card.textContent).slice(0, 400));
+    const open = async t => { const rr = await find(t); const b = rr[0] && rr[0].querySelector('.uv-res'); if (b) { b.click(); await sleep(10); } return norm((v.querySelector('.uv-card') || { textContent: '' }).textContent); };
     r = await find('Andromeda');
-    if (!r.length || !/not on this map/.test(r[0].textContent) || !/blueshift/.test(r[0].textContent)) fails.push('search for Andromeda explains honestly why a blueshifted galaxy is not on a redshift map');
+    if (!r.length || !/Andromeda Galaxy/.test(r[0].textContent) || /not on this map/.test(r[0].textContent)) fails.push('Andromeda has a measured distance, so it is on the map and search finds it');
+    let txt = await open('M31');
+    if (!/Andromeda Galaxy/.test(txt) || !/0\.75 Mpc \(about 2\.4 million light-years\)/.test(txt)) fails.push('M31 is recognised as Andromeda, at its measured distance: ' + txt.slice(0, 300));
+    if (!/Measured with red giant stars, Cepheid stars and surface brightness fluctuations \(Cosmicflows-4\), not taken from its redshift/.test(txt)) fails.push('a measured distance names its methods: ' + txt.slice(0, 400));
+    if (!/Moving towards us\s*300 km\/s \(a blueshift\)\. This close to home its own motion beats the expansion/.test(txt) || /Moving away/.test(txt)) fails.push('the card explains Andromeda\'s blueshift honestly: ' + txt.slice(0, 500));
+    txt = await open('M81');
+    if (!/Bode's Galaxy/.test(txt) || !/Moving towards us\s*34 km\/s \(a blueshift\)\. Inside its group it moves towards us faster/.test(txt) || !/From the redshift of its group\. Rough this close to home/.test(txt)) fails.push('a blueshifted galaxy placed with its group says so, and a nearby redshift distance is called rough: ' + txt.slice(0, 500));
+    txt = await open('UGC 9999');
+    if (!/From the redshift of its group\.(?! Rough)/.test(txt)) fails.push('far away a redshift distance is not called rough: ' + txt.slice(0, 300));
+    txt = await open('NGC 4039');
+    if (!/Antennae Galaxies/.test(txt)) fails.push('a second catalogue name of the same survey entry is searchable (NGC 4039 -> the Antennae)');
     r = await find('Sculptor');
     if (!r.length || !/Sculptor Galaxy: not on this map/.test(r[0].textContent) || !/expansion of the universe/.test(r[0].textContent)) fails.push('a galaxy too close for a redshift distance gets its own honest note');
-    r = await find('M31');
-    if (!r.length || !/Andromeda Galaxy: not on this map/.test(r[0].textContent)) fails.push('M31 is recognised as Andromeda');
+    r = await find('NGC 185');
+    if (!r.length || !/NGC 185: not on this map/.test(r[0].textContent) || !/blueshifted/.test(r[0].textContent)) fails.push('a blueshifted galaxy with no measured distance gets the honest blueshift note');
+    r = await find('local group');
+    if (!r.length || !/Andromeda, Triangulum/.test(r[0].textContent)) fails.push('searching for the Local Group explains where it is');
+    const how = norm(v.querySelector('.uv-legend details').textContent);
+    if (!/1,234 nearby galaxies are placed by a measured distance instead \(and 567 more by their group's\)/.test(how) || !/Mould et al\. 2000/.test(how) || !/3 galaxies with almost no speed/.test(how) || !/Cosmicflows-4 \(Tully et al\. 2023\)/.test(how)) fails.push('"How the galaxies are placed" explains redshift, measured distances and what is left out: ' + how.slice(0, 500));
     r = await find('coma');
     if (!r.some(x => /Coma Cluster/.test(x.textContent))) fails.push('landmarks are searchable');
     r = await find('UGC 9999');

@@ -4848,7 +4848,7 @@
    }
   },
   "universe": {
-   "n": 4,
+   "n": 6,
    "bin": "files/plots/universe/galaxies.bin",
    "txt": "files/plots/universe/galaxies.txt",
    "h0": 70,
@@ -4915,28 +4915,50 @@
      "name": "Virgo A (M87)",
      "cat": "NGC 4486",
      "note": "The giant galaxy at the heart of the Virgo Cluster."
+    },
+    {
+     "i": 4,
+     "name": "Andromeda Galaxy",
+     "cat": "NGC 224",
+     "note": "Our big neighbour, 2.5 million light-years away. It is coming towards us."
+    },
+    {
+     "i": 5,
+     "name": "Bode's Galaxy",
+     "cat": "NGC 3031",
+     "note": "A bright grand-design spiral in Ursa Major."
+    },
+    {
+     "i": 1,
+     "name": "Antennae Galaxies",
+     "cat": "NGC 4038",
+     "also": [
+      "NGC 4039"
+     ],
+     "note": "Two galaxies in the middle of a collision."
     }
    ],
    "blueshift": [
-    {
-     "name": "Andromeda Galaxy",
-     "cat": "NGC 224",
-     "id": "00424433+4116074",
-     "cz": -300,
-     "why": "blue"
-    },
     {
      "name": "Sculptor Galaxy",
      "cat": "NGC 253",
      "id": "00473313-2517196",
      "cz": 243,
      "why": "near"
+    },
+    {
+     "name": "NGC 185",
+     "cat": "NGC 185",
+     "id": "00385799+4820145",
+     "cz": -202,
+     "why": "blue"
     }
    ],
-   "blueshift_note": "It is moving towards us, so its light is blueshifted.",
+   "blueshift_note": "It is moving towards us, so its light is blueshifted, not redshifted.",
    "messier": {
     "M87": "NGC 4486",
-    "M31": "NGC 224"
+    "M31": "NGC 224",
+    "M81": "NGC 3031"
    },
    "eq_to_sg": [
     [
@@ -4958,7 +4980,12 @@
    "max_dist": 300,
    "n_in_groups": 2,
    "method": "test",
-   "near_note": "It is so close that its own motion matters more than the expansion of the universe."
+   "near_note": "It is so close that its own motion matters more than the expansion of the universe.",
+   "omega_m": 0.3,
+   "n_measured": 1234,
+   "n_group_measured": 567,
+   "n_left_out": 3,
+   "virgo_dist": 16.6
   }
  },
  "daily": {

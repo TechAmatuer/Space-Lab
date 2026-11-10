@@ -1243,73 +1243,175 @@ def radar_never_lists_the_same_story_twice():
 
 
 @test
+def universe_flow_model_matches_the_paper_and_behaves():
+    """Mould et al. 2000: Local Group frame, three attractors. Checked against numbers published with the model."""
+    from spacelab import universe as uv
+    # eq. A1 at the galactic poles and towards l = 90, b = 0
+    assert abs(uv.lg_velocity(1000, 0, 90) - 964) < 1e-6 and abs(uv.lg_velocity(1000, 90, 0) - 1296) < 1e-6
+    # the attractor positions are the paper's B1950 ones
+    from astropy.coordinates import SkyCoord, FK4, ICRS
+    from astropy.time import Time
+    for (name, ra, dec, *_), (r0, d0) in zip(uv.ATTRACTORS, (('12h28m19s', '+12d40m'), ('13h20m00s', '-44d00m'), ('13h30m00s', '-31d00m'))):
+        c = SkyCoord(r0, d0, frame=FK4(equinox=Time('B1950'))).transform_to(ICRS())
+        assert abs(c.ra.deg - ra) < 0.01 and abs(c.dec.deg - dec) < 0.01, name
+    # Virgo's own cosmic velocity: 17.4 Mpc at H0 = 70 (as used with this model by Nasonova et al. 2011, arXiv:1105.3750)
+    name, ra, dec, v_a, v_fid = uv.ATTRACTORS[0]
+    v_virgo = uv.flow_velocity([v_a], [ra], [dec])[0]
+    assert abs(v_virgo / 70.0 - 17.4) < 0.1, v_virgo
+    # an object at home shares our motion: no correction, in any direction
+    rng = np.random.default_rng(5)
+    v = rng.normal(size=(500, 3)); v /= np.linalg.norm(v, axis=1)[:, None]
+    rr, dd = np.degrees(np.arctan2(v[:, 1], v[:, 0])) % 360, np.degrees(np.arcsin(v[:, 2]))
+    assert np.abs(uv.flow_velocity(np.zeros(500), rr, dd)).max() < 1e-6
+    # very far away only our own motion is left: the paper tunes its size to the CMB dipole of the Local Group (about 620 km/s)
+    far = uv.flow_velocity(np.full(500, 1e7), rr, dd) - 1e7
+    assert 560 < far.max() < 640 and -640 < far.min() < -560, (far.max(), far.min())
+    # more redshift always means farther, also straight through the attractors (no folding)
+    for r0, d0 in ((ra, dec), uv.ATTRACTORS[1][1:3], uv.ATTRACTORS[2][1:3], (150.0, 20.0)):
+        vo = np.linspace(-500, 20000, 2051)
+        assert np.diff(uv.flow_velocity(vo, np.full(vo.size, r0), np.full(vo.size, d0))).min() > 0
+    # blend: flow model near home, CMB frame far away
+    l, b = uv.eq_to_gal([150.0], [20.0])
+    near = uv.cosmic_velocity(np.array([1500.0]), l, b, [150.0], [20.0])[0]
+    assert abs(near - uv.flow_velocity(uv.lg_velocity(1500.0, l, b), [150.0], [20.0])[0]) < 1e-6
+    assert abs(uv.cosmic_velocity(np.array([9000.0]), l, b, [150.0], [20.0])[0] - uv.cmb_velocity(9000.0, l, b)[0]) < 1e-6
+    # comoving distance against astropy
+    from astropy.cosmology import FlatLambdaCDM
+    co = FlatLambdaCDM(H0=uv.H0, Om0=uv.OMEGA_M)
+    for z in (0.004, 0.05, 0.1):
+        assert abs(float(uv.comoving_mpc(z * uv.C_KMS)) - co.comoving_distance(z).value) < 0.01
+    # measured distances: only the precise, nearby ones are used; matched by PGC number, or by position when there is none
+    cf4 = [{'PGC': '1', 'DM': '29.86', 'e_DM': '0.07', 'DMtrgb': '29.80', 'DMsbf': '29.98', 'RAJ2000': '190.0', 'DEJ2000': '-11.6'},
+           {'PGC': '2', 'DM': '30.00', 'e_DM': '0.45', 'DMtf': '30.00', 'RAJ2000': '10.0', 'DEJ2000': '10.0'},      # too rough
+           {'PGC': '3', 'DM': '34.90', 'e_DM': '0.05', 'DMsnIa': '34.90', 'RAJ2000': '20.0', 'DEJ2000': '20.0'},    # too far
+           {'PGC': '4', 'DM': '24.37', 'e_DM': '0.045', 'DMceph': '24.40', 'RAJ2000': '10.6848', 'DEJ2000': '41.2689'}]
+    d, meth = uv.measured_distances(cf4, np.array([1, 2, 3, 0, 0]), np.array([0.0, 0, 0, 10.685, 50.0]), np.array([0.0, 0, 0, 41.269, 50.0]))
+    assert abs(d[0] - 9.376) < 0.01 and meth[0] == 1 + 8 and np.isnan(d[1]) and np.isnan(d[2]), (d, meth)
+    assert abs(d[3] - 0.748) < 0.005 and meth[3] == 2 and np.isnan(d[4]), (d, meth)
+
+
+@test
 def universe_build_collapses_clusters_and_finds_the_web():
     from spacelab import universe
     rng = np.random.default_rng(3)
-    rows, tully = [], []
+    rows, tully, cf4, intended = [], [], [], {}
     from astropy.coordinates import SkyCoord
     import astropy.units as u
+    vgrid = np.linspace(0, 40000, 4001)
+    dgrid = universe.comoving_mpc(vgrid)
 
-    def add(ra, dec, cz, nest=0, nmb=1, gv=None, name=''):
+    def helio(v_cosmic, ra, dec, l, b):
+        """The heliocentric velocity that this map turns into the wanted cosmic velocity (bisection)."""
+        lo, hi = v_cosmic - 3000.0, v_cosmic + 3000.0
+        for _ in range(50):
+            mid = 0.5 * (lo + hi)
+            if universe.cosmic_velocity(np.array([mid]), [l], [b], [ra], [dec])[0] < v_cosmic:
+                lo = mid
+            else:
+                hi = mid
+        return 0.5 * (lo + hi)
+
+    def add(ra, dec, d=None, cz=None, nest=0, nmb=1, name='', meas=None):
         c = SkyCoord(ra=ra * u.deg, dec=dec * u.deg).galactic
         i = len(rows)
+        if cz is None:
+            cz = helio(float(np.interp(d, dgrid, vgrid)), ra, dec, c.l.deg, c.b.deg)
+            if not nest and not meas:
+                intended[i] = d
         rid = f'{i:08d}+{i % 90:02d}00000'
         rows.append({'ID': rid, 'RAJ2000': f'{ra:.5f}', 'DEJ2000': f'{dec:.5f}', 'GLON': f'{c.l.deg:.5f}', 'GLAT': f'{c.b.deg:.5f}',
-                     'Ktmag': '10.5', 'type': ' 3A2s', 'cz': str(int(cz)), 'CAT': name})
-        v = gv if gv is not None else universe.cmb_velocity(cz, c.l.deg, c.b.deg)
-        tully.append({'PGC': str(i), '_RA.icrs': f'{ra:.4f}', '_DE.icrs': f'{dec:+.4f}', 'MType': '3', 'Vcmba': str(int(cz)),
-                      'Nest': str(nest), 'Nmb': str(nmb), 'Dist': f'{v / 100:.1f}'})
+                     'Ktmag': '10.5', 'type': ' 3A2s', 'cz': f'{cz:.1f}', 'CAT': name})
+        tully.append({'PGC': str(i + 1), '_RA.icrs': f'{ra:.4f}', '_DE.icrs': f'{dec:+.4f}', 'MType': '3', 'Vcmba': str(int(cz)),
+                      'Nest': str(nest or 900000 + i), 'Nmb': str(nmb), 'Dist': '1.0'})
+        if meas:
+            cf4.append({'PGC': str(i + 1), 'DM': f'{5 * math.log10(meas[0]) + 25:.3f}', 'e_DM': str(meas[1]), meas[2]: '1', 'RAJ2000': f'{ra:.4f}', 'DEJ2000': f'{dec:.4f}'})
+        return i
     # a filament of field galaxies along x, plus a uniform background, plus a "cluster" whose members spread +-1000 km/s
     for k in range(3000):
         d = rng.uniform(20, 150)
         v = rng.normal(size=3); v /= np.linalg.norm(v)
-        ra, dec = math.degrees(math.atan2(v[1], v[0])) % 360, math.degrees(math.asin(v[2]))
-        add(ra, dec, d * 70)
+        add(math.degrees(math.atan2(v[1], v[0])) % 360, math.degrees(math.asin(v[2])), d)
     for k in range(2500):
         x = rng.uniform(-120, 120); y, z = rng.normal(0, 2.5, 2) + (60, 10)
         d = math.sqrt(x * x + y * y + z * z)
-        add(math.degrees(math.atan2(y, x)) % 360, math.degrees(math.asin(z / d)), d * 70)
-    for k in range(150):                                                  # Coma-like: one direction, one group velocity
-        add(194.95 + rng.normal(0, 0.4), 27.98 + rng.normal(0, 0.4), 7300 + rng.normal(0, 1000), nest=100001, nmb=150, gv=7300,
+        add(math.degrees(math.atan2(y, x)) % 360, math.degrees(math.asin(z / d)), d)
+    coma_c = SkyCoord(ra=194.95 * u.deg, dec=27.98 * u.deg).galactic
+    coma_cz = helio(7300.0, 194.95, 27.98, coma_c.l.deg, coma_c.b.deg)
+    spread = rng.normal(0, 1000, 150)
+    spread -= spread.mean()
+    for k in range(150):                                                  # Coma-like: one direction, one group
+        add(194.95 + rng.normal(0, 0.4), 27.98 + rng.normal(0, 0.4), cz=coma_cz + spread[k], nest=100001, nmb=150,
             name='NGC_4889' if k == 0 else '')
-    add(10.68, 41.27, -300, name='MESSIER_031')                          # Andromeda: blueshifted
-    add(11.888, -25.288, 243, name='NGC_0253', gv=10)                     # Sculptor: far too close for a redshift distance
-    add(197.4487, -23.3840, 2961, name='g1309477-232302')                 # NGC 4993 under a coordinate-style survey name
-    groups = [{'Nest': '100001', 'Nmb': '150', 'PGC1': '44715', '<Vcmba>': '7300', 'DM': f'{5 * math.log10(73.0) + 25:.2f}',
-               'sigV': '900', '_RA.icrs': '194.95', '_DE.icrs': '+27.98'}]
+    m31 = add(10.68, 41.27, cz=-300, name='MESSIER_031')                  # Andromeda: blueshifted, no measured distance given here
+    g270 = SkyCoord(l=270 * u.deg, b=0 * u.deg, frame='galactic').icrs
+    add(float(g270.ra.deg), float(g270.dec.deg), cz=200, name='NGC_6946')  # redshifted, yet at rest in the Local Group frame
+    m32 = add(10.67, 40.87, cz=-200, name='NGC_0221', meas=(0.79, 0.05, 'DMtrgb'))        # blueshifted but measured: placed
+    scl = add(11.888, -25.288, cz=243, name='NGC_0253', meas=(3.61, 0.02, 'DMtrgb'))      # redshift says 4 Mpc; measured wins
+    rough = add(40.0, -10.0, 30.0, meas=(12.0, 0.45, 'DMtf'))                               # a rough measurement is not used
+    grp = [add(120.0 + 0.2 * k, 50.0, 12.0, nest=100777, nmb=4, meas=m) for k, m in
+           enumerate([(10.0, 0.08, 'DMsbf'), (10.4, 0.08, 'DMsbf'), None, None])]            # half the group measured: all move
+    add(197.4487, -23.3840, cz=2961, name='g1309477-232302')              # NGC 4993 under a coordinate-style survey name
     ngc4993 = rows[-1]['ID']
-    meta, pos = universe.build(lambda *a: None, (rows, tully, groups), famous_lookup={'NGC 4993': {'id': ngc4993, 'pos': None},
-                                                                                       'NGC 5194': {'id': None, 'pos': (float(rows[5]['RAJ2000']) + 2e-3, float(rows[5]['DEJ2000']))}})
-    np_ = {b['cat']: b for b in meta['blueshift']}
-    assert meta['n'] == len(rows) - 2 and np_['NGC 224']['why'] == 'blue' and np_['NGC 224']['name'] == 'Andromeda Galaxy', meta['blueshift']
-    assert np_['NGC 253']['why'] == 'near' and np_['NGC 253']['name'] == 'Sculptor Galaxy' and 'so close' in meta['near_note'], np_
+    ant = add(180.4721, -18.8772, 22.0, name='ARP_244')                   # the Antennae: one survey entry, two NGC numbers
+    logs = []
+    meta, pos = universe.build(logs.append, (rows, tully, cf4), famous_lookup={
+        'NGC 4993': {'id': ngc4993, 'pos': None},
+        'NGC 5194': {'id': None, 'pos': (float(rows[5]['RAJ2000']) + 2e-3, float(rows[5]['DEJ2000']))},
+        'NGC 4038': {'id': '12015300-1852033', 'pos': (180.47084, -18.86759)}, 'NGC 4039': {'id': None, 'pos': (180.47296, -18.88619)}})
+    np_ = {x['cat']: x for x in meta['blueshift']}
+    assert meta['n'] == len(rows) - 2 and meta['n_left_out'] == 2, (meta['n'], len(rows), meta['blueshift'])
+    assert np_['NGC 224']['why'] == 'blue' and np_['NGC 224']['name'] == 'Andromeda Galaxy' and 'blueshifted' in meta['blueshift_note'], np_
+    assert np_['NGC 6946']['why'] == 'near' and np_['NGC 6946']['name'] == 'Fireworks Galaxy' and 'almost no speed' in meta['near_note'], np_
     f4993 = next(f for f in meta['famous'] if f['cat'] == 'NGC 4993')
     txt0 = (universe.SITE_DIR / 'galaxies.txt').read_text().splitlines()
     assert txt0[f4993['i']].startswith(ngc4993) and txt0[f4993['i']].endswith('\t'), txt0[f4993['i']]     # matched by 2MASS id; junk name hidden
     assert any(f['cat'] == 'NGC 5194' for f in meta['famous'])                                          # matched by position
+    antf = next(f for f in meta['famous'] if f['cat'] == 'NGC 4038')
+    assert antf['i'] == pos[rows[ant]['ID']] and antf['also'] == ['NGC 4039'] and antf['name'] == 'Antennae Galaxies', antf
+    assert sum(f['name'] == 'Antennae Galaxies' for f in meta['famous']) == 1
     sid, sp = universe.parse_sesame('# NGC 4993\n%J 197.44871198 -23.38397612 = 13 09 47.691\n%I NGC 4993\n%I 2MASX J13094770-2323017\n')
     assert sid == '13094770-2323017' and abs(sp[0] - 197.4487) < 1e-3 and sp[1] < -23
     assert universe.clean_name('g1309477-232302') == '' and universe.clean_name('A0627-1719') == '' and universe.clean_name('ARP 244') == 'ARP 244'
     blob = (universe.SITE_DIR / 'galaxies.bin').read_bytes()
-    assert blob[:4] == b'SLU1' and int.from_bytes(blob[4:8], 'little') == meta['n'] and len(blob) == 16 + meta['n'] * 24
+    assert blob[:4] == b'SLU1' and int.from_bytes(blob[4:8], 'little') == meta['n'] and len(blob) == 16 + meta['n'] * 26
     n = meta['n']
     xyz = np.frombuffer(blob, '<f4', 3 * n, 16).reshape(n, 3)
     env = np.frombuffer(blob, np.uint8, n, 16 + 12 * n)
     nmb = np.frombuffer(blob, np.uint8, n, 16 + 15 * n)
+    czs = np.frombuffer(blob, '<i4', n, 16 + 16 * n)
+    how = np.frombuffer(blob, np.uint8, n, 16 + 24 * n)
+    meth = np.frombuffer(blob, np.uint8, n, 16 + 25 * n)
+    rr = np.linalg.norm(xyz, axis=1)
+    # the field galaxies sit where they were put: the velocity corrections were undone exactly, nothing else moved them
+    d_out = np.array([rr[pos[rows[i]['ID']]] for i in sorted(intended)[:400]])
+    d_want = np.array([intended[i] for i in sorted(intended)[:400]])
+    assert np.abs(d_out - d_want).max() < 0.05, np.abs(d_out - d_want).max()
     coma = nmb == 150
-    d = np.linalg.norm(xyz[coma], axis=1)
-    assert coma.sum() >= 150 and np.ptp(d) < 1.0 and abs(d.mean() - 104.3) < 0.5, (np.ptp(d), d.mean())   # finger of God collapsed
+    d = rr[coma]
+    want = float(universe.comoving_mpc(7300.0))
+    assert coma.sum() >= 150 and np.ptp(d) < 1.0 and abs(d.mean() - want) < 0.3 and 103 < want < 104, (np.ptp(d), d.mean(), want)   # finger of God collapsed
     assert (env[coma] == 3).mean() > 0.9, np.bincount(env[coma])                                       # a knot
+    assert (how[coma] == 1).all()
     fil = np.abs(np.linalg.norm(xyz[:, 1:] - [60, 10], axis=1)) < 3
     fil &= np.abs(xyz[:, 0]) < 80
-    assert np.isin(env[fil], [2, 3]).mean() > 0.7, np.bincount(env[fil], minlength=5)                 # the filament
+    assert fil.sum() > 800 and np.isin(env[fil], [2, 3]).mean() > 0.7, (fil.sum(), np.bincount(env[fil], minlength=5))   # the filament
+    # measured distances
+    k32, kscl, krough = pos[rows[m32]['ID']], pos[rows[scl]['ID']], pos[rows[rough]['ID']]
+    assert abs(rr[k32] - 0.79) < 0.01 and how[k32] == 2 and meth[k32] == 1 and czs[k32] == -200, (rr[k32], how[k32], meth[k32])
+    assert abs(rr[kscl] - 3.61) < 0.01 and how[kscl] == 2, rr[kscl]
+    assert abs(rr[krough] - 30.0) < 0.2 and how[krough] == 0 and meth[krough] == 0, (rr[krough], how[krough])
+    kg = [pos[rows[i]['ID']] for i in grp]
+    assert abs(rr[kg[0]] - 10.0) < 0.02 and abs(rr[kg[1]] - 10.4) < 0.02 and how[kg[0]] == 2 and meth[kg[0]] == 8
+    assert abs(rr[kg[2]] - 10.2) < 0.02 and abs(rr[kg[3]] - 10.2) < 0.02 and how[kg[2]] == 3 == how[kg[3]], rr[kg]
+    assert meta['n_measured'] == 4 and meta['n_group_measured'] == 2, (meta['n_measured'], meta['n_group_measured'])
+    assert rows[m31]['ID'] not in pos and any('check NGC 4889' in x for x in logs), logs[-6:]
     txt = (universe.SITE_DIR / 'galaxies.txt').read_text().splitlines()
     assert len(txt) == n and any(l.endswith('\tNGC 4889') for l in txt)
     assert any(f['name'] == 'NGC 4889' and txt[f['i']].endswith('NGC 4889') for f in meta['famous']), meta['famous']
     coma_mark = next(m for m in meta['landmarks'] if m['name'] == 'Coma Cluster')
-    assert coma_mark['measured'] and abs(coma_mark['dist'] - 104.3) < 0.5 and '150 galaxies' in coma_mark['note'], coma_mark
-    assert not next(m for m in meta['landmarks'] if m['name'] == 'Virgo Cluster')['measured']
-    assert meta['messier']['M87'] == 'NGC 4486' and len(meta['eq_to_sg']) == 3
+    assert coma_mark['measured'] and abs(coma_mark['dist'] - want) < 0.3 and '150 galaxies' in coma_mark['note'], coma_mark
+    assert not next(m for m in meta['landmarks'] if m['name'] == 'Virgo Cluster')['measured'] and meta['virgo_dist'] is None
+    assert meta['messier']['M87'] == 'NGC 4486' and len(meta['eq_to_sg']) == 3 and 'Mould' in meta['method']
     assert universe.clean_name('NGC_0253') == 'NGC 253' and universe.clean_name('MESSIER_087') == 'NGC 4486' and universe.clean_name('2MASXJ123') == ''
     assert universe.morph(' -5') == 1 and universe.morph(' 3A2s') == 3 and universe.morph(' 98') == 0 and universe.morph('10') == 5
     from spacelab import db, publish

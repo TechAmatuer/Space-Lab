@@ -6,6 +6,7 @@ Fun and learning features for https://techamatuer.github.io/Space-Lab/ live in *
 place by ZIP code, dark-sky finder, events and calendar reminders, "What's that in the sky?", the header location chip and
 "Tonight from your place"), `web/asteroids.js` (the asteroid guide) and `web/extras.css`. Everything else is the core and is off-limits for extras work.
 `web/atlas.js` + `web/atlas-frame.html` (the Space atlas) are core files too: they are the only place that shows maps and photos from other sites (NASA, ESA, CDS), only after the visitor opens the atlas, with the third-party sky viewer locked inside a sandboxed frame.
+`web/universe.js` (the 3D universe) is a core file as well: plain WebGL, no libraries, and it reads only this site's own files (`galaxies.bin`, `galaxies.txt`, built by `spacelab/universe.py`).
 
 The same files run **inside Meridian** too: `web/app.js` provides the same `SpaceLab` API there (with the same public
 data from `api/public-data`), so whatever you build appears on both the public page and the owner's dashboard.

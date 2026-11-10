@@ -1,5 +1,6 @@
 // Space Lab 3D universe: the local universe from about 43,500 real galaxies of the 2MASS Redshift Survey, out to about a
-// billion light-years. Orbit around the Milky Way or fly through it, tap any galaxy for its identity card (2MASS ID, distance,
+// billion light-years. Each galaxy sits at its measured distance when a precise one exists (Cosmicflows-4), otherwise at the
+// distance its redshift gives after our own motion and the pull of the nearest big clusters are taken out. Orbit around the Milky Way or fly through it, tap any galaxy for its identity card (2MASS ID, distance,
 // void / sheet / filament / knot, J2000 coordinates to paste into Stellarium, NED and SIMBAD), search by name, Messier or
 // NGC number, landmark or 2MASS ID, and share a link to a galaxy or a view.
 // Plain WebGL, no libraries; every file comes from this same site (built by spacelab/universe.py). Runs on the public page
@@ -28,9 +29,11 @@
     const dv = new DataView(buf);
     if (dv.getUint8(0) !== 83 || dv.getUint8(1) !== 76 || dv.getUint8(2) !== 85) throw new Error('not a Space Lab galaxy file');
     const n = dv.getUint32(4, true), o = 16;
+    const more = buf.byteLength >= o + 26 * n;                   // how each distance was found, and by which methods
     return { n, xyz: new Float32Array(buf, o, 3 * n), env: new Uint8Array(buf, o + 12 * n, n), kb: new Uint8Array(buf, o + 13 * n, n),
              mt: new Uint8Array(buf, o + 14 * n, n), nmb: new Uint8Array(buf, o + 15 * n, n), cz: new Int32Array(buf, o + 16 * n, n),
-             nest: new Uint32Array(buf, o + 20 * n, n) };
+             nest: new Uint32Array(buf, o + 20 * n, n),
+             how: more ? new Uint8Array(buf, o + 24 * n, n) : new Uint8Array(n), meth: more ? new Uint8Array(buf, o + 25 * n, n) : new Uint8Array(n) };
   }
   function parseTxt(t) {
     const ids = [], names = [];
@@ -58,7 +61,7 @@
   }
   const fmtRa = ra => { const h = ra / 15, hh = Math.floor(h), mm = Math.floor((h - hh) * 60); return `${hh}h ${String(mm).padStart(2, '0')}m`; };
   const fmtDec = d => `${d < 0 ? '−' : '+'}${Math.abs(d).toFixed(1)}°`;
-  const fmtDist = d => d < 1 ? `${num(d * 1000, 0)} thousand parsecs` : `${num(d, d < 10 ? 1 : 0)} Mpc (about ${d * MLY < 1000 ? num(d * MLY, d * MLY < 10 ? 1 : 0) + ' million' : num(d * MLY / 1000, 2) + ' billion'} light-years)`;
+  const fmtDist = d => `${num(d, d < 1 ? 2 : d < 10 ? 1 : 0)} Mpc (about ${d * MLY < 1000 ? num(d * MLY, d * MLY < 10 ? 1 : 0) + ' million' : num(d * MLY / 1000, 2) + ' billion'} light-years)`;
 
   // ------------------------------------------------------------------ search
   const norm = s => String(s || '').toLowerCase().replace(/[\s_]+/g, ' ').replace(/^messier /, 'm').trim();
@@ -70,11 +73,14 @@
     const alias = mm ? norm((u.messier || {})['M' + mm[1]] || '') : '';
     const np = (u.blueshift || []).find(b => b.name && (norm(b.name) === s || norm(b.cat) === s || (alias && norm(b.cat) === alias) || (s.length >= 4 && norm(b.name).includes(s))));
     const home = /milky ?way|local group|magellanic/.test(s);
-    if (home || np || /andromeda|triangulum|^m ?(31|32|33|110)$/.test(s)) out.push({ kind: 'note', label: home ? 'The Milky Way and its neighbours' : ((np ? np.name : q.trim()) + ': not on this map'),
-      text: home ? 'Home is the bright marker in the middle. The Milky Way, its satellites and the rest of the Local Group are all within about 1 Mpc, too close for this map to separate.'
-        : np && np.why === 'near' ? (u.near_note || 'Too close for a redshift distance.') : (u.blueshift_note || 'It moves towards us, so it cannot be placed on a redshift map.') });
+    if (home || np) out.push({ kind: 'note', label: home ? 'The Milky Way and its neighbours' : (np.name + ': not on this map'),
+      text: home ? 'Home is the bright marker in the middle. The Local Group (the Milky Way, Andromeda, Triangulum and their small companions) all sits within about 1 Mpc (3 million light-years) of it, a tight knot at this scale. Zoom in, or search for Andromeda.'
+        : np.why === 'near' ? (u.near_note || 'Too close for a redshift distance.') : (u.blueshift_note || 'It moves towards us, so it cannot be placed on a redshift map.') });
     (u.landmarks || []).forEach((l, k) => { if (norm(l.name).includes(s)) out.push({ kind: 'landmark', k, label: l.name, sub: l.kind }); });
-    (u.famous || []).forEach(f => { if (norm(f.name).includes(s) || norm(f.cat) === s || (alias && norm(f.cat) === alias)) out.push({ kind: 'galaxy', i: f.i, label: f.name, sub: f.cat }); });
+    (u.famous || []).forEach(f => {
+      const cats = [f.cat].concat(f.also || []).map(norm);
+      if (norm(f.name).includes(s) || cats.includes(s) || (alias && cats.includes(alias))) out.push({ kind: 'galaxy', i: f.i, label: f.name, sub: [f.cat].concat(f.also || []).join(' / ') });
+    });
     if (G.ready) {
       const want = alias || s;
       for (let i = 0; i < G.n && out.length < 12; i++) {
@@ -99,14 +105,28 @@
     return `<div class="uv-card"><div class="row"><h3>${esc(nameOf(i))}</h3><span class="spacer"></span><button class="b uv-x" aria-label="Close">✕</button></div>
       ${f && f.note ? `<p class="small">${esc(f.note)}</p>` : ''}
       <table class="small uv-facts"><tr><th>2MASS ID</th><td class="mono">2MASX J${esc(id)}${G.names[i] ? ` · ${esc(G.names[i])}` : ''}</td></tr>
-        <tr><th>Distance</th><td>${fmtDist(d)}${d < 6 ? '<br><span class="muted">So close that the galaxy\'s own motion matters more than the expansion of the universe: this distance is rough.</span>' : ''}</td></tr>
-        <tr><th>Moving away</th><td>${G.cz[i].toLocaleString()} km/s (redshift ${num(G.cz[i] / 299792.458, 4)})</td></tr>
+        <tr><th>Distance</th><td>${fmtDist(d)}<br><span class="muted">${distSource(i, d)}</span></td></tr>
+        ${G.cz[i] > 0 ? `<tr><th>Moving away</th><td>${G.cz[i].toLocaleString()} km/s (redshift ${num(G.cz[i] / 299792.458, 4)})</td></tr>`
+          : G.cz[i] < 0 ? `<tr><th>Moving towards us</th><td>${Math.abs(G.cz[i]).toLocaleString()} km/s (a blueshift). ${G.how[i] === 1 || G.how[i] === 3 ? 'Inside its group it moves towards us faster than the expansion of the universe carries the group away.' : 'This close to home its own motion beats the expansion of the universe.'}</td></tr>` : ''}
         <tr><th>Where it lives</th><td><span class="uv-dot" style="background:${ENV[e][3]}"></span> <b>${ENV[e][1]}</b>: ${ENV[e][2]}; ${grp}</td></tr>
         <tr><th>Type</th><td>${MORPH[G.mt[i]] ? MORPH[G.mt[i]][0] : '—'} · infrared brightness Ks ${num(kmag(i), 2)}</td></tr>
         ${p ? `<tr><th>J2000</th><td class="mono">RA ${p.hms} · Dec ${p.dms}</td></tr>` : ''}</table>
       <div class="row uv-acts">${p ? `<button class="b uv-copy" data-c="${esc(p.stellarium)}">Copy for Stellarium</button>` : ''}
         <a href="${ned}" target="_blank" rel="noopener">NED ↗</a><a href="${sim}" target="_blank" rel="noopener">SIMBAD ↗</a>
         <button class="b uv-go" data-i="${i}">Fly here</button><button class="b uv-share" data-sel="${esc(id)}">Share link</button></div></div>`;
+  }
+  // where a galaxy's distance comes from, in plain words (how: 0 own redshift, 1 its group's redshift, 2 measured, 3 its group's measured)
+  const METHODS = ['red giant stars', 'Cepheid stars', 'a water maser', 'surface brightness fluctuations', 'a Type Ia supernova',
+                   'a Type II supernova', 'the Tully-Fisher relation', 'the fundamental plane'];
+  function distSource(i, d) {
+    const how = G.how[i];
+    if (how === 2) {
+      const m = METHODS.filter((_, k) => G.meth[i] & (1 << k));
+      return `Measured${m.length ? ' with ' + m.join(', ').replace(/, ([^,]*)$/, ' and $1') : ''} (Cosmicflows-4), not taken from its redshift.`;
+    }
+    if (how === 3) return 'The measured distance of its group (Cosmicflows-4): the middle value of the members that have one.';
+    const rough = d < 25 ? ' Rough this close to home: a galaxy\'s own motion can shift it by a few Mpc (about 10 million light-years).' : '';
+    return (how === 1 ? 'From the redshift of its group.' : 'From its redshift.') + rough;
   }
   function landmarkCard(k) {
     const l = (U().landmarks || [])[k];
@@ -462,9 +482,11 @@
         <div class="uv-loading small">Loading ${Number(u.n).toLocaleString()} galaxies…</div></div>
       <div class="card small uv-legend"><b>Colours (cosmic web):</b> ${ENV.map(e => `<span class="uv-dot" style="background:${e[3]}"></span>${e[0]} (${Number(c[e[0]] || 0).toLocaleString()})`).join(' · ')}.
         <span class="muted">Rings: 100, 200 and 300 Mpc (about 330, 650 and 980 million light-years) in the supergalactic plane.</span>
-        <details><summary>How the galaxies are placed, and what is missing</summary><p>Positions use each galaxy's redshift measured against the cosmic microwave background, with members of a group or cluster placed at their group's speed (from the Tully 2015 group catalogue). This removes the "Fingers of God", clusters stretched along the line of sight by their galaxies' orbits. Distance = speed ÷ ${num(u.h0, 0)} km/s per Mpc.</p>
-          <p>Not done yet: removing the extra pull of the biggest clusters, so Virgo sits near ${num(((u.landmarks || []).find(l => l.name === 'Virgo Cluster') || {}).dist || 21, 0)} Mpc instead of its measured 16.5 Mpc. The empty band is the plane of our own Milky Way, whose dust and stars hide the galaxies behind it. Galaxies that move towards us, like Andromeda, cannot be placed by redshift and are left out. Cosmic-web classes come from the tidal field of the smoothed galaxy density (T-web), and are less certain far away.</p>
-          <p class="muted">Data: 2MASS Redshift Survey (Huchra et al. 2012); 2MASS group catalogue (Tully 2015), both through VizieR. Inspired by Know the Universe (knowtheuniverse.com).</p></details></div>`;
+        <details><summary>How the galaxies are placed, and what is missing</summary>
+          <p><b>Most galaxies are placed by redshift.</b> The expansion of the universe carries a galaxy away faster the farther it is, so its speed gives its distance (here with a Hubble constant of ${num(u.h0, 0)} km/s per Mpc). First the speed is cleaned up. Near home, our own motion and the pull of the Virgo Cluster, the Great Attractor and the Shapley Supercluster are taken out (the flow model of Mould et al. 2000, the one NASA's NED database uses). Far away, speeds are measured against the cosmic microwave background. Members of a group or cluster share their group's average speed (Tully 2015), which removes the "Fingers of God": clusters stretched along the line of sight by their galaxies' orbits.</p>
+          <p><b>${Number(u.n_measured || 0).toLocaleString()} nearby galaxies are placed by a measured distance instead</b> (and ${Number(u.n_group_measured || 0).toLocaleString()} more by their group's), from Cosmicflows-4: red giant stars, Cepheids, masers, surface brightness fluctuations and supernovae. That is used within ${num(45 * MLY, 0)} million light-years when it is more precise than the redshift. It is how Andromeda is on the map at all: it moves towards us, so its redshift gives no distance. Each galaxy's card says which kind of distance it shows.</p>
+          <p><b>What is missing or rough.</b> A redshift distance is off by the galaxy's own motion, typically 3 to 4 Mpc (about 12 million light-years): small far away, large near home. ${u.n_left_out ? `${Number(u.n_left_out).toLocaleString()} galaxies with almost no speed and no good measured distance are left out. ` : ''}The empty band is the plane of our own Milky Way, whose dust and stars hide the galaxies behind it. Fainter galaxies drop out with distance, so the far regions look emptier than they are. Cosmic-web classes come from the tidal field of the smoothed galaxy density (T-web), and are less certain far away.</p>
+          <p class="muted">Data: 2MASS Redshift Survey (Huchra et al. 2012); 2MASS group catalogue (Tully 2015); Cosmicflows-4 (Tully et al. 2023), all through VizieR. Inspired by Know the Universe (knowtheuniverse.com).</p></details></div>`;
     V = { el, canvas: el.querySelector('.uv-canvas'), cam: defaultCam(), keys: {}, sel: null, touch: !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches) };
     el.querySelector('.uv-color').value = LS.get('sl_uv_color', 'env');
     wireSearch();
