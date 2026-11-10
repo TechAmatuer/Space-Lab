@@ -239,10 +239,10 @@
     // hq is used by both halves of the program, so both must name the same precision or the program does not link (no galaxies drawn).
     const pts = prog(`attribute vec3 p; attribute vec3 c; attribute float s; uniform mat4 M; uniform vec3 eye; uniform float k; uniform float dpr; uniform mediump float hq; varying vec3 vc; varying float va;
       void main(){ gl_Position = M * vec4(p,1.0); float d = max(distance(p, eye), 0.5); float px = s * k / d; float g = 1.0 + 1.2 * hq;
-        gl_PointSize = clamp(px * g, (2.2 + 2.3 * hq) * dpr, (26.0 + 38.0 * hq) * dpr); vc = c; va = clamp(px / (3.0 * dpr), 0.55, 1.0); }`,
+        gl_PointSize = clamp(px * g, (2.2 + 2.3 * hq) * dpr, (26.0 + 38.0 * hq) * dpr); vc = c; va = clamp(px / (3.0 * dpr), 0.55 - 0.13 * hq, 1.0); }`,
       `precision mediump float; varying vec3 vc; varying float va; uniform mediump float hq; void main(){ vec2 q = gl_PointCoord - 0.5; float r = dot(q,q) * 4.0; if (r > 1.0) discard;
         float soft = 0.25 + 1.1 * exp(-r * 2.5);
-        float fine = (1.45 * exp(-r * 13.0) + 0.20 * exp(-r * 3.2)) * (1.0 - r) + 0.05 * (1.0 - r) * (1.0 - r);
+        float fine = (1.25 * exp(-r * 20.0) + 0.085 * exp(-r * 3.0)) * (1.0 - r);   // a pin-sharp core and a faint halo: thousands overlap, so the halo must stay dim
         gl_FragColor = vec4(vc * va * mix(soft, fine, hq), 1.0); }`);
     const lines = prog(`attribute vec3 p; uniform mat4 M; void main(){ gl_Position = M * vec4(p,1.0); }`,
       `precision mediump float; uniform vec4 col; void main(){ gl_FragColor = col; }`);
