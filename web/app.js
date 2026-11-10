@@ -57,7 +57,7 @@ window.SpaceLab = {
   },
   track() {},          // visitor counting happens only on the public page
 };
-const NAV = [['Explore', ['today', 'sky', 'stargazing', 'arxiv', 'beyond']], ['Research', ['tess', 'asteroids', 'exowatch', 'results']],
+const NAV = [['Explore', ['today', 'sky', 'atlas', 'stargazing', 'arxiv', 'beyond']], ['Research', ['tess', 'asteroids', 'exowatch', 'results']],
              ['Join in', ['play', 'create', 'mylist']], ['', ['setup']]];
 let navReady = false;
 function layoutNav() {   // same groups as the public page

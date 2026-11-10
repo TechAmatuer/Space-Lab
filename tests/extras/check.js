@@ -71,10 +71,13 @@ async function boot({ extras = true, storage = {}, data = FIXTURE, hash = '', se
   const json = JSON.parse(JSON.stringify(data));
   if (json.beyond && json.beyond.iss) json.beyond.iss.t0 = Math.floor(Date.now() / 1000) - 60;   // the fixture's ISS path starts "now"
   const ZIPS = '12345 4000 -10500\n10001 4075 -7400\n';
-  w.fetch = async u => (/zip\.txt$/.test(String(u)) ? { ok: true, text: async () => ZIPS } : { ok: true, json: async () => json, text: async () => JSON.stringify(json) });
+  const NASA = { collection: { metadata: { total_hits: 30 }, items: [1, 2, 3].map(i => ({ data: [{ nasa_id: 'PIA0000' + i, title: 'Test photo ' + i + ' <b>', description: 'A <i>described</i> picture.', date_created: '2020-01-0' + i + 'T00:00:00Z', center: 'JPL' }],
+    links: [{ href: i === 3 ? 'https://evil.example/x~thumb.jpg' : 'https://images-assets.nasa.gov/image/PIA0000' + i + '/PIA0000' + i + '~thumb.jpg' }] })) } };
+  rec.fetches = [];
+  w.fetch = async u => { rec.fetches.push(String(u)); return /zip\.txt$/.test(String(u)) ? { ok: true, text: async () => ZIPS } : /images-api\.nasa\.gov/.test(String(u)) ? { ok: true, json: async () => NASA } : { ok: true, json: async () => json, text: async () => JSON.stringify(json) }; };
   w.eval(read('web/public.js'));
   if (extras) {
-    for (const f of ['web/beyond.js', 'web/extras.js', 'web/home.js', 'web/stargazing.js', 'web/asteroids.js']) {
+    for (const f of ['web/beyond.js', 'web/extras.js', 'web/home.js', 'web/stargazing.js', 'web/asteroids.js', 'web/atlas.js']) {
       try { w.eval(read(f)); } catch (e) { rec.errors.push(f + ' crashed while loading: ' + e.message); }
     }
   }
@@ -124,7 +127,7 @@ const CHECKS = {
     // click every extras control in every tab: the page must survive
     for (const t of env.$$('nav.tabs button').map(b => b.dataset.tab).filter(Boolean)) {
       const view = await env.tab(t);
-      for (const el of [...view.querySelectorAll('button[class*="sl-"], a[class*="sl-"], [class*="sl-"] button, [class*="sl-"][role=button], .sl-fav, button[class*="bx-"], [class*="bx-"] button, button[class*="hm-"], [class*="hm-"] button, button[class*="sg-"], [class*="sg-"] button, [class*="as-"] button')]) {
+      for (const el of [...view.querySelectorAll('button[class*="sl-"], a[class*="sl-"], [class*="sl-"] button, [class*="sl-"][role=button], .sl-fav, button[class*="bx-"], [class*="bx-"] button, button[class*="hm-"], [class*="hm-"] button, button[class*="sg-"], [class*="sg-"] button, [class*="as-"] button, button[class*="at-"], [class*="at-"] button')]) {
         if (!el.isConnected) continue;
         el.click(); await sleep(5);
         if (env.visible().length !== 1 || /undefined/.test(env.w.location.hash)) { fails.push(`clicking "${norm(el.textContent).slice(0, 30)}" in tab ${t} broke the page`); break; }
@@ -481,7 +484,7 @@ const CHECKS = {
     const groups = env.$$('nav.tabs .navgroup').map(g => g.textContent).join('|');
     if (groups !== 'Explore|Research|Join in') fails.push('tabs must be grouped Explore | Research | Join in (got ' + groups + ')');
     const order = env.$$('nav.tabs button').map(b => b.dataset.tab).join(' ');
-    if (order !== 'today sky stargazing brief beyond tess asteroids exowatch results play create mylist about') fails.push('tab order: ' + order);
+    if (order !== 'today sky atlas stargazing brief beyond tess asteroids exowatch results play create mylist about') fails.push('tab order: ' + order);
     report(17, 'Home, candidate of the day and navigation', fails);
   },
 
@@ -648,10 +651,59 @@ const CHECKS = {
     if (!fam || !/Apophis/.test(fam.textContent) || !fam.querySelector('a[href^="https://doi.org/"]')) fails.push('famous asteroids need the summary and the papers (DOI links)');
     report(22, 'Asteroid guide with sizes, speeds, orbits and citations', fails);
   },
+  async 23() {
+    const fails = [];
+    let env = await boot();
+    let a = await env.tab('atlas');
+    if (!a || !a.querySelector('.at-ask .at-yes')) { fails.push('the atlas must ask before loading maps from other sites'); return report(23, 'Space atlas', fails); }
+    if (a.querySelector('iframe') || a.querySelector('img[src^="http"]')) fails.push('nothing from another site may load before the visitor opens the atlas');
+    if (env.rec.fetches.some(u => /^https?:/.test(u) && !/example\.github\.io/.test(u))) fails.push('no request to another site before the visitor opens the atlas: ' + env.rec.fetches.filter(u => /^https?:/.test(u)).join(', '));
+    a.querySelector('.at-yes').click(); await sleep(10);
+    const fr = a.querySelector('iframe.at-frame');
+    if (!fr || fr.getAttribute('sandbox') !== 'allow-scripts' || !/atlas-frame\.html$/.test(fr.getAttribute('src'))) fails.push('the sky map must run in a sandboxed frame (sandbox="allow-scripts", atlas-frame.html)');
+    if (env.w.localStorage.getItem('sl_atlas_ok') !== 'true') fails.push('remember the visitor\'s OK in sl_atlas_ok');
+    if (a.querySelectorAll('.at-place').length < 25 || a.querySelectorAll('.at-base').length < 5 || a.querySelectorAll('.at-over').length < 3) fails.push('sky mode needs famous places, kinds of light and photo layers');
+    const pins = [...a.querySelectorAll('.at-pin')].map(c => c.dataset.k);
+    for (const k of ['places', 'cands', 'habitable', 'exowatch', 'sn', 'planets']) if (!pins.includes(k)) fails.push('missing "show on the map" set: ' + k);
+    const sets = env.w.SpaceLabAtlas.pinSets();
+    if ((sets.find(s => s.key === 'cands') || { items: [] }).items.length !== 2) fails.push('planet candidates with a sky position become pins (2 in the fixture)');
+    a.querySelector('.at-place').click(); await sleep(5);
+    const info = a.querySelector('.at-info');
+    if (!/Orion Nebula/.test(info.textContent) || !info.querySelector('.at-photos') || !info.querySelector('a[href^="https://sky.esa.int/esasky/"]')) fails.push('tapping a place shows what it is, a NASA photos button and an ESASky link');
+    info.querySelector('.at-photos').click(); await sleep(20);
+    const th = info.querySelectorAll('.at-thumb img');
+    if (th.length !== 2) fails.push('photos: only pictures from NASA\'s own image server may be shown (2 of the 3 test results)');
+    if (!env.rec.fetches.some(u => /^https:\/\/images-api\.nasa\.gov\/search\?q=Orion%20Nebula&media_type=image/.test(u))) fails.push('photos come from the NASA Image and Video Library search');
+    if (th[0]) { th[0].closest('button').click(); await sleep(5); }
+    const big = info.querySelector('.at-big');
+    if (!big || !/Test photo 1 <b>/.test(big.textContent) || big.querySelector('b b, i') || !big.querySelector('a[href="https://images.nasa.gov/details/PIA00001"]')) fails.push('the enlarged photo shows the title and description as plain text and links to images.nasa.gov');
+    a.querySelector('.at-q').value = 'tic 111111'; a.querySelector('.at-find').click(); await sleep(5);
+    if (!/TIC 111111/.test(info.textContent) || !/candidate, not a confirmed planet/.test(info.textContent)) fails.push('search finds the lab\'s candidates and words them honestly');
+    a.querySelector('.at-mode[data-m="mars"]').click(); await sleep(10);
+    const tiles = [...a.querySelectorAll('.at-tile')];
+    if (!tiles.length || !tiles.every(t => /^https:\/\/trek\.nasa\.gov\/tiles\/Mars\/EQ\/[A-Za-z0-9_]+\/1\.0\.0\/default\/default028mm\/\d+\/\d+\/\d+\.jpg$/.test(t.src))) fails.push('Mars must be drawn from NASA Solar System Treks tiles');
+    if (a.querySelectorAll('.at-mark').length < 10 || !/Perseverance/.test(a.querySelector('.at-set .at-site').textContent)) fails.push('Mars needs its landing sites as pins and a "Go to" list');
+    const z0 = tiles.length; a.querySelector('.at-in').click(); await sleep(5);
+    if (!/zoom 3\/7/.test(a.querySelector('.at-pos').textContent)) fails.push('the + button zooms the map in one step (zoom 3/7)');
+    a.querySelector('.at-site').click(); await sleep(5);
+    if (!/Perseverance/.test(info.textContent) || !/18\.4°N 77\.5°E/.test(a.querySelector('.at-pos').textContent)) fails.push('"Go to" centres the map on the landing site and explains it');
+    a.querySelector('.at-mode[data-m="photos"]').click(); await sleep(5);
+    a.querySelector('.at-quick').click(); await sleep(20);
+    if (a.querySelectorAll('.at-stage .at-thumb').length !== 2) fails.push('the photo search shows results');
+    if (/undefined|NaN/.test(a.textContent)) fails.push('the atlas shows undefined or NaN');
+    env = await boot({ storage: { sl_atlas_ok: 'true', sl_atlas_mode: '"moon"' } });
+    a = await env.tab('atlas');
+    if (a.querySelector('.at-ask') || !a.querySelector('.at-world') || !/Apollo 11/.test(a.textContent)) fails.push('a returning visitor goes straight to the last map (the Moon, with Apollo sites)');
+    const frame = read('web/atlas-frame.html');
+    if (!/window\.origin === 'null'/.test(frame) || !/aladin-lite@\d+\.\d+\.\d+\/dist/.test(frame) || /latest/.test(frame.replace(/never "latest"/, ''))) fails.push('atlas-frame.html must refuse to run outside the sandbox and load a fixed viewer version');
+    for (const p of env.w.SpaceLabAtlas.PLACES) if (!(p[2] >= 0 && p[2] < 360 && Math.abs(p[3]) <= 90 && p[4] > 0 && p[5] && p[6])) fails.push('bad place entry: ' + p[1]);
+    for (const [k, w] of Object.entries(env.w.SpaceLabAtlas.WORLDS)) for (const p of w.pins) if (!(Math.abs(p[1]) <= 90 && Math.abs(p[2]) <= 180)) fails.push(`bad pin on ${k}: ${p[0]}`);
+    report(23, 'Space atlas: sky map, worlds, NASA photos, opt-in', fails);
+  },
 };
 
 (async () => {
-  const order = ['G', '2', '3', '5', '6', '7', '8', '9', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22'];
+  const order = ['G', '2', '3', '5', '6', '7', '8', '9', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23'];
   for (const k of order) {
     if (ONLY && k !== ONLY && k !== 'G') continue;
     try { await CHECKS[k](); } catch (e) { report(k, 'check crashed', ['the check itself crashed (usually because an expected element is missing): ' + e.message]); }

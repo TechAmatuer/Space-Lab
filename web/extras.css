@@ -152,3 +152,24 @@ nav.tabs .navgroup:first-child{margin-left:0}
 .as-earth{fill:#4a90d9} .as-moon{fill:#c9c9c9} .as-rock{fill:var(--p-asteroids)}
 .as-famous{border-top:1px solid var(--line);padding:6px 0} .as-famous summary{cursor:pointer}
 .as-famous ol{padding-left:18px} .as-famous li{margin:3px 0}
+
+/* ---- space atlas (atlas.js) */
+.at-set{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0}
+.at-set label{display:inline-flex;align-items:center;gap:4px;margin-right:6px}
+.at-dot{display:inline-block;width:9px;height:9px;border-radius:50%}
+.at-bar{gap:8px;flex-wrap:wrap;margin-bottom:8px} .at-q{flex:1;min-width:200px;font:inherit;background:var(--panel-2);color:var(--ink);border:1px solid var(--line-2);border-radius:6px;padding:6px 10px}
+button.b.at-mode.on,button.b.at-layer.on,button.b.at-alt.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.at-map{position:relative;height:62vh;min-height:320px;max-height:720px;background:#000;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.at-frame{width:100%;height:100%;border:0;display:block}
+.at-world{touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none} .at-world:active{cursor:grabbing} .at-world:focus-visible{outline:2px solid var(--accent)}
+.at-tiles,.at-marks{position:absolute;inset:0} .at-marks{pointer-events:none}
+.at-tile{position:absolute;left:0;top:0;width:256px;height:256px;max-width:none;pointer-events:none}
+.at-mark{position:absolute;left:-9px;top:-9px;width:18px;height:18px;border-radius:50%;border:2px solid #fff;background:#e4572e;box-shadow:0 0 0 2px rgba(0,0,0,.5);cursor:pointer;pointer-events:auto;padding:0}
+.at-mark:hover,.at-mark:focus-visible{background:#ffd166}
+.at-zoom{position:absolute;right:10px;top:10px;display:flex;flex-direction:column;gap:6px} .at-zoom .b{width:36px;height:36px;font-size:18px;padding:0;background:var(--panel)}
+.at-thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:6px;margin:8px 0}
+.at-thumb{padding:0;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:#000;cursor:pointer;aspect-ratio:4/3}
+.at-thumb img{width:100%;height:100%;object-fit:cover;display:block} .at-thumb:hover{border-color:var(--accent)}
+.at-big figure{margin:8px 0} .at-big img{max-width:100%;max-height:70vh;border-radius:8px;display:block;margin:0 auto 6px}
+.at-info h3{margin-top:0}
+@media (max-width: 600px){ .at-map{height:56vh} }

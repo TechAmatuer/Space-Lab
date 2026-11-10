@@ -21,7 +21,7 @@ from . import classifier, config, db, net
 API = 'https://api.github.com'
 SITE = config.DATA / 'public'
 WEB = config.ROOT / 'web'
-SITE_FILES = ('public.html', 'public.js', 'style.css', 'lcviewer.js', 'orbit3d.js', 'extras.js', 'extras.css', 'beyond.js', 'home.js', 'stargazing.js', 'asteroids.js')
+SITE_FILES = ('public.html', 'public.js', 'style.css', 'lcviewer.js', 'orbit3d.js', 'extras.js', 'extras.css', 'beyond.js', 'home.js', 'stargazing.js', 'asteroids.js', 'atlas.js', 'atlas-frame.html')
 TITLE = 'Space Lab: hunting planets and asteroids with open NASA data'
 
 
@@ -98,7 +98,7 @@ def build_data(con, cfg):
 
     model = db.kv_get(con, 'clf')
     tess = []
-    stars = {r['tic']: r for r in db.rows(con, 'SELECT tic, teff, rad, dist, tmag FROM tess_targets WHERE tic IN '
+    stars = {r['tic']: r for r in db.rows(con, 'SELECT tic, teff, rad, dist, tmag, ra, dec FROM tess_targets WHERE tic IN '
                                                 "(SELECT tic FROM tess_cands WHERE status IN ('new','real','unsure'))")}
     for c in db.rows(con, "SELECT * FROM tess_cands WHERE status IN ('new','real','unsure') ORDER BY created DESC LIMIT 120"):
         ai, cen = _j(c.get('ai')) or {}, _j(c.get('centroid')) or {}
@@ -111,7 +111,7 @@ def build_data(con, cfg):
                      'ai': {k: ai.get(k) for k in ('verdict', 'confidence', 'reasons')} if ai else None,
                      'model_score': classifier.score(model, c),
                      'fpp': _j(c.get('fpp')),
-                     'star': {'teff': st.get('teff'), 'radius_sun': st.get('rad'), 'dist_pc': st.get('dist'), 'tmag': st.get('tmag')},
+                     'star': {'teff': st.get('teff'), 'radius_sun': st.get('rad'), 'dist_pc': st.get('dist'), 'tmag': st.get('tmag'), 'ra': st.get('ra'), 'dec': st.get('dec')},
                      'centroid': ({k: cen.get(k) for k in ('verdict', 'offset_arcsec', 'signif', 'snr')} | {'png': f(cen.get('png'))}) if cen else None})
     stats = {r['status']: r['n'] for r in db.rows(con, 'SELECT status, COUNT(*) AS n FROM tess_targets GROUP BY status')}
     cst = {r['status']: r['n'] for r in db.rows(con, 'SELECT status, COUNT(*) AS n FROM tess_cands GROUP BY status')}
