@@ -153,7 +153,9 @@
     // spacecraft trails: where each has been (solid) and where it is going (dashed)
     for (const o of G.meta.objects) {
       if (o.kind !== 'craft' || V.hidden[o.group]) continue;
-      const on = sel === o, tr = trail(o, jd, on || V.allPaths || o.group === 'leaving');
+      // the far travellers' long straight paths belong to the wide views; near the Sun their coarse early years are only clutter
+      const wide = V.squeeze || Math.min(w, h) / 2 / V.scale > 12;
+      const on = sel === o, tr = trail(o, jd, on || V.allPaths || (wide && o.group === 'leaving'));
       ctx.strokeStyle = o.color; ctx.globalAlpha = on ? 0.95 : 0.3; ctx.lineWidth = on ? 1.6 : 1;
       ctx.setLineDash([]); line(ctx, tr.past, false);
       ctx.globalAlpha = on ? 0.7 : 0.16; ctx.setLineDash([3, 5]); line(ctx, tr.future, false);
