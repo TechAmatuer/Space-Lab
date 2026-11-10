@@ -127,12 +127,13 @@ FAMOUS = {
     'NGC 2976': ('NGC 2976', 'A small spiral in the M81 group.'),
 }
 BLUESHIFT_NOTE = ('It is moving towards us, so its light is blueshifted, not redshifted. A redshift only gives a distance '
-                  'when the expansion of the universe carries a galaxy away, and no measured distance precise enough is '
-                  'in the catalogue used here, so the map cannot place it. Almost every galaxy like this is one of the '
-                  'Milky Way\'s closest neighbours, right next to Home.')
+                  'when the expansion of the universe carries a galaxy away, and the catalogue used here has no measured '
+                  'distance precise enough for it, so the map cannot place it. Almost every galaxy like this is one of '
+                  'the Milky Way\'s closest neighbours, right next to Home.')
 NEAR_NOTE = ('The survey measures almost no speed away from us for it. So close to home a galaxy\'s own motion matters more '
-             'than the expansion of the universe, so its redshift cannot give a distance, and no measured distance precise '
-             'enough is in the catalogue used here. It is left out; it sits in or just outside the Local Group, right next to Home.')
+             'than the expansion of the universe, so its redshift cannot give a distance, and the catalogue used here has '
+             'no measured distance precise enough for it. It is left out; it sits in or just outside the Local Group, right '
+             'next to Home.')
 # landmarks: clusters are snapped to the richest group of the 2MASS group catalogue near the given direction and velocity;
 # the others are approximate centres from the literature, shown as such
 LANDMARKS = [
