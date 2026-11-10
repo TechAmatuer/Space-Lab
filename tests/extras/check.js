@@ -835,6 +835,18 @@ const CHECKS = {
     r = await find('130947');
     if (!r.some(x => /NGC 4993/.test(x.textContent))) fails.push('2MASS IDs are searchable (from 6 characters)');
     if (/undefined|NaN/.test(v.textContent)) fails.push('the universe tab shows undefined or NaN');
+    // The drawing programs are not run here (no graphics card in the test), so their source is checked: a value used by both
+    // halves of a program must have the same precision in both, or the program does not link and nothing is drawn.
+    {
+      const src = read('web/universe.js'), progs = [...src.matchAll(/prog\(`([^`]*)`,\s*`([^`]*)`\)/g)];
+      if (progs.length < 2) fails.push('the drawing programs of the 3D map could not be found for checking');
+      const uniforms = (code, dflt) => { const m = {}; for (const x of code.matchAll(/uniform\s+(?:(lowp|mediump|highp)\s+)?(float|vec[234]|mat[234])\s+(\w+)/g)) m[x[3]] = x[1] || dflt; return m; };
+      for (const [, vs, fs] of progs) {
+        const fd = (/precision\s+(lowp|mediump|highp)\s+float/.exec(fs) || [])[1], a2 = uniforms(vs, 'highp'), b2 = uniforms(fs, fd);
+        for (const k of Object.keys(a2)) if (k in b2 && a2[k] !== b2[k]) fails.push(`3D map: "${k}" is ${a2[k]} in one half of the drawing program and ${b2[k]} in the other (the galaxies would not be drawn)`);
+      }
+      if (!/getProgramParameter\(p, gl\.LINK_STATUS\)/.test(src)) fails.push('a drawing program that fails to build must say so');
+    }
     env = await boot({ search: '?sel=13094770-2323017', hash: '#universe' });
     v = env.$('#v-universe');
     for (let i = 0; i < 40 && !v.querySelector('.uv-card'); i++) await sleep(10);

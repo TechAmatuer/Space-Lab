@@ -232,12 +232,15 @@
     const gl = canvas.getContext('webgl', { antialias: true, alpha: false }) || canvas.getContext('experimental-webgl');
     if (!gl) return null;
     const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
-    const prog = (vs, fs) => { const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(p); return p; };
-    // hq = 1 (high quality): every galaxy is a sharp core inside a soft glow, on a bigger sprite; hq = 0: a plain soft dot
-    const pts = prog(`attribute vec3 p; attribute vec3 c; attribute float s; uniform mat4 M; uniform vec3 eye; uniform float k; uniform float dpr; uniform float hq; varying vec3 vc; varying float va;
+    const prog = (vs, fs) => { const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(p);
+      if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error('the 3D drawing program could not be built: ' + (gl.getProgramInfoLog(p) || 'no reason given'));
+      return p; };
+    // hq = 1 (high quality): every galaxy is a sharp core inside a soft glow, on a bigger sprite; hq = 0: a plain soft dot.
+    // hq is used by both halves of the program, so both must name the same precision or the program does not link (no galaxies drawn).
+    const pts = prog(`attribute vec3 p; attribute vec3 c; attribute float s; uniform mat4 M; uniform vec3 eye; uniform float k; uniform float dpr; uniform mediump float hq; varying vec3 vc; varying float va;
       void main(){ gl_Position = M * vec4(p,1.0); float d = max(distance(p, eye), 0.5); float px = s * k / d; float g = 1.0 + 1.2 * hq;
         gl_PointSize = clamp(px * g, (2.2 + 2.3 * hq) * dpr, (26.0 + 38.0 * hq) * dpr); vc = c; va = clamp(px / (3.0 * dpr), 0.55, 1.0); }`,
-      `precision mediump float; varying vec3 vc; varying float va; uniform float hq; void main(){ vec2 q = gl_PointCoord - 0.5; float r = dot(q,q) * 4.0; if (r > 1.0) discard;
+      `precision mediump float; varying vec3 vc; varying float va; uniform mediump float hq; void main(){ vec2 q = gl_PointCoord - 0.5; float r = dot(q,q) * 4.0; if (r > 1.0) discard;
         float soft = 0.25 + 1.1 * exp(-r * 2.5);
         float fine = (1.45 * exp(-r * 13.0) + 0.20 * exp(-r * 3.2)) * (1.0 - r) + 0.05 * (1.0 - r) * (1.0 - r);
         gl_FragColor = vec4(vc * va * mix(soft, fine, hq), 1.0); }`);
