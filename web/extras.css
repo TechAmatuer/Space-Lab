@@ -258,3 +258,6 @@ button.b.at-mode.on,button.b.at-layer.on,button.b.at-alt.on{background:var(--acc
 .ss-loading{position:absolute;left:12px;top:12px;color:#cfd8e6}
 .ss-wrap.sl-fs .ss-cardbox{top:66px;max-height:calc(100% - 140px)}
 @media (max-width:600px){ .ss-wrap{height:66vh} .ss-cardbox{max-height:48%} .ss-when{white-space:normal} }
+
+/* What we got wrong (About tab) */
+.corr{padding-left:18px;margin:6px 0 0}.corr li{margin:0 0 12px}.corr .small{margin-top:3px;color:var(--ink-2)}

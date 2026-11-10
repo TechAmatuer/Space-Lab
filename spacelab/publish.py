@@ -209,7 +209,8 @@ def build_data(con, cfg):
                            for e in beyond['earth'] if f(e.get('path'))]
     data = {'name': public_name(cfg), 'updated': time.time(), 'schema': SCHEMA_VERSION,
             'beyond': beyond, 'daily': dly, 'radar': _radar_public(db.kv_get(con, 'radar') or {}), 'results': results,
-            'site': {'url': site_url(cfg), 'name': 'Space Lab', 'repo': ((cfg.get('share') or {}).get('github_repo') or '').strip()},
+            'site': {'url': site_url(cfg), 'name': 'Space Lab', 'repo': ((cfg.get('share') or {}).get('github_repo') or '').strip(),
+                     'corrections': _corrections(cfg)},
             'community': db.kv_get(con, 'community') or {},
             'contributions': _contrib(con),
             'today': {'brief': {'t': brief_kv.get('t'), 'text': clean(brief_kv.get('text') or ''), 'model': brief_kv.get('model')},
@@ -234,6 +235,12 @@ def build_data(con, cfg):
         data['tess']['injection'] = {k: inj.get(k) for k in ('n', 'found', 'alias', 'n_quiet', 'quiet', 'variable', 'headline_quiet', 'headline_variable', 'note', 't')}
         data['tess']['injection']['plot'] = f(inj.get('plot'))
     return data, files
+
+
+def _corrections(cfg):
+    """What we got wrong (spacelab/corrections.py), each with a link to the fix in the public repository."""
+    from . import corrections
+    return corrections.public(((cfg.get('share') or {}).get('github_repo') or '').strip())
 
 
 def _variables_public(con, f):

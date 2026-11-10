@@ -2084,6 +2084,19 @@ def fake_planets_measure_what_the_search_finds():
     con.execute('DELETE FROM injections'); con.execute('DELETE FROM tess_targets WHERE tic=400'); con.commit()
     (I.INJ_DIR / 'TIC400.npz').unlink()
 
+
+@test
+def what_we_got_wrong_is_published():
+    from spacelab import corrections, publish, db
+    assert len(corrections.CORRECTIONS) >= 10 and all(len(c) == 7 and all(c) for c in corrections.CORRECTIONS)
+    for d, area, wrong, effect, found, fix, sha in corrections.CORRECTIONS:
+        assert len(d) == 10 and d[4] == '-' and len(sha) >= 7 and all(ch in '0123456789abcdef' for ch in sha), (d, sha)
+    pub = corrections.public('owner/repo')
+    assert pub[0]['date'] >= pub[-1]['date'] and pub[0]['url'] == f"https://github.com/owner/repo/commit/{pub[0]['sha']}"
+    assert all(p['url'] is None for p in corrections.public(''))
+    data, _ = publish.build_data(db.connect(), {'share': {'github_repo': 'owner/repo'}})
+    assert data['site']['corrections'][0]['url'].startswith('https://github.com/owner/repo/commit/') and not publish.validate(data)
+
 import urllib.error  # noqa: E402
 
 if __name__ == '__main__':

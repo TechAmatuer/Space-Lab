@@ -1080,6 +1080,16 @@ const CHECKS = {
     env = await boot();
     t = await env.tab('tess');
     if (/Variable stars in the same light curves/.test(t.textContent) || /What this search can find/.test(t.textContent)) fails.push('no variable-star or fake-planet card before those have run');
+    // What we got wrong (About tab): plain text, links only to GitHub
+    const withCorr = JSON.parse(JSON.stringify(FIXTURE));
+    withCorr.site = Object.assign({}, withCorr.site, { corrections: [
+      { date: '2026-11-10', area: '3D universe', wrong: 'No galaxies <img src=x onerror=alert(1)> were drawn.', effect: 'The public map.', found: 'Looking.', fix: 'Fixed.', sha: 'dd84172', url: 'https://github.com/a/b/commit/dd84172' },
+      { date: '2026-11-09', area: 'Radar', wrong: 'Repeats.', effect: 'News list.', found: 'Reading.', fix: 'Tuned.', sha: 'x', url: 'javascript:alert(1)' }] });
+    env = await boot({ data: withCorr });
+    t = await env.tab('about');
+    const ct = t.querySelector('#corrections');
+    if (!ct || ct.querySelectorAll('.corr > li').length !== 2 || !/2026-11-10 · 3D universe\./.test(ct.textContent) || !/What it affected: The public map\./.test(norm(ct.textContent))
+        || ct.querySelector('img') || !ct.querySelector('a[href="https://github.com/a/b/commit/dd84172"]') || ct.querySelector('a[href^="javascript"]')) fails.push('About shows "What we got wrong" as plain text, with links to the fixes on GitHub only');
     report(26, 'TESS tab: a page at a time, and variable stars', fails);
   },
 };

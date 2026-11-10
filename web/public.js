@@ -232,6 +232,17 @@ function libraryCard(lib) {
     <label><input type="checkbox" id="pubRef" checked> peer-reviewed only</label></div></div>`;
 }
 
+// What we got wrong (spacelab/corrections.py): mistakes found in Space Lab's own work, and how each was fixed
+function correctionsCard(list) {
+  if (!list.length) return '';
+  const row = c => `<li><b>${esc(c.date)} · ${esc(c.area)}.</b> ${esc(c.wrong)}
+    <div class="small"><b>What it affected:</b> ${esc(c.effect)} <b>How it was found:</b> ${esc(c.found)} <b>What changed:</b> ${esc(c.fix)}
+    ${c.url && /^https:\/\/github\.com\//.test(c.url) ? `<a href="${esc(c.url)}" target="_blank" rel="noopener">the fix ↗</a>` : ''}</div></li>`;
+  return `<div class="card" id="corrections"><h3>What we got wrong</h3>
+    <p class="small">Mistakes found in Space Lab's own work, newest first: what was wrong, whether it reached this page or a science archive, how it was found and what changed. Nothing is removed from this list.</p>
+    <ul class="corr">${list.map(row).join('')}</ul></div>`;
+}
+
 function about() {
   const name = D?.name || 'a Space Lab volunteer';
   $('#v-about').innerHTML = `<div class="card"><h3>What is this?</h3>
@@ -243,7 +254,7 @@ function about() {
     <p>This page mirrors the volunteer's private dashboard. Two things stay on the Mac because they need its local AI: asking questions about the results, and searching the library by meaning (the public library search uses NASA ADS instead). Want all of it? Space Lab is free and open source${D?.site?.repo ? `: <a href="https://github.com/${esc(D.site.repo)}" target="_blank" rel="noopener">github.com/${esc(D.site.repo)}</a>` : ''}.</p>
     <p>All AI runs locally. Every result is checked by a person before anything is reported to the AAVSO or the Minor Planet Center. Feedback from scientists is very welcome.</p>
     <p><b>Privacy.</b> No cookies and no accounts. Visits, tabs opened and candidate-of-the-day votes are counted anonymously with GoatCounter. A ZIP code or location you enter stays in your own browser. Only if you tap "Cloud forecast" is the place, rounded to about 10 km, sent to the free Open-Meteo weather service. The Space atlas loads its maps and photos from NASA, ESA, the CDS data centre and jsDelivr, and only after you open it. Reminders are plain calendar files.</p>
-    <p class="small muted">Data: NASA TESS/MAST, NASA Exoplanet Archive, ExoClock, ExoFOP, TESS EB catalog, JPL Small-Body Database, Sentry, Scout and Horizons, CADC SSOIS, Pan-STARRS1 (STScI), ZTF (IRSA/Caltech), Gaia (ESA), arXiv, OpenAlex, NASA ADS, and the news outlets linked in the Space brief.</p></div>`;
+    <p class="small muted">Data: NASA TESS/MAST, NASA Exoplanet Archive, ExoClock, ExoFOP, TESS EB catalog, JPL Small-Body Database, Sentry, Scout and Horizons, CADC SSOIS, Pan-STARRS1 (STScI), ZTF (IRSA/Caltech), Gaia (ESA), arXiv, OpenAlex, NASA ADS, and the news outlets linked in the Space brief.</p></div>${correctionsCard((D && D.site && D.site.corrections) || [])}`;
 }
 
 function adsSearch() {
