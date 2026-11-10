@@ -141,8 +141,15 @@ def build_data(con, cfg):
         plate = str(c['archive'] or '').startswith('SuperCOSMOS')
         sent = bool((_j(c.get('mpc')) or {}).get('sent'))
         keep = ('obsTime', 'filter', 'snr') if plate and not sent else ('obsTime', 'ra', 'dec', 'filter', 'snr')   # plate positions stay private until sent
+        obs = _j(c['obs']) or []
+        weak = False
+        if plate and obs:                              # noise control: a blob nearly as strong at a wrong-date position (spacelab/plates.py)
+            o = obs[0]
+            at = f"{float(o.get('date_offset') or 0):+g}"
+            control = max([float(v or 0) for k, v in (o.get('date_probe') or {}).items() if k != at] or [0.0])
+            weak = control >= 3 and float(o.get('snr') or 0) < 1.5 * control
         pcs.append({'id': c['id'], 'des': c['des'], 'night': c['night'], 'archive': c['archive'], 'offset': c['offset'],
-                    'obs': [{k: o.get(k) for k in keep} for o in (_j(c['obs']) or [])],
+                    'obs': [{k: o.get(k) for k in keep} for o in obs], **({'weak': True} if weak else {}),
                     'gif': f(c['gif']), 'png': f(c['png']), 'status': c['status']})
     from . import orbits
 

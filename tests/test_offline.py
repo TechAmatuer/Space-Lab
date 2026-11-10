@@ -1267,6 +1267,14 @@ def mpc_send_needs_review_test_email_sarc_and_confirmation():
     data, _ = publish.build_data(con, {})
     pub = {c['id']: c for c in data['asteroids']['cands']}
     assert 'ra' not in pub[pid]['obs'][0] and pub[pid]['obs'][0]['snr'] == 9 and '12.3456' not in json.dumps(data), pub[pid]
+    # a weak plate detection (a blob nearly as strong at a wrong-date position) is published as weak, still without its position
+    wid = con.execute('INSERT INTO pc_cands(des,night,archive,obs,offset,mdist,score,gif,png,ades,status,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
+                      ('2099 AB3', '1984-07-17', 'SuperCOSMOS SERC-R/AAO-R 9450', json.dumps([{'obsTime': '1984-07-17T10:32:03.5Z', 'ra': 98.7654, 'dec': -1.2345, 'filter': 'R', 'snr': 5.0,
+                                                                                               'date_offset': 0.0, 'date_probe': {'+0': 5.0, '-1': 4.2, '+1': None}}]),
+                       0.76, 0.5, 5.0, None, None, ades, 'new', time.time())).lastrowid
+    data, _ = publish.build_data(con, {})
+    pub = {c['id']: c for c in data['asteroids']['cands']}
+    assert pub[wid].get('weak') is True and 'weak' not in pub[pid] and '98.7654' not in json.dumps(data) and not publish.validate(data), pub[wid]
 
 
 @test
