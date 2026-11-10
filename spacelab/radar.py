@@ -102,6 +102,24 @@ def _cos(a, b):
     return sum(x * y for x, y in zip(a, b)) / (na * nb) if na and nb else 0.0
 
 
+_ES = {'la', 'el', 'los', 'las', 'de', 'del', 'un', 'una', 'y', 'en', 'para', 'con', 'que', 'al', 'se', 'su', 'sus', 'por', 'más', 'es'}
+
+
+def _spanish(title):
+    """True for a title that reads as Spanish (NASA publishes many stories in both languages)."""
+    t = (title or '').lower()
+    n = sum(1 for w in re.findall(r'[a-záéíóúñü]+', t) if w in _ES)
+    return n >= 3 or (n >= 2 and bool(re.search(r'[áéíóúñ¿¡]', t)))
+
+
+def _lead_in_english(into, it):
+    """When the same story is listed in Spanish and English, the English one leads on this English page."""
+    if _spanish(into.get('title')) and not _spanish(it.get('title')):
+        for k in ('title', 'url', 'summary', 'why', 'topic'):
+            if it.get(k):
+                into[k] = it[k]
+
+
 def _absorb(into, it):
     for src, url in zip(it.get('sources') or [it['source']], it.get('links') or [it['url']]):
         if src not in into['sources']:
@@ -154,6 +172,7 @@ def dedupe(fresh, recent, embed=None, same=SAME):
                 k = max(range(len(final)), key=lambda q: _cos(v, fv[q])) if final else None
                 if k is not None and _cos(v, fv[k]) >= same:                 # 2. same meaning in this run
                     _absorb(final[k], it)
+                    _lead_in_english(final[k], it)
                     continue
                 final.append(it); fv.append(v)
             keep = final
@@ -191,8 +210,27 @@ def tidy(items, embed=None, same=SAME):
                 into.setdefault('links', []).append(url)
         into['arxiv'] = sorted(set(into.get('arxiv') or []) | ids)
         into['lab'] = sorted(set(into.get('lab') or []) | set(it.get('lab') or []))
+        _lead_in_english(into, it)
         gone += 1
     return [items[k] for k in sorted(keep)], gone
+
+
+def english_titles(items, chat, limit=12):
+    """Headlines that arrive in Spanish are put into English by the local AI (this page is in English); the original is kept
+    in title_es. chat(prompt) -> text. Returns how many were translated."""
+    n = 0
+    for x in items:
+        if n >= limit or not _spanish(x.get('title')):
+            continue
+        try:
+            en = chat('Translate this Spanish headline into plain English. Reply with the English headline only, nothing else.\n\n' + x['title'])
+        except Exception:
+            en = None
+        en = ((en or '').strip().splitlines() or [''])[0].strip().strip('"“”').strip()
+        if 8 <= len(en) <= 220 and not _spanish(en):
+            x['title_es'], x['title'] = x['title'], en
+            n += 1
+    return n
 
 
 def keyword_score(it):
@@ -288,6 +326,10 @@ def run(ctx):
     items, n_tidy = tidy(items, llm.embed if llm.models() else None)
     if n_tidy:
         log(f'  {n_tidy} repeats inside the list merged into the story they repeat')
+    if llm.models() and ctx.time_left() > 90:
+        n_en = english_titles(items, lambda q: llm.chat(q, kind='writer', max_tokens=80, temperature=0.1))
+        if n_en:
+            log(f'  {n_en} Spanish headlines put into English by the local AI')
     items.sort(key=lambda x: (-x['score'], -x['date']))
     digest = old.get('digest')
     top = [x for x in kept if x['score'] >= 6][:6]

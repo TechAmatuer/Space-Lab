@@ -783,6 +783,24 @@ def withdraw(con, des, plate_id):
         db.close_task(con, f'plate:{des}:{plate_id}')
 
 
+def stale_objects(cands, mpc_for):
+    """Objects with a waiting plate candidate that someone else has reported to the MPC in the meantime.
+    cands: rows of pc_cands (des, obs as JSON text); mpc_for(des) -> the MPC's observations of that object."""
+    from astropy.time import Time
+    out, seen = set(), {}
+    for c in cands:
+        try:
+            o = json.loads(c['obs'])[0]
+            jd = Time(o['obsTime'].replace('Z', ''), format='isot', scale='utc').jd
+        except (ValueError, KeyError, IndexError, TypeError):
+            continue                                         # not a plate measurement this check understands
+        if c['des'] not in seen:
+            seen[c['des']] = mpc_for(c['des']) or []
+        if already_reported(seen[c['des']], str(o.get('stn') or ''), jd):
+            out.add(c['des'])
+    return out
+
+
 def search_object(ctx, llm, t, mpc, plates_cfg):
     """Plate search and measurements for one object. Returns a summary dict for the Meridian page."""
     os.environ.setdefault('SRS_HOME', str(config.CACHE / 'srs'))
@@ -931,6 +949,14 @@ def run(ctx):
     except Exception as e:
         log(f'  target list unavailable: {e}')
         rows = []
+    # a plate waiting for your look may have been reported by someone else since: search that object again now, so the
+    # candidate is taken back and the plate becomes an accuracy test instead
+    stale = stale_objects(db.rows(con, "SELECT des, obs FROM pc_cands WHERE status='new' AND archive LIKE 'SuperCOSMOS %'"),
+                          lambda d: mpc_observations(d, log))
+    if stale:
+        log(f"  already at the MPC since they were found here: plates of {', '.join(sorted(stale))}; checking them again")
+        done -= stale
+        manual = list(dict.fromkeys(manual + sorted(stale)))
     todo = pick_targets(rows, done, datetime.now().year, float(pc.get('plate_limit', 21.0)), int(pc.get('first_after', 1995)),
                         int(pc.get('objects_per_run', 2)), manual)
     log(f"  objects this run: {', '.join(t['des'] for t in todo) or 'none'}")

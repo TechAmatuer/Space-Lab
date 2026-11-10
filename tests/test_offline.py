@@ -1124,6 +1124,13 @@ def plates_pure_helpers():
     assert plates.already_reported([dict(o[0], stn='261')], '675', o[0]['jd']) and plates.already_reported([dict(o[0], stn='413')], '260', o[0]['jd'])   # same telescope, other code
     assert not plates.already_reported([dict(o[0], stn='260')], '675', o[0]['jd'])
     assert plates.already_reported([dict(o[0], stn='262')], '809', o[0]['jd']) and plates.same_site('262', '809') and not plates.same_site('262', '260')   # La Silla-DSS
+    # a waiting candidate whose plate someone else has reported since: its object is searched again (the candidate is then taken back)
+    from astropy.time import Time as _T
+    t_iso = _T(o[0]['jd'] + 0.01, format='jd', scale='utc').isot[:21] + 'Z'
+    cands = [{'des': 'X1', 'obs': json.dumps([{'obsTime': t_iso, 'stn': '809'}])}, {'des': 'X2', 'obs': json.dumps([{'obsTime': t_iso, 'stn': '260'}])},
+             {'des': 'X3', 'obs': 'not json'}]
+    asked = []
+    assert plates.stale_objects(cands, lambda d: asked.append(d) or [dict(o[0], stn='262')]) == {'X1'} and asked == ['X1', 'X2'], asked
     # targets: bright distant objects first seen recently; manual ones first; done ones skipped
     rows = [{'pdes': '2026 ED138', 'full_name': '2026 ED138', 'H': '2.85', 'q': '36.9', 'a': '43.2', 'first_obs': '2016-02-25'},
             {'pdes': '2020 XX1', 'H': '9.5', 'q': '35', 'first_obs': '2020-01-01'},           # far too faint for plates
@@ -1255,6 +1262,19 @@ def radar_never_lists_the_same_story_twice():
     out, gone = radar.tidy(stored, lambda texts: [topic(t) for t in texts])
     assert gone == 2 and [x['id'] for x in out] == ['a', 'b', 'c', 'f'], (gone, [x['id'] for x in out])
     assert next(x for x in out if x['id'] == 'b')['sources'] == ['NASA', 'ESA'] and next(x for x in out if x['id'] == 'c')['sources'] == ['Space.com', 'EarthSky']
+    # the same story in Spanish and English: one item, and the English one leads
+    assert radar._spanish('La NASA busca a la próxima generación de astronautas') and radar._spanish('La NASA destina un millón de dólares al reto estudiantil Base Lunar')
+    assert not radar._spanish("NASA's ESCAPADE Completes Powered Earth Flybys, Now En Route to Mars") and not radar._spanish('New images from La Silla show the comet')
+    es = [it('s1', 'La NASA busca a la próxima generación de astronautas (webb)', 8, 'NASA'), it('s2', 'NASA needs more astronauts: the Webb way', 5, 'Space.com')]
+    out3, gone3 = radar.tidy(es, lambda texts: [topic(t) for t in texts])
+    assert gone3 == 1 and out3[0]['title'].startswith('NASA needs more astronauts') and out3[0]['url'] == 'https://x/s2' and out3[0]['score'] == 8 and out3[0]['sources'] == ['NASA', 'Space.com'], out3
+    # a headline that only exists in Spanish is translated by the local AI; a bad answer changes nothing
+    sp = [it('t1', 'La NASA destina un millón de dólares al reto estudiantil Base Lunar', 6, 'NASA'), it('t2', 'Webb sees water on a hot planet', 7, 'NASA'),
+          it('t3', 'La NASA busca a la próxima generación de astronautas', 6, 'NASA')]
+    said = iter(['"NASA puts one million dollars into the Moon Base student challenge"\nextra line', 'La NASA busca a la próxima generación de astronautas'])
+    assert radar.english_titles(sp, lambda q: next(said)) == 1
+    assert sp[0]['title'] == 'NASA puts one million dollars into the Moon Base student challenge' and sp[0]['title_es'].startswith('La NASA destina')
+    assert sp[1]['title'] == 'Webb sees water on a hot planet' and sp[2]['title'].startswith('La NASA busca') and 'title_es' not in sp[2]
     out2, gone2 = radar.tidy([dict(x, sources=list(x['sources'])) for x in stored[:2]] + [it('g', 'Hot planet water seen by Webb', 3, 'BBC', ['2611.09999'])], None)
     assert gone2 == 1 and len(out2) == 2 and 0.7 < radar.SAME < 0.85, (gone2, radar.SAME)
 
