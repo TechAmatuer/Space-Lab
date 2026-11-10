@@ -156,7 +156,8 @@ def duplicates(rows, tol_s=60):
     mine = [t for t in (_t(r.get('obsTime', '')) for r in rows) if t]
     n = 0
     for ln in lines:
-        if len(ln) < 80 or ln[77:80] != stn:
+        from .plates import same_site
+        if len(ln) < 80 or not same_site(ln[77:80], stn):
             continue
         try:
             y, mo, d = int(ln[15:19]), int(ln[20:22]), float(ln[23:32])

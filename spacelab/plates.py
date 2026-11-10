@@ -420,9 +420,17 @@ def _get_with_body(url, body):
         return r.read()
 
 
+# the same telescope can be filed under more than one MPC code (e.g. measurements made on DSS scans)
+SAME_SITE = [{'675', '261', '644'}, {'260', '413'}, {'809'}]
+
+
+def same_site(a, b):
+    return a == b or any(a in g and b in g for g in SAME_SITE)
+
+
 def already_reported(mpc, stn, jd, tol_days=1.6):
-    """MPC observations from the same station within tol_days of the plate (any measurer): this plate is likely done."""
-    return [o for o in (mpc or []) if o['stn'] == stn and abs(o['jd'] - jd) <= tol_days]
+    """MPC observations from the same telescope within tol_days of the plate (any measurer): this plate is likely done."""
+    return [o for o in (mpc or []) if same_site(o['stn'], stn) and abs(o['jd'] - jd) <= tol_days]
 
 
 # ================================================================== Gaia
@@ -767,6 +775,13 @@ def _served_plate(header, plates, survey_id):
     return None
 
 
+def withdraw(con, des, plate_id):
+    """Someone else has reported this plate since it was found here: take back an unreviewed candidate (never one you judged)."""
+    for c in db.rows(con, "SELECT id FROM pc_cands WHERE des=? AND archive=? AND status='new'", (des, f'SuperCOSMOS {plate_id}')):
+        con.execute('DELETE FROM pc_cands WHERE id=?', (c['id'],))
+        db.close_task(con, f'plate:{des}:{plate_id}')
+
+
 def search_object(ctx, llm, t, mpc, plates_cfg):
     """Plate search and measurements for one object. Returns a summary dict for the Meridian page."""
     os.environ.setdefault('SRS_HOME', str(config.CACHE / 'srs'))
@@ -852,7 +867,7 @@ def search_object(ctx, llm, t, mpc, plates_cfg):
             rec.update({k: m.get(k) for k in ('snr', 'off', 'in_ellipse', 'sigma', 'shape', 'date_offset', 'n_removed', 'why', 'snr_at_pred', 'ra', 'dec', 'obsTime')})
             rec['solution'] = m.get('plate')
             rec['result'] = v
-            png = config.PLOTS / 'plates' / f"{re.sub(r'[^A-Za-z0-9]+', '_', des)}_{h.plate_id.replace(' ', '_')}.png"
+            png = config.PLOTS / 'plates' / f"{re.sub(r'[^A-Za-z0-9]+', '_', des)}_{re.sub(r'[^A-Za-z0-9-]+', '_', h.plate_id)}.png"
             review_png(png, f'{des} on {label}: {v}', m, cmp_img, cmp_label, scale=scale, pred=m.get('pred'))
             rec['png'] = str(png.relative_to(config.DATA))
             tm = rec['timing']
@@ -868,10 +883,12 @@ def search_object(ctx, llm, t, mpc, plates_cfg):
                 mvx, mvy = tangent(float(pr_o[0]), float(pr_o[1]), float(pr_m[0]), float(pr_m[1]))
                 rec['validation'] = {'mpc_dt_h': round((o['jd'] - jd) * 24, 2), 'diff_arcsec': round(float(math.hypot(ddx - mvx, ddy - mvy)), 2)}
                 rec['result'] = 'already reported by others: used as an accuracy test'
+                withdraw(con, des, h.plate_id)
                 log(f"    {h.plate_id}: matches the MPC's position to {rec['validation']['diff_arcsec']}\" (times differ by {rec['validation']['mpc_dt_h']} h)")
                 continue
             if done:
                 rec['result'] = 'already reported by others (not found here)'
+                withdraw(con, des, h.plate_id)
                 continue
             log(f"    {h.plate_id}: {v}" + (f", S/N {m['snr']}, {m['off']}\" from the prediction" if m.get('found') else f" ({m.get('why')})"))
             if v in ('detected', 'marginal'):
@@ -906,14 +923,15 @@ def run(ctx):
     state = db.kv_get(con, 'plates') or {}
     objs = {o['des']: o for o in state.get('objects') or []}
     redo = float(pc.get('research_days', 120)) * 86400
-    done = {d for d, o in objs.items() if time.time() - (o.get('t') or 0) < redo}
+    manual = [m for m in pc.get('manual') or [] if m]
+    done = {d for d, o in objs.items() if time.time() - (o.get('t') or 0) < (20 * 3600 if d in manual else redo)}   # your list: daily
     try:
         rows = sbdb_targets(log, float(pc.get('h_max', 8.0)))
     except Exception as e:
         log(f'  target list unavailable: {e}')
         rows = []
     todo = pick_targets(rows, done, datetime.now().year, float(pc.get('plate_limit', 21.0)), int(pc.get('first_after', 1995)),
-                        int(pc.get('objects_per_run', 2)), [m for m in pc.get('manual') or [] if m])
+                        int(pc.get('objects_per_run', 2)), manual)
     log(f"  objects this run: {', '.join(t['des'] for t in todo) or 'none'}")
     try:
         llm = LLM(cfg, log)

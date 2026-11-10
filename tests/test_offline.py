@@ -1121,6 +1121,8 @@ def plates_pure_helpers():
     assert len(o) == 1 and o[0]['stn'] == '675' and abs(o[0]['ra'] - (9 + 59 / 60 + 12.34 / 3600) * 15) < 1e-6 and o[0]['dec'] < -29.9, o
     assert plates.already_reported(o, '675', o[0]['jd'] + 1.0) and not plates.already_reported(o, '809', o[0]['jd'])
     assert not plates.already_reported(o, '675', o[0]['jd'] + 3.0)
+    assert plates.already_reported([dict(o[0], stn='261')], '675', o[0]['jd']) and plates.already_reported([dict(o[0], stn='413')], '260', o[0]['jd'])   # same telescope, other code
+    assert not plates.already_reported([dict(o[0], stn='260')], '675', o[0]['jd'])
     # targets: bright distant objects first seen recently; manual ones first; done ones skipped
     rows = [{'pdes': '2026 ED138', 'full_name': '2026 ED138', 'H': '2.85', 'q': '36.9', 'a': '43.2', 'first_obs': '2016-02-25'},
             {'pdes': '2020 XX1', 'H': '9.5', 'q': '35', 'first_obs': '2020-01-01'},           # far too faint for plates
