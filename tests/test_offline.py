@@ -455,6 +455,13 @@ def publish_schema_and_privacy():
     (d / 'data.json').write_text(json.dumps({'note': 'contact secret.person@example.com at 40.12345'}))
     hits = publish.scan(d, cfg)
     assert any('email' in h for h in hits) and any('latitude' in h for h in hits), hits
+    cfg2 = dict(cfg, aavso_code='QXZ', vstars={'site': {'lat': 35.67891, 'lon': -105.98765}, 'targettool_key': 'tt-secret-key-123'})
+    (d / 'data.json').write_text(json.dumps({'a': 'obs QXZ here', 'b': 'QXZQ is fine', 'c': 'site 35.67891', 'd': 'key tt-secret-key-123', 'e': 'host 192.168.1.20',
+                                             'f': 'version 1.10.0.5 and galaxy 20854'}))
+    labels = ' | '.join(publish.scan(d, cfg2))
+    assert all(x in labels for x in ('AAVSO observer code', 'observatory latitude', 'Target Tool key', 'private) IP')) and labels.count('AAVSO observer code') == 1, labels
+    (d / 'data.json').write_text(json.dumps({'f': 'version 1.10.0.5 and galaxy 20854', 'g': 'XQXZ'}))
+    assert publish.scan(d, cfg2) == [], publish.scan(d, cfg2)
     (d / 'data.json').write_text(json.dumps(data, default=str))
     assert publish.scan(d, cfg) == [], publish.scan(d, cfg)
 

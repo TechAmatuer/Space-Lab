@@ -322,19 +322,44 @@ def validate(data, schema=SCHEMA, path='data'):
 
 def forbidden(cfg):
     """Strings that must never appear in anything published."""
+    import socket
     sh, sc = cfg.get('share') or {}, cfg.get('telescope') or {}
+    vs = cfg.get('vstars') or {}
     bad = {'your email': cfg.get('contact_email'), 'your private Discord webhook': cfg.get('discord_webhook'),
            'the public Discord webhook': sh.get('discord_webhook'), 'your GitHub token': sh.get('github_token'),
            'your visitor-counter key': sh.get('goatcounter_token'),
-           'your Space Lab folder path': str(config.ROOT), 'your Mac home folder': str(Path.home())}
+           'your Space Lab folder path': str(config.ROOT), 'your Mac home folder': str(Path.home()),
+           'your AAVSO observer code': (cfg.get('aavso_code') or '').strip(), 'the observatory\'s AAVSO code': (vs.get('obscode') or '').strip(),
+           'the AAVSO Target Tool key': vs.get('targettool_key')}
+    user = Path.home().name
+    if len(user) >= 5:
+        bad['your Mac user name'] = user
+    try:
+        host = socket.gethostname().split('.')[0]
+        if len(host) >= 6:
+            bad['your computer\'s name'] = host
+    except Exception:
+        pass
     name = (cfg.get('observer_name') or '').strip()
     if len(name) >= 3 and name.lower() != (sh.get('public_name') or '').strip().lower():
         bad['your full name from Setup'] = name
-    for k in ('lat', 'lon'):
-        v = str(sc.get(k) or '').strip()
-        if len(v.replace('-', '').replace('+', '')) >= 5:
-            bad[f'your telescope {k}itude'] = v
+    for where, place in (('telescope', sc), ('observatory', vs.get('site') or {})):
+        for k in ('lat', 'lon'):
+            v = str(place.get(k) if place.get(k) is not None else '').strip()
+            if len(v.replace('-', '').replace('+', '')) >= 5:
+                bad[f'your {where} {k}itude'] = v
     return {k: v for k, v in bad.items() if v and len(str(v)) >= 3}
+
+
+PRIVATE_IP = re.compile(r'(?<![\d.])(10\.\d{1,3}|192\.168|172\.(1[6-9]|2\d|3[01]))\.\d{1,3}\.\d{1,3}(?![\d.])')
+
+
+def _found(text, s):
+    """Whole-word match for short values (an AAVSO code like XYZ), plain substring for long ones."""
+    s = str(s)
+    if len(s) < 8:
+        return re.search(r'(?<![A-Za-z0-9])' + re.escape(s) + r'(?![A-Za-z0-9])', text) is not None
+    return s in text
 
 
 def scan(folder, cfg):
@@ -346,8 +371,10 @@ def scan(folder, cfg):
         if p.is_file() and p.suffix in ('.json', '.html', '.js', '.css', '.txt', '.md', '.xml', '.webmanifest', '.ics'):
             text = p.read_text(errors='ignore')
             for label, s in bad.items():
-                if str(s) in text:
+                if _found(text, s):
                     hits.append(f'{label} in {p.name}')
+            if PRIVATE_IP.search(text):
+                hits.append(f'a home-network (private) IP address in {p.name}')
     return hits
 
 
