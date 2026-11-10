@@ -116,10 +116,15 @@
     if (close) ctx.closePath();
     ctx.stroke();
   }
-  function trail(o, jd) {                                 // stored points up to now (past) and after it (future)
+  const RECENT = 150;                                     // days of path shown for a spacecraft that is not selected
+  function trail(o, jd, full) {                           // stored points up to now (past) and after it (future)
     const f = G.f, b = o.off * 7, t = jd - G.t0, past = [], future = [];
     const stepSkip = Math.max(1, Math.floor(o.n / 900));
-    for (let k = 0; k < o.n; k += stepSkip) { const i = b + k * 7; (f[i] <= t ? past : future).push([f[i + 1], f[i + 2], f[i + 3]]); }
+    for (let k = 0; k < o.n; k += stepSkip) {
+      const i = b + k * 7;
+      if (!full && Math.abs(f[i] - t) > RECENT) continue;  // the whole journey only for the one you picked: 25 full paths are a tangle
+      (f[i] <= t ? past : future).push([f[i + 1], f[i + 2], f[i + 3]]);
+    }
     const st = state(o, jd);
     if (st) { past.push(st.p); future.unshift(st.p); }
     return { past, future };
@@ -148,7 +153,7 @@
     // spacecraft trails: where each has been (solid) and where it is going (dashed)
     for (const o of G.meta.objects) {
       if (o.kind !== 'craft' || V.hidden[o.group]) continue;
-      const tr = trail(o, jd), on = sel === o;
+      const on = sel === o, tr = trail(o, jd, on || V.allPaths || o.group === 'leaving');
       ctx.strokeStyle = o.color; ctx.globalAlpha = on ? 0.95 : 0.3; ctx.lineWidth = on ? 1.6 : 1;
       ctx.setLineDash([]); line(ctx, tr.past, false);
       ctx.globalAlpha = on ? 0.7 : 0.16; ctx.setLineDash([3, 5]); line(ctx, tr.future, false);
@@ -175,13 +180,17 @@
       if (o.kind === 'craft') { ctx.save(); ctx.translate(s[0], s[1]); ctx.rotate(Math.PI / 4); ctx.fillRect(-3, -3, 6, 6); ctx.restore(); }
       else { ctx.beginPath(); ctx.arc(s[0], s[1], SIZE[o.key] || 2.4, 0, 7); ctx.fill(); }
       if (o === sel) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(s[0], s[1], 11, 0, 7); ctx.stroke(); }
-      const wd = ctx.measureText(o.name).width + 14, bx = [s[0] + 8, s[1] - 8, wd, 16];
-      if (o !== sel && placed.some(q => bx[0] < q[0] + q[2] && q[0] < bx[0] + bx[2] && bx[1] < q[1] + q[3] && q[1] < bx[1] + bx[3])) continue;
-      placed.push(bx); labels.push([o, s]);
+      // the name goes right of the dot, or left, above or below it when that spot is taken; planets are always named
+      const tw = ctx.measureText(o.name).width + 8;
+      const spots = [[s[0] + 8, s[1] - 8], [s[0] - 8 - tw, s[1] - 8], [s[0] - tw / 2, s[1] - 26], [s[0] - tw / 2, s[1] + 10]];
+      const free = p => !placed.some(q => p[0] < q[0] + q[2] && q[0] < p[0] + tw && p[1] < q[1] + q[3] && q[1] < p[1] + 16);
+      const at = spots.find(free) || ((o === sel || o.kind === 'planet') ? spots[0] : null);
+      if (!at) continue;
+      placed.push([at[0], at[1], tw, 16]); labels.push([o, at, tw]);
     }
-    for (const [o, s] of labels) {
-      ctx.fillStyle = 'rgba(5,8,15,.6)'; ctx.fillRect(s[0] + 8, s[1] - 8, ctx.measureText(o.name).width + 8, 16);
-      ctx.fillStyle = o === sel ? '#fff' : o.kind === 'planet' ? '#dfe7f3' : o.color; ctx.fillText(o.name, s[0] + 12, s[1]);
+    for (const [o, at, tw] of labels) {
+      ctx.fillStyle = 'rgba(5,8,15,.6)'; ctx.fillRect(at[0], at[1], tw, 16);
+      ctx.fillStyle = o === sel ? '#fff' : o.kind === 'planet' ? '#dfe7f3' : o.color; ctx.fillText(o.name, at[0] + 4, at[1] + 8);
     }
     // scale bar
     const span = 110 / V.scale, real = V.squeeze ? null : [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200].filter(x => x <= span).pop();
@@ -270,6 +279,7 @@
       else if (t.matches('.ss-zoom')) { V.follow = null; V.c = [0, 0, 0]; setRadius(+t.dataset.r); redraw(); }
       else if (t.matches('.ss-now')) { V.dt = 0; V.playing = false; syncPlay(); el.querySelector('.ss-time').value = 0; redraw(); }
       else if (t.matches('.ss-play')) { V.playing = !V.playing; V.last = 0; syncPlay(); redraw(); }
+      else if (t.matches('.ss-paths')) { V.allPaths = !V.allPaths; t.classList.toggle('on', V.allPaths); t.setAttribute('aria-pressed', V.allPaths ? 'true' : 'false'); redraw(); }
       else if (t.matches('.ss-squeeze')) { V.squeeze = !V.squeeze; t.classList.toggle('on', V.squeeze); t.setAttribute('aria-pressed', V.squeeze ? 'true' : 'false'); V.follow = null; V.c = [0, 0, 0]; setRadius(V.squeeze ? 185 : 6.5); redraw(); }
     });
     el.querySelector('.ss-time').addEventListener('input', e => { V.dt = +e.target.value; V.playing = false; syncPlay(); redraw(); });
@@ -296,9 +306,9 @@
     if (!so || !so.bin) { el.innerHTML = '<div class="card"><h3>🪐 Solar system, live</h3><p class="muted">The map is built on the next daily update.</p></div>'; return; }
     if (V && V.el === el && G.ready) { redraw(); return; }
     el.innerHTML = `<div class="card ss-top"><div class="row"><h3>🪐 The solar system, live</h3><span class="spacer"></span><span class="small muted">${Number(so.n_craft || 0)} spacecraft and ${Number((so.n || 0) - (so.n_craft || 0))} worlds · positions from NASA/JPL</span></div>
-        <p class="small">Where the planets and our spacecraft are at this moment. Drag to turn and tilt, scroll or pinch to zoom, tap anything to learn what it is and what it does. Solid lines show where a spacecraft has been since launch, dashed lines where it is going.</p>
+        <p class="small">Where the planets and our spacecraft are at this moment. Drag to turn and tilt, scroll or pinch to zoom, tap anything to learn what it is and what it does. Each spacecraft shows its last few months of travel. Tap one to see its whole journey: solid where it has been since launch, dashed where it is going.</p>
         <div class="row ss-bar"><button class="b ss-zoom" data-r="2.2">Inner planets</button><button class="b ss-zoom" data-r="6.5">Out to Jupiter</button><button class="b ss-zoom" data-r="33">Out to Neptune</button><button class="b ss-zoom" data-r="185">The Voyagers</button>
-          <button class="b ss-squeeze" aria-pressed="false" title="Draws distances squeezed, so everything fits in one picture">Fit everything</button><span class="spacer"></span><button class="b primary ss-full">⛶ Full screen</button></div></div>
+          <button class="b ss-squeeze" aria-pressed="false" title="Draws distances squeezed, so everything fits in one picture">Fit everything</button><button class="b ss-paths" aria-pressed="false" title="Shows every spacecraft's whole journey since launch at once">All journeys</button><span class="spacer"></span><button class="b primary ss-full">⛶ Full screen</button></div></div>
       <div class="ss-wrap"><canvas class="ss-canvas" aria-label="Map of the solar system with planets and spacecraft. The list below the map has every object as a button."></canvas>
         <div class="ss-timebar"><button class="b ss-now">Now</button><button class="b ss-play">▶ Play (1 week per second)</button><input type="range" class="ss-time" min="-30" max="400" step="0.25" value="0" aria-label="Days from now"><span class="small mono ss-when"></span></div>
         <div class="ss-cardbox"></div><div class="ss-loading small">Loading the positions…</div></div>

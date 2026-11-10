@@ -951,6 +951,9 @@ const CHECKS = {
     if (wrap.classList.contains('sl-full') || !v.querySelector('.ss-top .ss-bar')) fails.push('leaving full screen puts the buttons back');
     v.querySelector('.ss-squeeze').click(); await sleep(5);
     if (v.querySelector('.ss-squeeze').getAttribute('aria-pressed') !== 'true') fails.push('"Fit everything" can be switched on');
+    const pb = v.querySelector('.ss-paths');
+    if (!pb || pb.getAttribute('aria-pressed') !== 'false') fails.push('whole journeys of all spacecraft are off at first (25 full paths are a tangle)');
+    if (pb) { pb.click(); await sleep(5); if (pb.getAttribute('aria-pressed') !== 'true') fails.push('"All journeys" can be switched on'); pb.click(); }
     if (/undefined|NaN/.test(v.textContent)) fails.push('the solar system tab shows undefined or NaN');
     env = await boot({ search: '?obj=jwst', hash: '#solar' });
     v = env.$('#v-solar');
