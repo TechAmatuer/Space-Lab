@@ -233,6 +233,13 @@ button.b.at-mode.on,button.b.at-layer.on,button.b.at-alt.on{background:var(--acc
 #v-atlas.sl-fs .at-set{margin:4px 0 0}
 #v-atlas.sl-fs .at-info{position:absolute;right:20px;bottom:20px;width:min(380px,calc(100% - 40px));max-height:45vh;overflow:auto;z-index:6;box-shadow:var(--shadow)} #v-atlas.sl-fs .at-info:empty{display:none}
 #v-atlas.sl-fs .sl-suggest{display:none}
+/* full screen is for the picture: button rows become one line that slides sideways, the hint box goes away */
+#v-atlas.sl-fs .at-modes,#v-atlas.sl-fs .at-stage>.at-set{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:thin}
+#v-atlas.sl-fs .at-modes>*,#v-atlas.sl-fs .at-stage>.at-set>*{flex:0 0 auto}
+#v-atlas.sl-fs .at-modes .spacer{display:none}
+#v-atlas.sl-fs .at-full{position:sticky;right:0;margin-left:auto;box-shadow:-10px 0 10px var(--panel)}
+#v-atlas.sl-fs .at-credit{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:4px 0 0}
+#v-atlas.sl-fs .at-info:has(>p.muted:only-child){display:none}
 
 /* solar system */
 .ss-bar{gap:8px;flex-wrap:wrap}
