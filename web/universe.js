@@ -160,7 +160,7 @@
     const sgy = m[1], sgz = m[2];
     const back = unit3([-0.8 * sgy[0] + 0.6 * sgz[0], -0.8 * sgy[1] + 0.6 * sgz[1], -0.8 * sgy[2] + 0.6 * sgz[2]]);
     const right = unit3(cross(sgz, back)), up = cross(back, right);
-    return { mode: 'orbit', t: [0, 0, 0], d: 420, q: qfromBasis(right, up, back), fov: 55 * Math.PI / 180, eye: [0, 0, 0] };
+    return { mode: 'orbit', t: [0, 0, 0], d: 290, q: qfromBasis(right, up, back), fov: 55 * Math.PI / 180, eye: [0, 0, 0] };
   }
   function colorsFor(mode) {
     const c = new Float32Array(G.n * 3);
@@ -180,9 +180,9 @@
     if (!gl) return null;
     const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
     const prog = (vs, fs) => { const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(p); return p; };
-    const pts = prog(`attribute vec3 p; attribute vec3 c; attribute float s; uniform mat4 M; uniform vec3 eye; uniform float k; varying vec3 vc; varying float va;
-      void main(){ gl_Position = M * vec4(p,1.0); float d = max(distance(p, eye), 0.5); float px = s * k / d; gl_PointSize = clamp(px, 1.6, 22.0); vc = c; va = clamp(px / 2.5, 0.35, 1.0); }`,
-      `precision mediump float; varying vec3 vc; varying float va; void main(){ vec2 q = gl_PointCoord - 0.5; float r = dot(q,q) * 4.0; if (r > 1.0) discard; gl_FragColor = vec4(vc * va * exp(-r * 2.2), 1.0); }`);
+    const pts = prog(`attribute vec3 p; attribute vec3 c; attribute float s; uniform mat4 M; uniform vec3 eye; uniform float k; uniform float dpr; varying vec3 vc; varying float va;
+      void main(){ gl_Position = M * vec4(p,1.0); float d = max(distance(p, eye), 0.5); float px = s * k / d; gl_PointSize = clamp(px, 2.2 * dpr, 26.0 * dpr); vc = c; va = clamp(px / (3.0 * dpr), 0.55, 1.0); }`,
+      `precision mediump float; varying vec3 vc; varying float va; void main(){ vec2 q = gl_PointCoord - 0.5; float r = dot(q,q) * 4.0; if (r > 1.0) discard; gl_FragColor = vec4(vc * va * (0.25 + 1.1 * exp(-r * 2.5)), 1.0); }`);
     const lines = prog(`attribute vec3 p; uniform mat4 M; void main(){ gl_Position = M * vec4(p,1.0); }`,
       `precision mediump float; uniform vec4 col; void main(){ gl_FragColor = col; }`);
     const buf = data => { const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW); return b; };
@@ -213,6 +213,7 @@
     gl.uniformMatrix4fv(gl.getUniformLocation(pts, 'M'), false, vp.M);
     gl.uniform3fv(gl.getUniformLocation(pts, 'eye'), vp.eye);
     gl.uniform1f(gl.getUniformLocation(pts, 'k'), cv.height / 2 / Math.tan(V.cam.fov / 2));
+    gl.uniform1f(gl.getUniformLocation(pts, 'dpr'), dpr);
     for (const [nm, b, sz] of [['p', V.glx.pos, 3], ['c', V.glx.col, 3], ['s', V.glx.size, 1]]) { a = gl.getAttribLocation(pts, nm); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.enableVertexAttribArray(a); gl.vertexAttribPointer(a, sz, gl.FLOAT, false, 0, 0); }
     gl.drawArrays(gl.POINTS, 0, G.n);
     gl.disable(gl.BLEND);
@@ -227,10 +228,16 @@
     let html = '';
     const home = project(M, [0, 0, 0], w, h);
     if (home) html += `<div class="uv-home" style="transform:translate(${home[0].toFixed(0)}px,${home[1].toFixed(0)}px)" title="The Milky Way">✦<span>Milky Way</span></div>`;
-    if (on) (U().landmarks || []).forEach((l, k) => {
-      const p = project(M, l.xyz, w, h);
-      if (p && p[0] > -40 && p[0] < w + 40 && p[1] > -10 && p[1] < h + 10) html += `<button class="uv-lm uv-${l.kind}" data-k="${k}" style="transform:translate(${p[0].toFixed(0)}px,${p[1].toFixed(0)}px)">${esc(l.name)}</button>`;
-    });
+    if (on) {                                         // nearest first; a label that would overlap one already shown is left out
+      const placed = [];
+      (U().landmarks || []).map((l, k) => ({ l, k, p: project(M, l.xyz, w, h) })).filter(o => o.p).sort((a, b) => a.p[2] - b.p[2]).forEach(({ l, k, p }) => {
+        if (!(p[0] > -40 && p[0] < w + 40 && p[1] > -10 && p[1] < h + 10)) return;
+        const wd = 7 * l.name.length + 14;
+        if (placed.some(q => Math.abs(q[1] - p[1]) < 16 && p[0] < q[0] + q[2] && q[0] < p[0] + wd)) return;
+        placed.push([p[0], p[1], wd]);
+        html += `<button class="uv-lm uv-${l.kind}" data-k="${k}" style="transform:translate(${p[0].toFixed(0)}px,${p[1].toFixed(0)}px)">${esc(l.name)}</button>`;
+      });
+    }
     if (V.sel !== null && V.sel !== undefined) {
       const i = V.sel, p = project(M, [G.xyz[3 * i], G.xyz[3 * i + 1], G.xyz[3 * i + 2]], w, h);
       if (p) html += `<div class="uv-sel" style="transform:translate(${p[0].toFixed(0)}px,${p[1].toFixed(0)}px)"></div>`;
