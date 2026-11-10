@@ -21,7 +21,7 @@ from . import classifier, config, db, net
 API = 'https://api.github.com'
 SITE = config.DATA / 'public'
 WEB = config.ROOT / 'web'
-SITE_FILES = ('public.html', 'public.js', 'style.css', 'lcviewer.js', 'orbit3d.js', 'extras.js', 'extras.css', 'beyond.js', 'home.js', 'stargazing.js', 'asteroids.js', 'atlas.js', 'atlas-frame.html', 'universe.js', 'solar.js')
+SITE_FILES = ('public.html', 'public.js', 'style.css', 'lcviewer.js', 'orbit3d.js', 'extras.js', 'extras.css', 'beyond.js', 'home.js', 'stargazing.js', 'asteroids.js', 'atlas.js', 'atlas-frame.html', 'universe.js', 'solar.js', 'earthview.js')
 TITLE = 'Space Lab: hunting planets and asteroids with open NASA data'
 
 
@@ -35,7 +35,7 @@ def _j(x):
 def _beyond_public(b):
     """Sky watch / Beyond astronomy data is all public and location-free already; drop anything unexpected."""
     keep = ('t', 'space_weather', 'fireballs', 'comets', 'gw', 'supernovae', 'launches', 'habitable', 'sky', 'earth', 'iss', 'quakes',
-            'satellites', 'events', 'darksky', 'zip', 'live', 'wiki', 'missions', 'orbits', 'sn_nearby')
+            'satellites', 'events', 'darksky', 'zip', 'live', 'wiki', 'missions', 'orbits', 'sn_nearby', 'earth_orbits')
     return {k: b[k] for k in keep if k in b}
 
 
@@ -188,6 +188,9 @@ def build_data(con, cfg):
     for r in results:
         r['note'] = clean(r.get('note'))
     beyond = _beyond_public(db.kv_get(con, 'beyond') or {})
+    eo = beyond.pop('earth_orbits', None) or {}
+    if f(eo.get('json')):                              # around Earth (spacelab/earthorbit.py): one file on this site
+        beyond['earth_orbits'] = {'made': eo.get('made'), 'n': eo.get('n'), 'n_swarm': eo.get('n_swarm'), 'json': f(eo['json'])}
     so = db.kv_get(con, 'solar') or {}
     if f(so.get('json')) and f(so.get('bin')):         # the live solar system (spacelab/solar.py): two files on this site
         beyond['solar'] = {'made': so.get('made'), 'n': so.get('n'), 'n_craft': so.get('n_craft'), 'json': f(so['json']), 'bin': f(so['bin'])}

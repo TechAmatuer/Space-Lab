@@ -130,8 +130,20 @@ async function boot({ extras = true, storage = {}, data = FIXTURE, hash = '', se
                     { n: 'Six Apollo landing sites', by: 'NASA', note: 'still there', wiki: 'Apollo program', sec: 'On the Moon', links: [['Apollo 11', 'Apollo 11'], ['Apollo 12', 'Apollo 12']] }] }, lists_checked: '2026-11-10', skipped: ['Juno'], source: 'Positions: NASA/JPL Horizons.' } };
   };
   const SS = ssBuild();
+  // around Earth: a circular ISS-like orbit (period 92.6 min, 420 km up) and a GPS-like swarm, built around "now"
+  const EO = (() => {
+    const t0 = Math.floor(Date.now() / 1000), P = 5556, r = 6371 + 420, inc = 51.6 * Math.PI / 180, pts = [];
+    for (let k = 0; k < 240; k++) { const a = 2 * Math.PI * k / 240; pts.push([r * Math.cos(a), r * Math.sin(a) * Math.cos(inc), r * Math.sin(a) * Math.sin(inc)]); }
+    const gps = [[26560, 0, 0, 0, -Math.sin(0.96), Math.cos(0.96), 718]];
+    return { t0, made: t0, objects: [{ key: 'iss', name: 'International Space Station', group: 'stations', what: 'Home <b>x</b> to people.', wiki: 'International Space Station', norad: 25544, perigee_km: 420, apogee_km: 420, period_s: P, pts },
+      { key: 'hubble', name: 'Hubble Space Telescope', group: 'telescopes', what: 'Pictures.', wiki: 'Hubble Space Telescope', norad: 20580, perigee_km: 520, apogee_km: 520, period_s: 5700, pts: pts.map(p => p.map(x => x * 6891 / r)) }],
+      swarms: { navigation: { total: 62, names: ['GPS (32)', 'Galileo (30)'], pts: gps }, starlink: { total: 11201, names: [], pts: [[6921, 0, 0, 0, 0, 1, 95.6]] } },
+      groups: [['stations', 'Space stations'], ['telescopes', 'Telescopes around Earth'], ['navigation', 'Navigation (GPS, Galileo)'], ['starlink', 'Starlink internet']],
+      left_out: ['SPHEREx'], source: 'Orbits: CelesTrak.' };
+  })();
   w.fetch = async u => { rec.fetches.push(String(u));
     if (/solar\.json(\?v=\d+)?$/.test(String(u))) return { ok: true, text: async () => JSON.stringify(SS.meta) };
+    if (/earth\/orbits\.json(\?v=\d+)?$/.test(String(u))) return { ok: true, text: async () => JSON.stringify(EO) };
     if (/tracks\.bin(\?v=\d+)?$/.test(String(u))) return { ok: true, arrayBuffer: async () => SS.buf };
     if (/galaxies\.bin(\?v=\d+)?$/.test(String(u))) return { ok: true, arrayBuffer: async () => uvBin() };
     if (/galaxies\.txt(\?v=\d+)?$/.test(String(u))) return { ok: true, text: async () => UV_IDS.join('\n') + '\n' };
@@ -140,7 +152,7 @@ async function boot({ extras = true, storage = {}, data = FIXTURE, hash = '', se
     return /zip\.txt$/.test(String(u)) ? { ok: true, text: async () => ZIPS } : /images-api\.nasa\.gov/.test(String(u)) ? { ok: true, json: async () => NASA } : { ok: true, json: async () => json, text: async () => JSON.stringify(json) }; };
   w.eval(read('web/public.js'));
   if (extras) {
-    for (const f of ['web/beyond.js', 'web/extras.js', 'web/home.js', 'web/stargazing.js', 'web/asteroids.js', 'web/atlas.js', 'web/universe.js', 'web/solar.js']) {
+    for (const f of ['web/beyond.js', 'web/extras.js', 'web/home.js', 'web/stargazing.js', 'web/asteroids.js', 'web/atlas.js', 'web/universe.js', 'web/earthview.js', 'web/solar.js']) {
       try { w.eval(read(f)); } catch (e) { rec.errors.push(f + ' crashed while loading: ' + e.message); }
     }
   }
@@ -1044,6 +1056,31 @@ const CHECKS = {
     v = await env.tab('solar');
     if (!/built on the next daily update/.test(v.textContent)) fails.push('before the first run the tab says so');
     if (env.rec.errors.length) fails.push('errors: ' + env.rec.errors.slice(0, 3).join(' | '));
+    // around Earth (web/earthview.js)
+    {
+      const withEarth = JSON.parse(JSON.stringify(FIXTURE));
+      withEarth.beyond.earth_orbits = { json: 'files/plots/earth/orbits.json', made: 1794300000, n: 2, n_swarm: 2 };
+      const e2 = await boot({ data: withEarth });
+      const v2 = await e2.tab('solar');
+      for (let k = 0; k < 40 && !v2.querySelector('.ev-pick'); k++) await sleep(10);
+      const et = norm(v2.textContent), EV = e2.w.SpaceLabEarth;
+      if (!/Around Earth, live/.test(et) || v2.querySelectorAll('.ev-pick').length !== 2 || !/GPS \(32\), Galileo \(30\)/.test(et) || !/1 of 11,201 shown/.test(et) || !/Not shown this time \(no current orbit data\): SPHEREx/.test(et)) fails.push('around Earth: the view, every spacecraft as a button, the swarms with their counts, and what was left out: ' + et.slice(et.indexOf('Around Earth'), et.indexOf('Around Earth') + 300));
+      if (EV) {
+        const o = EV.data.byKey.iss, t0 = EV.data.m.t0, p0 = EV.pos(o, t0), pq = EV.pos(o, t0 + o.period_s / 4), ph = EV.pos(o, t0 + o.period_s);
+        if (Math.abs(Math.hypot(...p0) - 6791) > 1 || Math.abs(Math.hypot(...pq) - 6791) > 30 || Math.hypot(ph[0] - p0[0], ph[1] - p0[1], ph[2] - p0[2]) > 1) fails.push('a spacecraft moves along its stored orbit and is back where it started after one period');
+        const g = EV.data.m.swarms.navigation.pts[0], q = EV.spos(g, t0 + 718 * 15);
+        if (Math.abs(Math.hypot(...q) - 26560) > 1 || Math.abs(q[1] / 26560 - Math.cos(0.96)) > 1e-3) fails.push('a swarm satellite turns about its own orbit axis: a quarter period later it is 90° on: ' + q.map(x => x.toFixed(0)));
+      } else fails.push('window.SpaceLabEarth is missing');
+      v2.querySelector('.ev-pick[data-k="iss"]').click(); await sleep(10);
+      const c = norm((v2.querySelector('.ev-cardbox .ss-card') || { textContent: '' }).textContent);
+      if (!/International Space Station/.test(c) || !/Home <b>x<\/b> to people/.test(c) || !/Height above the ground\s*42\d km/.test(c) || !/Speed\s*7\.\d\d km\/s/.test(c) || !/Once around Earth\s*93 minutes/.test(c) || !/Right above\s*[\d.]+° [NS], [\d.]+° [EW]/.test(c)) fails.push('a spacecraft card: what it does, height, speed, period and the spot below it: ' + c.slice(0, 300));
+      if (!v2.querySelector('.ev-cardbox .ev-media .sl-nasa')) fails.push('a spacecraft card has the photos and Wikipedia panel');
+      const gb = v2.querySelector('.ev-grp[data-g="starlink"]');
+      if (!gb) fails.push('each group can be hidden'); else { gb.click(); await sleep(5); if (!EV.view().off.starlink) fails.push('unticking Starlink hides it'); }
+      const noE = JSON.parse(JSON.stringify(FIXTURE));
+      const e3 = await boot({ data: noE }); const v3 = await e3.tab('solar');
+      if (/Around Earth/.test(v3.textContent)) fails.push('no Earth view before its file exists');
+    }
     report(27, 'Solar system: live positions, cards, time, full screen', fails);
   },
   async 26() {

@@ -328,8 +328,9 @@
       <div class="ss-wrap"><canvas class="ss-canvas" aria-label="Map of the solar system with planets and spacecraft. The list below the map has every object as a button."></canvas>
         <div class="ss-timebar"><button class="b ss-now">Now</button><button class="b ss-play">▶ Play (1 week per second)</button><input type="range" class="ss-time" min="-30" max="400" step="0.25" value="0" aria-label="Days from now"><span class="small mono ss-when"></span></div>
         <div class="ss-cardbox"></div><div class="ss-loading small">Loading the positions…</div></div>
-      <div class="card small ss-list"></div>`;
+      <div class="card small ss-list"></div><div class="ss-earth"></div>`;
     V = { el, canvas: el.querySelector('.ss-canvas'), c: [0, 0, 0], yaw: 0, tilt: 0.85, scale: 50, dt: 0, rate: 7, playing: false, live: true, jd: nowJd(), sel: null, follow: null, squeeze: false, hidden: LS.get('sl_ss_hidden', {}) || {}, w: 800, h: 500 };
+    if (window.SpaceLabEarth) window.SpaceLabEarth.mount(el.querySelector('.ss-earth'));     // around Earth (web/earthview.js)
     load().then(() => {
       el.querySelector('.ss-loading').remove();
       V.w = V.canvas.clientWidth || 800; V.h = V.canvas.clientHeight || 500;

@@ -531,7 +531,7 @@ def beyond_run_keeps_last_good_copy():
     saved = {n: getattr(beyond, n) for n in ('space_weather', 'fireballs', 'comets', 'gravitational_waves', 'supernovae',
                                             'launches', 'habitable_worlds', 'sky_week', 'earth_images', 'iss_track', 'earthquakes',
                                             'satellites', 'dark_sky_map', 'zip_index', 'live_images', 'asteroid_wiki',
-                                            'community', 'backup_db', 'clean_and_measure', 'sn_nearby', 'flyby_orbits')}
+                                            'community', 'backup_db', 'clean_and_measure', 'sn_nearby', 'flyby_orbits', 'earth_orbits')}
     try:
         for n in saved:
             setattr(beyond, n, fail)
@@ -2139,6 +2139,61 @@ def supernova_watch_alerts_for_nearby_galaxies():
         W.load_galaxies = real_load
     assert W.check(con, {}, logs.append, ['junk', None], fetch=lambda p: {'items': []}, gal=gal, now=now, sink=[]) == []
     con.execute("DELETE FROM kv WHERE k='sn_seen'"); con.execute("DELETE FROM tasks WHERE key LIKE 'sn:%'"); con.commit()
+
+
+@test
+def around_earth_orbits_for_the_page():
+    from spacelab import earthorbit as E, beyond, config as cfgm
+    from datetime import datetime, timezone
+    now = 1794300000.0
+    ep = datetime.fromtimestamp(now - 3600, timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')
+    def omm(nid, name, mm, ecc=0.0007, inc=51.6, raan=200.0, ma=280.0):
+        return {'OBJECT_NAME': name, 'OBJECT_ID': '2000-001A', 'EPOCH': ep, 'MEAN_MOTION': mm, 'ECCENTRICITY': ecc, 'INCLINATION': inc,
+                'RA_OF_ASC_NODE': raan, 'ARG_OF_PERICENTER': 80.0, 'MEAN_ANOMALY': ma, 'EPHEMERIS_TYPE': 0, 'CLASSIFICATION_TYPE': 'U',
+                'NORAD_CAT_ID': nid, 'ELEMENT_SET_NO': 999, 'REV_AT_EPOCH': 1000, 'BSTAR': 0.0001, 'MEAN_MOTION_DOT': 0.00001, 'MEAN_MOTION_DDOT': 0}
+    names = {n[0]: n[6] for n in E.NOTABLE}
+    def fetch(p):
+        if 'CATNR' in p:
+            nid = p['CATNR']
+            if nid == 63182:
+                return [omm(nid, 'STARLINK-99999', 15.2)]                           # the wrong object: left out
+            if nid == 25867:
+                return [omm(nid, 'CXO', 0.378, ecc=0.76, inc=28.5)]                # Chandra's stretched 63-hour orbit
+            if nid in (60133, 51850):
+                return [omm(nid, names[nid], 1.0027, ecc=0.0001, inc=0.05)]
+            return [omm(nid, ('ISS (ZARYA)' if nid == 25544 else names[nid]), 15.49)]
+        g = p['GROUP']
+        n = {'gps-ops': 32, 'galileo': 30, 'geo': 50, 'starlink': 900}[g]
+        mm = {'gps-ops': 2.005, 'galileo': 1.7, 'geo': 1.0027, 'starlink': 15.06}[g]
+        return [omm(70000 + k, f'{g.upper()}-{k}', mm, ecc=0.001, inc=55.0, raan=k * 7.0, ma=k * 13.0) for k in range(n)]
+    logs = []
+    meta = E.build(logs.append, fetch=fetch, now=now, rng=np.random.default_rng(1))
+    full = json.loads(E.OUT.read_text())
+    keys = {o['key']: o for o in full['objects']}
+    assert 'spherex' not in keys and 'SPHEREx' in full['left_out'] and meta['n'] == len(E.NOTABLE) - 1, full['left_out']
+    iss = keys['iss']
+    r = np.linalg.norm(iss['pts'], axis=1)
+    assert len(iss['pts']) == E.N_ORBIT and 5.5e3 < iss['period_s'] < 5.6e3 and 6650 < r.min() and r.max() < 6900 and 250 < iss['perigee_km'] < 500, (iss['period_s'], r.min(), r.max())
+    cx = keys['chandra']
+    assert cx['apogee_km'] > 100000 and cx['perigee_km'] < 30000 and cx['period_s'] > 2e5
+    assert 35000 < keys['goes19']['perigee_km'] < 36500 and keys['goes19']['wiki'] == 'GOES-19'
+    sw = full['swarms']
+    assert len(sw['starlink']['pts']) == E.STARLINK_SAMPLE and sw['starlink']['total'] == 900 and sw['navigation']['total'] == 62
+    assert sw['navigation']['names'] == ['GPS (32)', 'Galileo (30)'] and len(sw['geo']['pts']) == 50
+    for p in sw['navigation']['pts'][:5] + sw['starlink']['pts'][:5]:
+        rr, nn = np.array(p[:3]), np.array(p[3:6])
+        assert abs(np.linalg.norm(nn) - 1) < 1e-3 and abs(rr @ nn) / np.linalg.norm(rr) < 1e-3       # the axis is square to where it is
+    assert 700 < sw['navigation']['pts'][0][6] < 730 and 90 < sw['starlink']['pts'][0][6] < 100      # GPS: 12 h; Starlink: 95 min
+    assert meta['json'] == 'plots/earth/orbits.json' and full['source'].startswith('Orbits: CelesTrak')
+    # CelesTrak down: the file stays as it was
+    before = E.OUT.read_bytes()
+    assert E.build(logs.append, fetch=lambda p: [], now=now) is None and E.OUT.read_bytes() == before
+    # the Sky watch job reuses a recent file and rebuilds an old one
+    recent = dict(meta, made=time.time())
+    assert beyond.earth_orbits(logs.append, recent) is recent
+    from spacelab import publish
+    assert 'earthview.js' in publish.SITE_FILES
+
 
 import urllib.error  # noqa: E402
 

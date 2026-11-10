@@ -236,6 +236,20 @@ def gravitational_waves(log):
         return None
 
 
+def earth_orbits(log, prev=None, max_age_h=12):
+    """Where the stations, telescopes and swarms around Earth are, for the Solar system tab (spacelab/earthorbit.py)."""
+    if prev and time.time() - (prev.get('made') or 0) < max_age_h * 3600 and (config.DATA / prev.get('json', '-')).exists():
+        return prev
+    try:
+        from . import earthorbit
+        return earthorbit.build(log)
+    except ImportError:
+        log('  around Earth skipped: the sgp4 package is not installed yet')
+    except Exception as e:
+        log(f'  around Earth skipped: {type(e).__name__}: {e}')
+    return None
+
+
 def sn_nearby(con, cfg, log, prev):
     """Supernova candidates in the 3D map's nearby galaxies, with alerts (spacelab/snwatch.py)."""
     from . import snwatch
@@ -888,7 +902,8 @@ def run(ctx):
              'darksky': lambda: dark_sky_map(log, prev.get('darksky')), 'zip': lambda: zip_index(log, prev.get('zip')),
              'live': lambda: live_images(log, prev.get('live')), 'wiki': lambda: asteroid_wiki(con, log, prev.get('wiki'), cfg=cfg),
              'orbits': lambda: flyby_orbits(con, log),
-             'sn_nearby': lambda: sn_nearby(con, cfg, log, prev.get('sn_nearby'))}
+             'sn_nearby': lambda: sn_nearby(con, cfg, log, prev.get('sn_nearby')),
+             'earth_orbits': lambda: earth_orbits(log, prev.get('earth_orbits'))}
     out, ok = {}, []
     for k, fn in parts.items():
         v = fn()
