@@ -8,6 +8,11 @@ have seen or relied on; keep it plain and specific, and never remove one.
 
 # date found, area, what was wrong, what it affected, how it was found, what changed, commit
 CORRECTIONS = [
+    ('2026-11-10', 'Solar system',
+     'The new list of spacecraft around Earth described the Swift observatory as working. It re-entered the atmosphere on 4 November 2026, six days earlier.',
+     'The Earth card of the public Solar System tab, for a few hours.',
+     'Swift had no current orbit data when the Earth-orbit view was being built.',
+     'The entry now says what happened; spacecraft lists are checked against current orbit data.', '0928a00'),
     ('2026-11-10', '3D universe',
      'In the new high-quality mode the map drew no galaxies, only its rings and labels.',
      'The public 3D map showed no galaxies for about 40 minutes.',
