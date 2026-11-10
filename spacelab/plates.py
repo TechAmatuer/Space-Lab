@@ -891,7 +891,7 @@ def stale_objects(cands, mpc_for):
 
 
 def search_object(ctx, llm, t, mpc, plates_cfg):
-    """Plate search and measurements for one object. Returns a summary dict for the Meridian page."""
+    """Plate search and measurements for one object. Returns a summary dict for the local page."""
     os.environ.setdefault('SRS_HOME', str(config.CACHE / 'srs'))
     from spacerocksuite.precovery import get_track, search_plates, fetch_cutout
     from spacerocksuite.archives.supercosmos import load_plates, SURVEYS, cutout

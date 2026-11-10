@@ -4,7 +4,6 @@ const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const LD_AU = 0.00256955529;
 const S = { tab: 'today', state: null, tessFilter: 'new', starClicks: {}, logJob: 'server', focus: null };
-if (new URLSearchParams(location.search).get('embed')) document.body.classList.add('embed');
 
 async function api(path, body) {
   const opt = body ? { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-SpaceLab': '1' }, body: JSON.stringify(body) } : {};
@@ -14,9 +13,9 @@ async function api(path, body) {
   return j;
 }
 // ------------------------------------------------------------------ extras (web/extras.js, web/beyond.js)
-// The public page and Meridian run the same extras through window.SpaceLab, so both show the same features.
+// The public page and the local page run the same extras through window.SpaceLab, so both show the same features.
 // The extras read the public data (api/public-data = exactly what GitHub Pages gets) and never write anything here.
-const HOOKS = [], EXTRA_TABS = {}, PUB_NAME = { arxiv: 'brief' };   // Meridian tab name -> public tab name
+const HOOKS = [], EXTRA_TABS = {}, PUB_NAME = { arxiv: 'brief' };   // local tab name -> public tab name
 let PUB = null;
 async function loadPublicData() {
   try { PUB = await api('api/public-data'); if (EXTRA_TABS[S.tab]) runExtras(S.tab); } catch (e) { console.warn('public data', e); }
@@ -51,9 +50,9 @@ window.SpaceLab = {
     $('main').appendChild(s);
     if (navReady) layoutNav();
   },
-  // Meridian only: the local vision AI names the clouds in a sky photo (the public page has no AI)
+  // local page only: the local vision AI names the clouds in a sky photo (the public page has no AI)
   cloudCheck: dataUrl => api('api/cloud-check', { image: String(dataUrl).split(',').pop() }),
-  // Meridian only: your results log (the public page shows the entries marked public)
+  // local page only: your results log (the public page shows the entries marked public)
   results: {
     list: () => api('api/results'),
     save: (id, r) => api('api/results/' + (id || 0), Object.assign({}, r, { action: 'save' })).then(x => { loadPublicData(); return x; }),
@@ -630,7 +629,7 @@ function renderSetup(cfg) {
       <label class="f" style="margin-top:8px"><input type="checkbox" id="sAlways" ${cfg.always_on ? 'checked' : ''}> <b>Full-time mode</b>: keep this Mac awake and keep hunting (TESS stars and the paper library run back-to-back whenever nothing else is scheduled). Keep the Mac plugged in; closing a laptop lid still puts it to sleep.</label>
       <label class="f" style="margin-top:8px"><input type="checkbox" id="sAiIdle" ${cfg.ai_when_idle !== false ? 'checked' : ''}> <b>Run the local AI whenever this Mac is idle</b> for <input type="number" id="sIdleMin" min="1" max="60" value="${esc(cfg.idle_minutes || 5)}" style="width:56px"> minutes: AI first looks for new TESS candidates and a fresh news radar. It stops as soon as you use the Mac again.</label>
       <button class="b primary" id="saveSched">Save</button> <span id="saved2" class="small ok-t"></span>
-      <p class="small muted">Jobs run one at a time, at night, so they never compete with you or with Meridian for memory.</p></div>
+      <p class="small muted">Jobs run one at a time, at night, so they never compete with you or your other apps for memory.</p></div>
     <h2>Space brief interests</h2><div class="card"><label class="f"><span>One interest per line. Papers are ranked by how close they are in meaning (local bge-m3 embeddings).</span><textarea id="sInterests">${esc(cfg.arxiv.interests.join('\n'))}</textarea></label>
       <button class="b primary" id="saveInterests">Save</button> <span id="saved3" class="small ok-t"></span></div>
     <h2>Self-test</h2><div class="card"><div class="row"><span class="muted small">Checks every science website, your local models and the EXOTIC install.</span><span class="spacer"></span><button class="b" data-run="selftest">Run self-test</button></div>${tests}</div>
@@ -829,7 +828,7 @@ document.addEventListener('change', e => {
 });
 
 // ------------------------------------------------------------------ start
-const start = (location.hash || '#today').slice(1).split('?')[0];   // older links put ?embed=1 after the tab name
+const start = (location.hash || '#today').slice(1).split('?')[0];
 function start_() {
   Promise.all([refreshState(), loadPublicData()]).then(() => layoutNav() || setTab(['today', 'arxiv', 'exowatch', 'tess', 'asteroids', 'setup'].includes(start) || EXTRA_TABS[start] ? start : 'today'));
 }

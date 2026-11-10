@@ -64,7 +64,7 @@ class Ctx:
 
 def restart_if_requested():
     """Updates drop data/.restart-request; the next job then restarts the Space Lab server (installing any new
-    packages first), exactly like Start Meridian.command would. Used once after an update, so you don't have to."""
+    packages first), exactly like Start Space Lab.command would. Used once after an update, so you don't have to."""
     flag = config.DATA / '.restart-request'
     if not flag.exists() or not os.environ.get('SPACELAB_RUN_ID'):
         return

@@ -1,4 +1,4 @@
-// Space Lab extras: games, creative tools and personal features. Runs on the public page AND inside Meridian
+// Space Lab extras: games, creative tools and personal features. Runs on the public page AND on the local Space Lab page
 // (both provide window.SpaceLab, see EXTRAS.md). Everything personal stays in this browser (localStorage).
 (function () {
   'use strict';

@@ -583,7 +583,7 @@ const CHECKS = {
       const sun = [...card.querySelectorAll('.hm-topic')].find(x => x.dataset.topic === 'Sun & space weather');
       if (sun) { sun.click(); await sleep(2); const shown = [...card.querySelectorAll('.hm-radar-item')].filter(li => li.style.display !== 'none');
         if (shown.length !== 1) fails.push('topic buttons must filter the radar'); } else fails.push('radar topic filter missing');
-      if (/Feeds that failed/.test(card.textContent)) fails.push('failed feeds are for the owner (Meridian) only');
+      if (/Feeds that failed/.test(card.textContent)) fails.push('failed feeds are for the owner (local page) only');
       if (!/about this lab/.test(card.textContent)) fails.push('mark radar items about this lab\'s own targets');
     }
     const env2 = await boot({ hash: '#tic-222222' });

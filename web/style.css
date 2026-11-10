@@ -71,7 +71,7 @@ pre.log{max-height:420px;overflow:auto;background:var(--panel-2);border:1px soli
 .chip.good{border-color:var(--ok);color:var(--ok)} .hl-probs{margin:6px 0;padding-left:18px} .hl-t{width:100%;border-collapse:collapse;margin:8px 0} .hl-t th,.hl-t td{text-align:left;padding:3px 6px;border-bottom:1px solid var(--line);vertical-align:top}
 #zoom{position:fixed;inset:0;background:rgba(0,0,0,.85);display:none;align-items:center;justify-content:center;z-index:20;cursor:zoom-out}
 #zoom img{max-width:96vw;max-height:94vh;background:#fff;border-radius:6px}
-.embed header h1{display:none}
+
 /* modal, AI notes, viewers */
 #modal{position:fixed;inset:0;z-index:50;display:none;align-items:flex-start;justify-content:center;background:rgba(0,0,0,.55);padding:4vh 2vw;overflow:auto}
 #modal.on{display:flex}

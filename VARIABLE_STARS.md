@@ -23,7 +23,7 @@ goes on the public Space Lab website.
 | Every hour | **Measurement.** New FITS images are calibrated, plate-solved (or fitted to Gaia stars) and measured against the AAVSO chart's comparison stars | Look at the measurements that have a warning, and accept or reject each one |
 | After local noon | **Report.** The finished night becomes one AAVSO Extended Format file, checked against the format's rules | Download it, upload it at [WebObs](https://www.aavso.org/webobs/file), then press "I uploaded it" |
 
-Everything is on the **Variable-star observatory** tab in Meridian (under Research). Tasks appear on the Today tab when
+Everything is on the **Variable-star observatory** tab of the local Space Lab page, http://localhost:8790 (under Research). Tasks appear on the Today tab when
 there is something for you to do.
 
 ## What you need
@@ -40,7 +40,7 @@ there is something for you to do.
 
 ### 1. Space Lab settings
 
-Open Meridian → **Variable-star observatory** → **Settings** at the bottom of the page. Change the values and save.
+Open Space Lab (double-click **Start Space Lab.command**) → **Variable-star observatory** → **Settings** at the bottom of the page. Change the values and save.
 Here is a shortened example; every number in it is made up:
 
 ```json

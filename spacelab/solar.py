@@ -1,5 +1,5 @@
 """The solar system, live: where the planets, some small worlds and the spacecraft out there are right now, where they have
-been and where they are going. For the public page and Meridian (web/solar.js).
+been and where they are going. For the public page and the local page (web/solar.js).
 
 Every position comes from NASA/JPL's Horizons service (the same one mission teams use), asked once a day:
   * each object's position and velocity around the Sun from 30 days ago to 400 days ahead, close enough together that the

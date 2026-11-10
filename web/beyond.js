@@ -1,5 +1,5 @@
 // Space Lab "Sky watch" and "Beyond astronomy" tabs (biology, chemistry, engineering and Earth science that touch space).
-// Runs on the public page AND inside Meridian through window.SpaceLab (see EXTRAS.md). All live numbers come from
+// Runs on the public page AND on the local Space Lab page through window.SpaceLab (see EXTRAS.md). All live numbers come from
 // data.json (the "beyond" job on the volunteer's Mac fetches them from NASA, NOAA, JPL, USGS, LIGO and others).
 // Your location is only ever used inside your own browser (ISS passes), never sent anywhere.
 (function () {

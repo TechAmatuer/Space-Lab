@@ -4,7 +4,7 @@
 // void / sheet / filament / knot, J2000 coordinates to paste into Stellarium, NED and SIMBAD), search by name, Messier or
 // NGC number, landmark or 2MASS ID, and share a link to a galaxy or a view.
 // Plain WebGL, no libraries; every file comes from this same site (built by spacelab/universe.py). Runs on the public page
-// and inside Meridian through window.SpaceLab.
+// and on the local Space Lab page through window.SpaceLab.
 (function () {
   'use strict';
   const S = window.SpaceLab;

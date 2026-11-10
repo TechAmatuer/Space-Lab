@@ -1,6 +1,6 @@
 // Space Lab atlas: "a map app for space". Pan and zoom the whole night sky in different kinds of light, jump to famous places,
 // see where this lab's finds are, explore the Moon, Mars and other worlds, and look up photos in NASA's public library.
-// Runs on the public page AND inside Meridian through window.SpaceLab.
+// Runs on the public page AND on the local Space Lab page through window.SpaceLab.
 // This is a core file (not an "extra"): it is the only place that shows maps and photos from other sites, and only after the
 // visitor opens the atlas. Sky map: the Aladin Lite viewer inside a sandboxed frame (atlas-frame.html) with sky pictures from
 // ESA and the CDS. Worlds: NASA Solar System Treks map tiles. Photos: the NASA Image and Video Library.

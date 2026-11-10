@@ -8,7 +8,7 @@ place by ZIP code, dark-sky finder, events and calendar reminders, "What's that 
 `web/atlas.js` + `web/atlas-frame.html` (the Space atlas) are core files too: they are the only place that shows maps and photos from other sites (NASA, ESA, CDS), only after the visitor opens the atlas, with the third-party sky viewer locked inside a sandboxed frame.
 `web/universe.js` (the 3D universe) is a core file as well: plain WebGL, no libraries, and it reads only this site's own files (`galaxies.bin`, `galaxies.txt`, built by `spacelab/universe.py`).
 
-The same files run **inside Meridian** too: `web/app.js` provides the same `SpaceLab` API there (with the same public
+The same files run **on the local Space Lab page** too: `web/app.js` provides the same `SpaceLab` API there (with the same public
 data from `api/public-data`), so whatever you build appears on both the public page and the owner's dashboard.
 
 ## Why this setup
@@ -22,15 +22,15 @@ SpaceLab.data                       // the parsed data.json (read-only; see publ
 SpaceLab.esc(text)                  // escape text before putting it into innerHTML (ALWAYS use it)
 SpaceLab.num(x, digits)             // format a number
 SpaceLab.onRender((tab, el, data) => { ... })   // after any tab draws; tab = 'today','brief','exowatch','tess','asteroids','about' or your own
-SpaceLab.addTab('id', 'Title', (el, data) => { el.innerHTML = '...'; })   // a new tab before "About" (Meridian: before "Setup")
-SpaceLab.local                      // true inside Meridian, undefined on the public page
+SpaceLab.addTab('id', 'Title', (el, data) => { el.innerHTML = '...'; })   // a new tab before "About" (local page: before "Setup")
+SpaceLab.local                      // true on the local Space Lab page, undefined on the public page
 SpaceLab.load(path)                 // load a file from this same site (e.g. files/plots/beyond/zip.txt); other sites are refused
 SpaceLab.weather(lat, lon)          // cloud forecast from Open-Meteo: only call it when the visitor asks (it sends the rounded place)
-SpaceLab.track(path, isEvent)       // count a view or event with the optional visitor counter (no-op in Meridian / when off)
-SpaceLab.results                    // Meridian only: {list(), save(id, entry), remove(id)} for the owner's results log
-SpaceLab.cloudCheck(dataUrl)        // Meridian only: the local vision AI names clouds in a sky photo (check it exists first)
+SpaceLab.track(path, isEvent)       // count a view or event with the optional visitor counter (no-op on the local page / when off)
+SpaceLab.results                    // local page only: {list(), save(id, entry), remove(id)} for the owner's results log
+SpaceLab.cloudCheck(dataUrl)        // local page only: the local vision AI names clouds in a sky photo (check it exists first)
 ```
-In Meridian, `onRender` reports the Space brief tab as `'brief'` (its Meridian name is `arxiv`), so one hook works on both.
+On the local page, `onRender` reports the Space brief tab as `'brief'` (its local name is `arxiv`), so one hook works on both.
 Useful data (each TESS card has `data-tic="NNN"`; each old asteroid sighting card has `data-pc="<id>"`): `data.tess.cands[]` (id, tic, period [days], t0 [BTJD days], depth [fraction, 0.001 = 0.1%], duration [days], rp [Earth radii], snr, flags, status, plot, lc,
 ai.verdict, fpp.verdict), `data.asteroids.cands[]` (des, night, archive, gif, png, status), `data.asteroids.cad[]`,
 `data.exowatch.stale[]` (with ra, dec), `data.brief.papers[]`, `data.tess.cands[].star` (teff, radius_sun, dist_pc, tmag),

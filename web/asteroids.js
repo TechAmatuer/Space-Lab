@@ -1,6 +1,6 @@
 // Space Lab asteroid guide: close approaches made easy to picture (size, speed, distance), famous asteroids with
 // plain-English summaries and the scientific papers about them (via Wikipedia), and links to 3D orbit viewers.
-// Runs on the public page AND inside Meridian through window.SpaceLab (see EXTRAS.md).
+// Runs on the public page AND on the local Space Lab page through window.SpaceLab (see EXTRAS.md).
 (function () {
   'use strict';
   const S = window.SpaceLab;

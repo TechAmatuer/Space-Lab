@@ -3,7 +3,7 @@
 //  - transits of known planets whose predicted times have drifted most (Exoplanet Watch list): a timing narrows them;
 //  - this lab's own TESS planet candidates: a dip seen from the ground, on the right star, is their next step;
 //  - objects on the Minor Planet Center's confirmation page (JPL Scout): positions in the next day or two decide what they are.
-// Runs on the public page AND inside Meridian (see EXTRAS.md). The place stays in this browser; nothing is sent anywhere.
+// Runs on the public page AND on the local Space Lab page (see EXTRAS.md). The place stays in this browser; nothing is sent anywhere.
 (function () {
   'use strict';
   const S = window.SpaceLab, SG = window.SpaceLabStargazing;

@@ -1,5 +1,5 @@
 // Space Lab "Stargazing" tab: your place (ZIP code or GPS), the dark-sky finder, upcoming events with calendar
-// reminders, and "What's that in the sky?". Runs on the public page AND inside Meridian (see EXTRAS.md).
+// reminders, and "What's that in the sky?". Runs on the public page AND on the local Space Lab page (see EXTRAS.md).
 // A visitor's location is kept only in their own browser (localStorage sl_place) and is never sent anywhere.
 (function () {
   'use strict';

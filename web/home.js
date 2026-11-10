@@ -1,5 +1,5 @@
 // Space Lab Home page, Candidate of the day, the space-science radar and the Results log.
-// Runs on the public page AND inside Meridian through window.SpaceLab (see EXTRAS.md).
+// Runs on the public page AND on the local Space Lab page through window.SpaceLab (see EXTRAS.md).
 (function () {
   'use strict';
   const S = window.SpaceLab;
@@ -129,7 +129,7 @@
   }
   function home(el) {
     let slots = el.querySelector('#home-slots');
-    if (!slots) {           // Meridian: put the cards between "Ask" and your tasks (that part refreshes on its own)
+    if (!slots) {           // local page: put the cards between "Ask" and your tasks (that part refreshes on its own)
       slots = document.createElement('div'); slots.id = 'home-slots';
       const ask = el.querySelector('#askBox');
       if (ask) ask.after(slots); else el.prepend(slots);
@@ -168,7 +168,7 @@
       <li><b>AAVSO VSX</b>: newly noticed variable stars, such as pairs of stars that eclipse each other.</li></ul></div>`;
     if (S.local && S.results) ownerResults(el);
   }
-  function ownerResults(el) {           // Meridian only: add and edit entries
+  function ownerResults(el) {           // local page only: add and edit entries
     const box = document.createElement('div'); box.className = 'card hm-owner';
     el.querySelector('.hm-results').after(box);
     const form = (r = {}) => `<h3>${r.id ? 'Edit entry' : 'Add a result'}</h3><div class="bx-form">

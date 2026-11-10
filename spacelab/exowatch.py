@@ -438,7 +438,7 @@ def _sexa(v, sign=False):
 def run_exotic(inits_path, out_dir, cfg, log):
     exe = config.EXOTIC_BIN
     if not exe.exists():
-        raise RuntimeError('EXOTIC is not installed yet (close Meridian and start it again; it repairs Space Lab)')
+        raise RuntimeError('EXOTIC is not installed yet (close Space Lab and start it again; that repairs it)')
     logf = Path(out_dir) / 'exotic.log'
     with open(logf, 'w') as fh:
         p = subprocess.run([str(exe), '-red', str(inits_path), '-nea'], cwd=str(out_dir), stdin=subprocess.DEVNULL,

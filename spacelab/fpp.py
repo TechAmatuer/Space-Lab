@@ -37,7 +37,7 @@ def available():
 def run(tic, sectors, t, y, period, t0, duration, depth, workdir, n_samples=200_000, timeout=1800):
     """Runs TRICERATOPS in .venv-fpp. Returns a JSON-safe dict, or raises RuntimeError."""
     if not available():
-        raise RuntimeError('TRICERATOPS is not installed (restart Meridian to install it)')
+        raise RuntimeError('TRICERATOPS is not installed (close Space Lab and start it again to install it)')
     workdir = Path(workdir)
     workdir.mkdir(parents=True, exist_ok=True)
     inp, out = workdir / 'fpp_in.npz', workdir / 'fpp_out.json'

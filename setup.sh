@@ -1,6 +1,6 @@
 #!/bin/bash
 # Space Lab setup and repair. Everything installs inside this folder (.tools, .venv, .venv-exotic).
-# Start Meridian.command runs this by itself when Space Lab's environment is missing or broken.
+# Start Space Lab.command runs this by itself when Space Lab's environment is missing or broken.
 set -e
 cd "$(dirname "$0")"
 HERE="$(pwd)"
@@ -12,7 +12,7 @@ export UV_CACHE_DIR="$TOOLS/cache" UV_PYTHON_INSTALL_DIR="$TOOLS/python"
 find_uv() { find "$TOOLS" -name uv -type f -perm +111 2>/dev/null | head -1; }
 UV="$(find_uv)"
 if [ -z "$UV" ]; then
-  echo "[1/4] Installing uv (fast Python installer) into SpaceLab/.tools ..."
+  echo "[1/4] Installing uv (fast Python installer) into .tools ..."
   curl -LsSf https://astral.sh/uv/install.sh | sh >/dev/null
   UV="$(find_uv)"
 fi

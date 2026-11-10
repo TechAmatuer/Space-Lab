@@ -5,7 +5,7 @@ table, not an error page), and then looks for problems: a job that failed twice 
 much longer than its schedule, a public website that stopped updating, a nearly full disk, a service down for hours.
 New problems are sent as an alert (a Mac notification; also a phone push through ntfy.sh if you set a topic name in
 settings: "alerts": {"ntfy_topic": "..."}). Each problem is sent once, repeated at most once a day while it lasts,
-and followed by a short "back to normal" message. Meridian shows the same report in the System health card.
+and followed by a short "back to normal" message. The local page shows the same report in the System health card.
 """
 import json
 import shutil
@@ -138,7 +138,7 @@ def problems(jobs, services, dk, site_age_h, svc_down_since, now=None):
 
 
 def report(con, cfg, now=None):
-    """Everything Meridian's System health card shows."""
+    """Everything the local System health card shows."""
     now = now or time.time()
     jobs = job_report(con, cfg, now)
     svc = db.kv_get(con, 'health_services') or {}

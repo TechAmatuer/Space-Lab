@@ -115,7 +115,7 @@ def alert(con, job, status, run_id):
         if b.get('text'):
             lines.append('☕ **Morning brief**\n' + b['text'])
     if lines:
-        lines.append('Open Meridian → 🔭 Space Lab tab (or http://localhost:8790)')
+        lines.append('Open Space Lab: http://localhost:8790')
         ok, msg = notify.send('\n'.join(lines), cfg['discord_webhook'])
         log(f'discord: {msg}')
 
@@ -257,7 +257,7 @@ def typical_seconds(con, job, trigger=None):
 
 
 def eta(con, cfg, now=None):
-    """Countdown for Meridian: the running job (when it started, how long it usually takes, the longest it may run) and the
+    """Countdown for the local page: the running job (when it started, how long it usually takes, the longest it may run) and the
     queued jobs in order with their usual length."""
     now = now or time.time()
     out = {'running': None, 'queue': [], 'total': None}
@@ -345,7 +345,7 @@ def ctoi_draft(c):
 
 
 def api_var():
-    """Variable-star candidates from the TESS light curves, for Meridian (spacelab/variables.py)."""
+    """Variable-star candidates from the TESS light curves, for the local page (spacelab/variables.py)."""
     from . import variables
     con = db.connect()
     variables.ensure(con)
@@ -550,7 +550,7 @@ CLOUD_PROMPT = ('This is a photo of the sky taken by an amateur astronomer. Name
 
 
 def cloud_check(b64):
-    """Meridian only: the local vision model names the clouds in a sky photo. The photo is not saved."""
+    """Local page only: the local vision model names the clouds in a sky photo. The photo is not saved."""
     import base64
     if not b64 or len(b64) > 12_000_000:
         return 400, {'error': 'send one photo under about 8 MB'}
@@ -649,7 +649,7 @@ def post_action(path, body):
             db.close_task(con, f'pc:report:{c["id"]}')
             db.save_result(con, {'kind': 'mpc', 'key': f'mpc:{c["id"]}', 'target': c['des'], 'public': False, 'status': 'submitted',
                                  'title': f"Precovery position of {c['des']} ({c.get('archive') or ''})",
-                                 'note': 'Sent from Meridian. MPC submission ID ' + (out.get('id') or '(see the acknowledgement email)')})
+                                 'note': 'Sent from Space Lab. MPC submission ID ' + (out.get('id') or '(see the acknowledgement email)')})
         return code, out
     if kind == 'pc':
         if oid.isdigit() and body.get('verdict'):
@@ -835,7 +835,7 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, api_exo())
             if p == '/api/neo':
                 return self.send(200, api_neo())
-            if p == '/api/public-data':      # the same data the public page gets, so Meridian shows the same extras
+            if p == '/api/public-data':      # the same data the public page gets, so the local page shows the same extras
                 from . import publish
                 data, _ = publish.build_data(db.connect(), config.load())
                 return self.send(200, data)
@@ -897,7 +897,7 @@ class H(BaseHTTPRequestHandler):
 
 
 def code_watcher():
-    """Restart this server when Space Lab's code is updated, so changes apply without closing Meridian."""
+    """Restart this server when Space Lab's code is updated, so changes apply without closing Space Lab."""
     src = config.ROOT / 'spacelab'
     snap = lambda: {p.name: p.stat().st_mtime for p in src.glob('*.py')}
     first = snap()

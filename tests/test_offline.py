@@ -2322,7 +2322,7 @@ def variable_star_observatory_plans_measures_and_makes_aavso_files():
     assert db.one(con, "SELECT status FROM tasks WHERE key='vs:upload:aavso-2026-11-10.txt'")['status'] == 'open'
     bad = txt.replace('ENSEMBLE,na', 'ENSEMBLE,9.1', 1).replace(',B,NO,', ',XX,NO,', 1).replace('#OBSCODE=TEST1', '#OBSCODE=')
     assert {p[2][:16] for p in vsphot.validate(bad)} == {'no AAVSO observe', 'XX is not an AAV', 'an ensemble need'}, vsphot.validate(bad)
-    # ---- Meridian: the tab, rejecting a filed measurement remakes the file, marking it uploaded, the settings (key masked)
+    # ---- the local page: the tab, rejecting a filed measurement remakes the file, marking it uploaded, the settings (key masked)
     config.replace_user('vstars', vs)
     try:
         x = server.api_vs()

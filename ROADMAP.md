@@ -1,6 +1,6 @@
 # Roadmap: fun features, Sky watch and Beyond astronomy
 
-Everything here runs on the public page **and** inside Meridian (same files, same `SpaceLab` API; see [EXTRAS.md](EXTRAS.md)).
+Everything here runs on the public page **and** on the local Space Lab page (same files, same `SpaceLab` API; see [EXTRAS.md](EXTRAS.md)).
 Front-end features live in `web/extras.js`, `web/beyond.js` and `web/extras.css`. Live data comes from the
 "Sky watch & Beyond astronomy" job (`spacelab/beyond.py`, every 3 hours) through `publish.build_data`.
 
@@ -42,7 +42,7 @@ blink comparator (variable stars) · The Case of the Missing Light · asteroid r
 **Create:** postcard · light-curve art · phone wallpaper · what the stars look like · cosmic calendar.
 
 **My lab:** candidate cards with notes · watchlist and change alerts · streaks · badges · observing log with photos
-(and, in Meridian, "what clouds are these?" by the local vision AI) · sky pointer with phone compass · community
+(and, on the local page, "what clouds are these?" by the local vision AI) · sky pointer with phone compass · community
 leaderboard · the lab's contributions · first-telescope guide.
 
 **Sky watch:** Moon phase and planets · meteor showers · ISS passes for your location (worked out in your browser) ·
@@ -56,7 +56,7 @@ other worlds).
 
 **Asteroids tab:** the story behind each old sighting. **Orbit viewer:** pinch to zoom on phones.
 
-**Meridian only (owner tools):** Community TOI draft for candidates you mark planet-like · eclipsing-binary list for
+**Local page only (owner tools):** Community TOI draft for candidates you mark planet-like · eclipsing-binary list for
 AAVSO VSX · papers that mention your own targets · nightly database backup · cache clean-up and disk use ·
 alerts only after a job fails twice.
 

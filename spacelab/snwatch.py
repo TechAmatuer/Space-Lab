@@ -5,7 +5,7 @@ picture classifier flags from the very first image, and the ones its light-curve
 Each is matched to the galaxies of the 3D map (2MASS Redshift Survey, distances as on the map). A candidate within about
 30,000 light-years of a galaxy's centre (projected), or within a minute of arc for distant galaxies, belongs to it.
 Candidates in galaxies closer than NEAR_MPC (about 130 million light-years) are sent as an alert and become a task in
-Meridian: supernovae that close can get bright enough for amateur telescopes and are worth following up within hours.
+the local page: supernovae that close can get bright enough for amateur telescopes and are worth following up within hours.
 These are machine-classified candidates, not confirmed supernovae: confirmation needs a spectrum.
 """
 import math

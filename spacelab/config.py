@@ -28,7 +28,7 @@ DEFAULTS = {
     'discord_alerts': {'tasks': True, 'brief': True, 'errors': True},
     'llm': {
         'host': 'http://127.0.0.1:11434',
-        # Gemma 4 and bge-m3 are usually already loaded by Meridian, so they cost no extra memory.
+        # Gemma 4 and bge-m3 are often already loaded by other apps, so they may cost no extra memory.
         'writer': ['gemma4:26b', 'qwen3.6:35b', 'gpt-oss:20b'],
         'json': ['gpt-oss:20b', 'gemma4:26b', 'qwen3.6:35b'],
         'vision': ['gemma4:26b'],   # looks at plots (Gemma 4 can read images)

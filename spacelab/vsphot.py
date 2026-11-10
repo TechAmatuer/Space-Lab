@@ -9,7 +9,7 @@ Every hour, for each new image in the observatory's image folder:
 - aperture photometry of the variable and every comparison star; the variable's magnitude from the ensemble of
   comparison stars, with the comparison star closest in brightness kept aside as the check star;
 - checks: saturation, signal-to-noise, the check star against its chart value, too few comparison stars, high airmass.
-Measurements without a problem are ready; the others wait for the observer in Meridian. When a night is over, its ready
+Measurements without a problem are ready; the others wait for the observer on the local Space Lab page. When a night is over, its ready
 measurements become one file in the AAVSO Extended File Format: a filter sequence shares one GROUP number, colour
 transformation is applied when the observer has given coefficients, and the file is checked against the format's
 rules. The observer uploads it at WebObs: nothing is ever sent to the AAVSO from here.

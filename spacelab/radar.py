@@ -12,7 +12,7 @@ import time
 
 from . import db, net, news
 
-# (name, feed URL). Feeds that fail are skipped and listed in the Meridian Space brief so they can be fixed.
+# (name, feed URL). Feeds that fail are skipped and listed in the local Space brief so they can be fixed.
 # Sites that refuse automated readers (JPL, Astrobites, SpaceNews, Sky & Telescope) are left out on purpose.
 SOURCES = [
     ('NASA', 'https://www.nasa.gov/news-release/feed/'),

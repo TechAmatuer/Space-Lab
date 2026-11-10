@@ -1,5 +1,5 @@
 'use strict';
-// Variable-star observatory tab (Meridian only: it shows the observatory's own settings, plan and measurements).
+// Variable-star observatory tab (local page only: it shows the observatory's own settings, plan and measurements).
 // Server side: spacelab/vsobs.py (tonight's targets), spacelab/vsphot.py (photometry, AAVSO files), VARIABLE_STARS.md.
 // Nothing here sends anything to the AAVSO: the observer downloads each file and uploads it at WebObs.
 (function () {

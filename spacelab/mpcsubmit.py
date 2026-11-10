@@ -1,6 +1,6 @@
 """Sending a checked ADES report to the Minor Planet Center, only when you press the button.
 
-Two steps, both started by you in Meridian:
+Two steps, both started by you on the local Space Lab page:
   1. Test: the MPC's test address checks the file with its own validator and stores nothing.
   2. Send: allowed only after a passing test of exactly the same file in the last 7 days, after you marked the sighting
      real, with your email in Setup (the MPC sends its acknowledgement there) and, for archival data, after the MPC's

@@ -44,7 +44,7 @@ def run(ctx):
             out['python'][mod] = getattr(m, '__version__', 'ok')
         except Exception as e:
             out['python'][mod] = f'missing: {e}'
-    out['python']['exotic'] = 'installed' if config.EXOTIC_BIN.exists() else 'missing (restart Meridian; it repairs Space Lab)'
+    out['python']['exotic'] = 'installed' if config.EXOTIC_BIN.exists() else 'missing (close Space Lab and start it again; that repairs it)'
     try:  # SSOIS query format check with a well-known asteroid
         from .precovery import ssois
         rows = ssois(con, '2004 MN4', log)
