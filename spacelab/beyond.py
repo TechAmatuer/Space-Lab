@@ -236,6 +236,16 @@ def gravitational_waves(log):
         return None
 
 
+def sn_nearby(con, cfg, log, prev):
+    """Supernova candidates in the 3D map's nearby galaxies, with alerts (spacelab/snwatch.py)."""
+    from . import snwatch
+    try:
+        return snwatch.check(con, cfg, log, prev)
+    except Exception as e:
+        log(f'  supernova watch skipped: {type(e).__name__}: {e}')
+        return None
+
+
 def supernovae(log):
     try:
         js = net.fetch_json(ALERCE, params={'classifier': 'lc_classifier', 'class_name': 'SNIa', 'probability': 0.6,
@@ -877,7 +887,8 @@ def run(ctx):
              'quakes': lambda: earthquakes(log), 'satellites': lambda: satellites(log, prev.get('satellites')),
              'darksky': lambda: dark_sky_map(log, prev.get('darksky')), 'zip': lambda: zip_index(log, prev.get('zip')),
              'live': lambda: live_images(log, prev.get('live')), 'wiki': lambda: asteroid_wiki(con, log, prev.get('wiki'), cfg=cfg),
-             'orbits': lambda: flyby_orbits(con, log)}
+             'orbits': lambda: flyby_orbits(con, log),
+             'sn_nearby': lambda: sn_nearby(con, cfg, log, prev.get('sn_nearby'))}
     out, ok = {}, []
     for k, fn in parts.items():
         v = fn()

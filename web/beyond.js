@@ -13,7 +13,7 @@
   const dt = (x, opt) => { const d = new Date(x); return isNaN(d) ? esc(x || '—') : d.toLocaleString([], opt || { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); };
   const utc = s => (s && !/[zZ]|[+-]\d\d:?\d\d$/.test(s) ? s.replace(' ', 'T') + 'Z' : s);   // NOAA/JPL times are UTC without a zone
   const mjdDate = m => m ? new Date((m - 40587) * 864e5).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
-  const link = (u, t) => `<a href="${esc(u)}" target="_blank" rel="noopener">${t} ↗</a>`;
+  const link = (u, t) => /^https?:\/\//i.test(String(u || '')) ? `<a href="${esc(u)}" target="_blank" rel="noopener">${t} ↗</a>` : t;   // web links only
   const card = (title, body, cls = '') => `<div class="card ${cls}"><h3>${title}</h3>${body}</div>`;
   const none = what => `<p class="muted small">No ${what} data yet: it appears after the next "Sky watch & Beyond astronomy" run.</p>`;
   const compass = az => ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'][Math.round(((az % 360) + 360) % 360 / 45) % 8];
@@ -177,11 +177,15 @@
       <p class="small muted">Data: GraceDB (LIGO/Virgo/KAGRA public alerts).</p>`);
   }
   function snCard() {
-    const s = B().supernovae;
-    if (!s) return card('💥 Exploding stars', none('supernova'));
+    const s = B().supernovae, near = (B().sn_nearby || []).filter(x => x && x.id && isFinite(x.dist));
+    const nearHtml = near.length ? `<p class="small" style="margin-top:8px"><b>In nearby galaxies</b> (within ${Math.round(100 * 3.26)} million light-years, matched to the 3D map; the closest are worth a look with a telescope):</p>
+      <table class="compact"><tr><th>object</th><th>galaxy</th><th>distance</th><th>first seen</th><th>brightness</th></tr>${near.slice(0, 12).map(x => `<tr><td>${link(x.url, esc(x.id))}</td><td>${esc(x.host || '')}</td>
+        <td class="mono">${Math.round(x.dist * 3.2616)} million ly</td><td>${mjdDate(x.first_mjd)}</td><td class="mono">${isFinite(x.mag_last) ? 'mag ' + Number(x.mag_last).toFixed(1) : '—'}</td></tr>`).join('')}</table>` : '';
+    if (!s && !near.length) return card('💥 Exploding stars', none('supernova'));
+    if (!s) return card('💥 Possible new supernovae', nearHtml + '<p class="small muted">Candidates, not confirmed: confirmation needs a spectrum. Data: ZTF via the ALeRCE broker.</p>');
     return card('💥 Possible new supernovae', `<p class="small">Robotic surveys catch stars exploding in distant galaxies every night. A machine-learning classifier (ALeRCE) flags these as likely Type Ia supernovae: white dwarfs blowing up, used to measure the expansion of the universe.</p>
       <table class="compact"><tr><th>object</th><th>first seen</th><th>classifier</th><th></th></tr>${s.map(x => `<tr><td>${link(x.url, esc(x.id))}</td><td>${mjdDate(x.first_mjd)}</td><td class="mono">${x.prob ? Math.round(x.prob * 100) + '%' : '—'}</td><td>${x.ra !== null ? link(`https://sky.esa.int/esasky/?target=${x.ra}%20${x.dec}&hips=DSS2+color&fov=0.1`, 'sky') : ''}</td></tr>`).join('')}</table>
-      <p class="small muted">Candidates, not confirmed: confirmation needs a spectrum. Data: ZTF via the ALeRCE broker.</p>`);
+      ${nearHtml}<p class="small muted">Candidates, not confirmed: confirmation needs a spectrum. Data: ZTF via the ALeRCE broker.</p>`);
   }
   function liveCard() {
     const L = B().live || [];

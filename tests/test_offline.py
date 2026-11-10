@@ -2097,6 +2097,43 @@ def what_we_got_wrong_is_published():
     data, _ = publish.build_data(db.connect(), {'share': {'github_repo': 'owner/repo'}})
     assert data['site']['corrections'][0]['url'].startswith('https://github.com/owner/repo/commit/') and not publish.validate(data)
 
+
+@test
+def supernova_watch_alerts_for_nearby_galaxies():
+    from spacelab import snwatch as W, db
+    con = db.connect()
+    con.execute("DELETE FROM kv WHERE k='sn_seen'"); con.execute("DELETE FROM tasks WHERE key LIKE 'sn:%'"); con.commit()
+    def unit(ra, dec):
+        a, d = math.radians(ra), math.radians(dec)
+        return [math.cos(d) * math.cos(a), math.cos(d) * math.sin(a), math.sin(d)]
+    gal = {'u': np.array([unit(150.0, 20.0), unit(200.0, -10.0), unit(30.0, 5.0)]), 'd': np.array([18.0, 80.0, 300.0]),
+           'name': ['NGC 9001', 'NGC 9002', 'UGC 9003']}
+    now = time.time(); mjd = now / 86400 + 40587
+    items = {'SN': [{'oid': 'ZTF26near', 'meanra': 150.0 + 40 / 3600, 'meandec': 20.0, 'firstmjd': mjd - 1, 'lastmjd': mjd, 'probability': 0.7},
+                    {'oid': 'ZTF26old', 'meanra': 150.0, 'meandec': 20.0, 'firstmjd': mjd - 40, 'lastmjd': mjd, 'probability': 0.9}],
+             'SNIa': [{'oid': 'ZTF26mid', 'meanra': 200.0, 'meandec': -10.0 + 30 / 3600, 'firstmjd': mjd - 3, 'lastmjd': mjd, 'probability': 0.8},
+                      {'oid': 'ZTF26near', 'meanra': 150.0 + 40 / 3600, 'meandec': 20.0, 'firstmjd': mjd - 1, 'lastmjd': mjd, 'probability': 0.9},
+                      {'oid': 'ZTF26far', 'meanra': 30.0, 'meandec': 5.0, 'firstmjd': mjd - 2, 'lastmjd': mjd, 'probability': 0.9},
+                      {'oid': 'ZTF26field', 'meanra': 100.0, 'meandec': 50.0, 'firstmjd': mjd - 2, 'lastmjd': mjd, 'probability': 0.9}]}
+    asked = []
+    fetch = lambda p: asked.append(p) or {'items': items.get(p['class_name'], [])}
+    light = lambda u: {'detections': [{'mjd': mjd - 1, 'magpsf': 17.9, 'fid': 1}, {'mjd': mjd - 0.2, 'magpsf': 16.4, 'fid': 2}]}
+    sink, logs = [], []
+    out = W.check(con, {}, logs.append, None, fetch=fetch, gal=gal, now=now, sink=sink, light=light)
+    assert {q['classifier'] for q in asked} == {'stamp_classifier', 'lc_classifier'} and all(q['page_size'] == 100 for q in asked)
+    assert [x['id'] for x in out] == ['ZTF26near', 'ZTF26mid'], out          # far galaxy (300 Mpc), no galaxy, and 40-day-old: left out
+    n = out[0]
+    assert n['host'] == 'NGC 9001' and n['dist'] == 18.0 and 35 < n['sep'] < 45 and n['prob'] == 0.9 and n['kind'] == 'SNIa' and n['mag_last'] == 16.4 and n['band'] == 'r'
+    assert len(sink) == 1 and 'ZTF26near in NGC 9001' in sink[0][1] and 'not confirmed' in sink[0][1].lower() and 'magnitude 16.4' in sink[0][1]
+    assert db.one(con, "SELECT * FROM tasks WHERE key='sn:ZTF26near'") and not db.one(con, "SELECT * FROM tasks WHERE key='sn:ZTF26mid'")
+    sink.clear()
+    out2 = W.check(con, {}, logs.append, out, fetch=fetch, gal=gal, now=now + 3 * 3600, sink=sink, light=light)
+    assert not sink and [x['id'] for x in out2] == ['ZTF26near', 'ZTF26mid']                   # one alert per supernova
+    later = W.check(con, {}, logs.append, out2, fetch=lambda p: {'items': []}, gal=gal, now=now + 70 * 86400, sink=sink, light=light)
+    assert later == []                                                                             # forgotten after 60 days
+    assert W.check(con, {}, logs.append, ['x'], fetch=fetch, gal=None, now=now) == ['x']                   # no galaxy map yet: keep the last list
+    con.execute("DELETE FROM kv WHERE k='sn_seen'"); con.execute("DELETE FROM tasks WHERE key LIKE 'sn:%'"); con.commit()
+
 import urllib.error  # noqa: E402
 
 if __name__ == '__main__':

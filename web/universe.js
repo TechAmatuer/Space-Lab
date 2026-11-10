@@ -426,7 +426,8 @@
   // of this map lies within a minute of arc (a chance hit is about one in a thousand).
   function supernovae() {
     if (G.sn) return G.sn;
-    const list = ((D().beyond || {}).supernovae || []).filter((s, k, a) => isFinite(s.ra) && isFinite(s.dec) && a.findIndex(x => x.id === s.id) === k);
+    const b = D().beyond || {}, all = [...(b.sn_nearby || []), ...(b.supernovae || [])];          // the nearby-galaxy watch first, then the newest Type Ia
+    const list = all.filter((s, k, a) => s && isFinite(s.ra) && isFinite(s.dec) && a.findIndex(x => x.id === s.id) === k);
     const lim = Math.cos(60 / 3600 * Math.PI / 180), out = [];
     for (const s of list) {
       const a = s.ra * Math.PI / 180, d = s.dec * Math.PI / 180, v = [Math.cos(d) * Math.cos(a), Math.cos(d) * Math.sin(a), Math.sin(d)];

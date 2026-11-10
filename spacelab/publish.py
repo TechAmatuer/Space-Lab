@@ -35,7 +35,7 @@ def _j(x):
 def _beyond_public(b):
     """Sky watch / Beyond astronomy data is all public and location-free already; drop anything unexpected."""
     keep = ('t', 'space_weather', 'fireballs', 'comets', 'gw', 'supernovae', 'launches', 'habitable', 'sky', 'earth', 'iss', 'quakes',
-            'satellites', 'events', 'darksky', 'zip', 'live', 'wiki', 'missions', 'orbits')
+            'satellites', 'events', 'darksky', 'zip', 'live', 'wiki', 'missions', 'orbits', 'sn_nearby')
     return {k: b[k] for k in keep if k in b}
 
 

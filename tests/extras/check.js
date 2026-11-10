@@ -426,6 +426,14 @@ const CHECKS = {
     const out = v2.querySelector('.bx-issout');
     if (!out.querySelector('table') && !/No passes/i.test(out.textContent)) fails.push('with a location, list ISS passes in a table');
     if (env2.rec.opened.length) fails.push('working out ISS passes must not open or send anything');
+    const withSn = JSON.parse(JSON.stringify(FIXTURE));
+    withSn.beyond.sn_nearby = [{ id: 'ZTF26near', ra: 150, dec: 20, host: 'NGC 9001 <b>x</b>', dist: 18, first_mjd: 61353, prob: 0.9, kind: 'SNIa', mag_last: 16.4, url: 'https://alerce.online/object/ZTF26near' },
+                               { id: 'ZTF26bad', ra: 1, dec: 1, host: 'X', dist: 50, first_mjd: 61353, url: 'javascript:alert(1)' }];
+    const env3 = await boot({ data: withSn });
+    const v3 = await env3.tab('sky');
+    const st = norm(v3.textContent);
+    if (!/In nearby galaxies/.test(st) || !/ZTF26near/.test(st) || !/NGC 9001 <b>x<\/b>/.test(st) || !/59 million ly/.test(st) || !/mag 16\.4/.test(st)
+        || !v3.querySelector('a[href="https://alerce.online/object/ZTF26near"]') || v3.querySelector('a[href^="javascript"]')) fails.push('supernova candidates in nearby galaxies are listed with galaxy, distance and brightness, as plain text: ' + (st.match(/In nearby galaxies.{0,300}/) || [st.slice(0, 300)])[0] + ' | links: ' + [...v3.querySelectorAll('a')].map(x => x.getAttribute('href')).filter(h => /alerce|javascript/.test(h)).join(','));
     report(12, 'Sky watch (Moon, ISS, space weather, fireballs, comets, waves, supernovae)', fails);
   },
 
