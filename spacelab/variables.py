@@ -279,10 +279,14 @@ def _vizier(source, ra, dec, radius_arcsec):
 def known(ra, dec, lookups=None):
     """What each catalogue of variable stars has within MATCH arcsec. Returns ({service: [matches] or None}, all_answered).
     None means the service could not be asked; then nothing can be concluded."""
+    # each answer is saved on this Mac (spacelab/localcat.py): a star checked again reuses it, and an outage falls back to it;
+    # ASAS-SN is answered from the whole catalogue kept on this Mac when that copy exists
+    from . import localcat
     lookups = lookups or {
-        'VSX': lambda: _try(lambda: _vsx_api(ra, dec, MATCH), lambda: _vizier('B/vsx/vsx', ra, dec, MATCH)),
-        'Gaia DR3 variability': lambda: _vizier('I/358/vclassre', ra, dec, MATCH),
-        'ASAS-SN variables': lambda: _vizier('II/366/catv2021', ra, dec, MATCH)}
+        'VSX': lambda: localcat.cone('VSX', ra, dec, MATCH, lambda: _try(lambda: _vsx_api(ra, dec, MATCH), lambda: _vizier('B/vsx/vsx', ra, dec, MATCH))),
+        'Gaia DR3 variability': lambda: localcat.cone('Gaia DR3 variability', ra, dec, MATCH, lambda: _vizier('I/358/vclassre', ra, dec, MATCH)),
+        'ASAS-SN variables': lambda: _first(localcat.local_cone('ASAS-SN variables', ra, dec, MATCH),
+                                            lambda: localcat.cone('ASAS-SN variables', ra, dec, MATCH, lambda: _vizier('II/366/catv2021', ra, dec, MATCH)))}
     res = {}
     for name, fn in lookups.items():
         try:
@@ -290,6 +294,10 @@ def known(ra, dec, lookups=None):
         except Exception:
             res[name] = None
     return res, all(v is not None for v in res.values())
+
+
+def _first(have, ask):
+    return have if have is not None else ask()
 
 
 def _try(a, b):

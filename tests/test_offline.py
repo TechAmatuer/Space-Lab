@@ -1861,6 +1861,83 @@ def universe_build_collapses_clusters_and_finds_the_web():
     assert 'universe.js' in publish.SITE_FILES
 
 
+
+@test
+def catalogue_copies_survive_outages():
+    import gzip, os
+    from spacelab import localcat, variables, universe
+    logs = []
+    head = '#Name: X\nRAJ2000\tDEJ2000\tASASSN-V\tType\tPer\ndeg\tdeg\t\t\td\n---\t---\t---\t---\t---\n'
+    good = head + '10.0000\t+20.0000\tJ004000.00+200000.0\tEW\t0.4\n10.0100\t+20.0000\tJ004002.40+200000.0\tROT\t3.1\n50.0\t-5.0\tJ032000.00-050000.0\tEA\t2.0\n'
+    name = 'ASAS-SN variables'
+    p = localcat._path(name)
+    if p.exists():
+        p.unlink()
+    # no copy and the service is down: the error is passed on, nothing is made up
+    try:
+        localcat.table_text(name, lambda: (_ for _ in ()).throw(ConnectionError('down')), lambda t: True)
+        raise AssertionError('no copy + no service must fail')
+    except ConnectionError:
+        pass
+    # a complete download is kept; while it is recent it is used without asking again
+    assert localcat.table_text(name, lambda: good, lambda t: len(localcat.rows(t)) >= 3) == good and p.exists()
+    asked = []
+    assert localcat.table_text(name, lambda: asked.append(1) or 'x', lambda t: True) == good and not asked
+    # once old: an incomplete download never replaces it, and an outage falls back to it (the log says so)
+    old = time.time() - 40 * 86400
+    os.utime(p, (old, old))
+    assert localcat.table_text(name, lambda: head + '1\t1\tA\tB\t1\n', lambda t: len(localcat.rows(t)) >= 3, log=logs.append) == good
+    assert gzip.decompress(p.read_bytes()).decode() == good and any('incomplete' in x for x in logs), logs
+    assert localcat.table_text(name, lambda: (_ for _ in ()).throw(TimeoutError('slow')), lambda t: True, log=logs.append) == good
+    assert any('did not answer' in x and 'copy kept on this Mac' in x for x in logs), logs
+    # positions answered from the whole copy: within the radius only, nearest first, across RA 0/360 too
+    os.utime(p, None)
+    localcat._ARR.clear()
+    hits = localcat.local_cone(name, 10.0, 20.0, 40)
+    assert [h['name'] for h in hits] == ['J004000.00+200000.0', 'J004002.40+200000.0'] and hits[0]['sep'] == 0 and abs(hits[1]['sep'] - 33.8) < 0.2, hits
+    assert hits[0]['type'] == 'EW' and hits[0]['period'] == 0.4 and localcat.local_cone(name, 200.0, 20.0, 40) == []
+    # single-position answers: reused while fresh, used when the service is down, never older than a year
+    calls = []
+    ask = lambda: calls.append(1) or [{'name': 'V1', 'type': 'RR', 'period': 0.5, 'sep': 1.0}]
+    assert localcat.cone('VSX', 120.0, -30.0, 30, ask)[0]['name'] == 'V1' and localcat.cone('VSX', 120.00001, -30.00001, 30, ask) and len(calls) == 1
+    down = lambda: (_ for _ in ()).throw(ConnectionError('down'))
+    later = time.time() + (localcat.FRESH_DAYS + 5) * 86400
+    assert localcat.cone('VSX', 120.0, -30.0, 30, down, log=logs.append, now=later)[0]['name'] == 'V1' and any('could not be reached' in x for x in logs)
+    try:
+        localcat.cone('VSX', 120.0, -30.0, 30, down, now=time.time() + (localcat.KEEP_DAYS + 5) * 86400)
+        raise AssertionError('an answer older than a year must not be used')
+    except ConnectionError:
+        pass
+    try:
+        localcat.cone('VSX', 1.0, 1.0, 30, down)
+        raise AssertionError('never asked before + service down must fail')
+    except ConnectionError:
+        pass
+    # the variable-star check: with every catalogue service down, ASAS-SN is still answered from the copy, the others are not
+    real_viz, real_vsx = variables._vizier, variables._vsx_api
+    variables._vizier = variables._vsx_api = lambda *a, **k: (_ for _ in ()).throw(ConnectionError('down'))
+    try:
+        res, all_ok = variables.known(10.0, 20.0)
+    finally:
+        variables._vizier, variables._vsx_api = real_viz, real_vsx
+    assert res['ASAS-SN variables'][0]['name'] == 'J004000.00+200000.0' and res['VSX'] is None and res['Gaia DR3 variability'] is None and not all_ok, res
+    # the 3D map's tables come from the copy when the service is down
+    two = localcat._path('2MRS')
+    rowsx = ''.join(f'{i:08d}+0000000\t{i * 0.001:.5f}\t+10.00000\n' for i in range(universe.MIN_ROWS['2MRS']))
+    two.parent.mkdir(parents=True, exist_ok=True)
+    two.write_bytes(gzip.compress(('ID\tRAJ2000\tDEJ2000\n\t\t\n--\t--\t--\n' + rowsx).encode()))
+    os.utime(two, (old, old))
+    real = universe._asu
+    universe._asu = lambda *a, **k: (_ for _ in ()).throw(ConnectionError('down'))
+    try:
+        got = universe._catalog('2MRS', logs.append)
+    finally:
+        universe._asu = real
+    assert len(got) == universe.MIN_ROWS['2MRS'] and got[1]['ID'] == '00000001+0000000', len(got)
+    two.unlink()
+    from spacelab import config as _cfg, jobs as _jobs
+    assert 'catalogs' in _jobs.JOBS and _cfg.DEFAULTS['schedule']['catalogs'] == 'every 168h'
+
 import urllib.error  # noqa: E402
 
 if __name__ == '__main__':

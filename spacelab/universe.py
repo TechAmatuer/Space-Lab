@@ -552,22 +552,34 @@ def local_volume(lv, ra, dec):
     return d, bits, mem
 
 
+# the whole tables the map is built from (VizieR requests); spacelab/localcat.py keeps a copy of each on this Mac
+CAT = {
+    '2MRS': {'-source': 'J/ApJS/199/26/table3', '-out': 'ID,RAJ2000,DEJ2000,GLON,GLAT,Ktmag,type,cz,CAT', '-out.max': '60000'},
+    'groups': {'-source': 'J/AJ/149/171/table5', '-out': 'PGC,GLON,GLAT,MType,Vcmba,Nest,Nmb,Dist,_RA.icrs,_DE.icrs', '-out.max': '60000'},
+    'Cosmicflows-4': {'-source': 'J/ApJ/944/94/table2', '-out': 'PGC,DM,e_DM,' + ','.join(METHODS) + ',RAJ2000,DEJ2000', '-out.max': '80000'},
+    'Local Volume': {'-source': 'J/AJ/145/101/catalog', '-out': 'Name,RAJ2000,DEJ2000,Dist,f_Dist', '-out.max': '3000'},
+}
+
+
+def _catalog(name, log):
+    from . import localcat
+    text = localcat.table_text(name, lambda: _asu(CAT[name], timeout=600), lambda t: len(_table(t)) >= MIN_ROWS[name], log=log)
+    return _enough(name, _table(text), log)
+
+
 def build(log, sources=None, famous_lookup=None):
     """Download, combine and write the files. sources / famous_lookup: optional pre-loaded tables (for tests)."""
     if sources is None:
-        log('  downloading the 2MASS Redshift Survey (43,500 galaxies)...')
-        twomrs = _enough('2MRS', _table(_asu({'-source': 'J/ApJS/199/26/table3', '-out': 'ID,RAJ2000,DEJ2000,GLON,GLAT,Ktmag,type,cz,CAT',
-                                                '-out.max': '60000'}, timeout=600)), log)
+        # all four are needed for the map as it is now. Each comes from the copy kept on this Mac (spacelab/localcat.py) when
+        # it is recent, else from VizieR; if one cannot be had at all, the map stays as it was until next time.
+        log('  the 2MASS Redshift Survey (43,500 galaxies)...')
+        twomrs = _catalog('2MRS', log)
         log(f'    {len(twomrs)} rows; now the 2MASS group catalogue...')
-        tully = _enough('groups', _table(_asu({'-source': 'J/AJ/149/171/table5', '-out': 'PGC,GLON,GLAT,MType,Vcmba,Nest,Nmb,Dist,_RA.icrs,_DE.icrs',
-                                                '-out.max': '60000'}, timeout=600)), log)
+        tully = _catalog('groups', log)
         log(f'    {len(tully)} galaxies with group tags; now the measured distances (Cosmicflows-4)...')
-        # all four are needed for the map as it is now; if one cannot be had, the map stays as it was until next time
-        cf4 = _enough('Cosmicflows-4', _table(_asu({'-source': 'J/ApJ/944/94/table2', '-out': 'PGC,DM,e_DM,' + ','.join(METHODS) + ',RAJ2000,DEJ2000',
-                                                     '-out.max': '80000'}, timeout=600)), log)
+        cf4 = _catalog('Cosmicflows-4', log)
         log(f'    {len(cf4)} galaxies with a measured distance')
-        lv = _enough('Local Volume', _table(_asu({'-source': 'J/AJ/145/101/catalog', '-out': 'Name,RAJ2000,DEJ2000,Dist,f_Dist',
-                                                  '-out.max': '3000'}, timeout=300)), log)
+        lv = _catalog('Local Volume', log)
         log(f'    {len(lv)} galaxies of the Local Volume catalogue (Karachentsev 2013)')
     else:
         twomrs, tully, cf4, *rest = sources

@@ -52,6 +52,7 @@ DEFAULTS = {
         'universe': 'every 720h',  # the 3D galaxy map's files (the catalogues rarely change)
         'solar': 'every 24h',      # where the planets and spacecraft are (JPL Horizons), for the live solar system map
         'variables': 'every 12h',  # variable stars in the TESS light curves: catalogue checks, back-fill of earlier stars
+        'catalogs': 'every 168h',  # local copies of the catalogues the jobs depend on (spacelab/localcat.py)
     },
     'arxiv': {
         'categories': ['astro-ph.EP', 'astro-ph.SR', 'astro-ph.IM', 'astro-ph.GA', 'astro-ph.HE', 'astro-ph.CO'],
