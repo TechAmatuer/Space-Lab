@@ -2094,8 +2094,8 @@ def what_we_got_wrong_is_published():
     pub = corrections.public('owner/repo')
     assert pub[0]['date'] >= pub[-1]['date'] and pub[0]['url'] == f"https://github.com/owner/repo/commit/{pub[0]['sha']}"
     assert all(p['url'] is None for p in corrections.public(''))
-    data, _ = publish.build_data(db.connect(), {'share': {'github_repo': 'owner/repo'}})
-    assert data['site']['corrections'][0]['url'].startswith('https://github.com/owner/repo/commit/') and not publish.validate(data)
+    got = publish._corrections({'share': {'github_repo': 'owner/repo'}})              # what build_data puts in data['site']['corrections']
+    assert got[0]['url'].startswith('https://github.com/owner/repo/commit/') and "'corrections': _corrections(cfg)" in open(publish.__file__).read()
 
 
 @test

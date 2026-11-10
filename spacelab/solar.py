@@ -143,7 +143,7 @@ AT = {
               _c('Chandra X-ray Observatory', 'NASA', 'X-ray telescope, launched 1999', 'Chandra X-ray Observatory', 'Around Earth'),
               _c('XMM-Newton', 'ESA', 'X-ray telescope, launched 1999', 'XMM-Newton', 'Around Earth'),
               _c('Fermi', 'NASA', 'gamma-ray telescope, launched 2008', 'Fermi Gamma-ray Space Telescope', 'Around Earth'),
-              _c('Swift', 'NASA', 'catches gamma-ray bursts within minutes, launched 2004', 'Neil Gehrels Swift Observatory', 'Around Earth'),
+              _c('Swift', 'NASA', 'caught gamma-ray bursts within minutes for 22 years; after a rescue mission failed, it re-entered the atmosphere over Indonesia on 4 November 2026', 'Neil Gehrels Swift Observatory', 'Back in the atmosphere'),
               _c('NuSTAR', 'NASA', 'high-energy X-ray telescope, launched 2012', 'NuSTAR', 'Around Earth'),
               _c('IXPE', 'NASA / ASI', 'measures how X-rays are polarised, launched 2021', 'IXPE', 'Around Earth'),
               _c('XRISM', 'JAXA / NASA', 'X-ray spectroscopy, launched 2023', 'X-Ray Imaging and Spectroscopy Mission', 'Around Earth'),
