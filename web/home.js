@@ -246,6 +246,23 @@
         <p class="small muted">${m.since ? `In space since ${esc(m.since)}. ` : ''}Status: ${esc(m.status)}. <a href="${esc(m.url)}" target="_blank" rel="noopener">mission page ↗</a>${m.key === 'euclid' ? ' · <a href="#atlas">see its deep field in the Space atlas</a>' : ''}</p></details>`).join('')}</div>
       <p class="small muted">Dates checked ${esc(ms.checked)}. Launches and data releases often slip.</p></div>`;
   }
+  // CHEOPS answer-key test: the lab's dip finder run blind on planets that are already known
+  function crosscheckCard() {
+    const c = (D().tess || {}).crosscheck;
+    if (!c || !c.tested || !(c.items || []).length) return '';
+    const row = i => `<tr><td><b>${esc(i.planet)}</b><br><span class="small muted">${esc(i.date || '')}</span></td>
+      <td class="mono">${Number(i.depth_lit_ppm).toLocaleString()} ppm</td>
+      <td class="mono">${i.depth_ppm ? Number(i.depth_ppm).toLocaleString() + ' ppm' : '—'}${i.ratio ? `<br><span class="small muted">${num(i.ratio, 2)}× published</span>` : ''}</td>
+      <td class="mono">${i.offset_min === null || i.offset_min === undefined ? '—' : (i.offset_min > 0 ? '+' : '') + num(i.offset_min, 0) + ' min'}</td>
+      <td>${i.recovered ? `<span class="chip ok">found</span>${i.depth_ok ? '' : ' <span class="chip warn">depth off</span>'}` : '<span class="chip bad">missed</span>'}</td>
+      <td>${i.plot ? `<img class="plot hm-ccplot" src="${esc(i.plot)}" alt="CHEOPS light curve of ${esc(i.planet)} with the dip the blind search found" loading="lazy">` : ''}</td></tr>`;
+    return `<div class="card hm-cross"><h3>🎯 Answer-key test: can this lab find planets that are already known?</h3>
+      <p class="small">ESA's CHEOPS telescope watches stars whose planets are already measured, and its data are public. Space Lab's dip finder searches those light curves <b>blind</b>, without being told when the planet crosses, and the result is then compared with the published answer. A search that cannot pass this test should not be trusted on new candidates.</p>
+      <p><b>${c.recovered} of ${c.tested}</b> known transits found at the right time${c.depth_ok !== null && c.depth_ok !== undefined ? `, <b>${c.depth_ok}</b> with the right depth` : ''}${c.median_ratio ? `. Typical depth found: <b>${num(c.median_ratio, 2)}×</b> the published one` : ''}.</p>
+      <details><summary class="small"><b>Every test, including the misses</b></summary>
+      <div class="hm-scroll"><table class="tbl small"><thead><tr><th>Planet, visit</th><th>Published depth</th><th>Found blind</th><th>Time off by</th><th>Result</th><th>Light curve</th></tr></thead><tbody>${c.items.map(row).join('')}</tbody></table></div>
+      <p class="small muted">Depths are simple box averages, so they run a little below the published values for planets that cross near the edge of their star. Misses are kept on the list: they show where the method runs out. Data: ESA CHEOPS through DACE (University of Geneva); published values from the NASA Exoplanet Archive.</p></details></div>`;
+  }
   function nextTransits() {
     const now = Date.now(), btjdNow = now / 864e5 + 2440587.5 - 2457000;
     const up = ((D().tess || {}).cands || []).filter(c => c.kind === 'periodic' && c.period && c.t0).map(c => {
@@ -267,7 +284,7 @@
   function tessTop(el) {
     if (el.querySelector('.hm-big, .hm-next')) return;
     const box = document.createElement('div'); box.className = 'hm-tesstop';
-    box.innerHTML = `<div class="grid g2">${bigPicture()}${nextTransits()}</div>${missionsCard()}`;
+    box.innerHTML = `<div class="grid g2">${bigPicture()}${nextTransits()}</div>${crosscheckCard()}${missionsCard()}`;
     const anchor = el.querySelector('.card');
     if (anchor) anchor.after(box); else el.prepend(box);
     tickCounts(box);

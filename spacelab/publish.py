@@ -117,6 +117,11 @@ def build_data(con, cfg):
     cst = {r['status']: r['n'] for r in db.rows(con, 'SELECT status, COUNT(*) AS n FROM tess_cands GROUP BY status')}
     funnel = {'stars': stats.get('done', 0), 'signals': sum(cst.values()), 'auto_rejected': cst.get('auto-rejected', 0),
               'not_planet': cst.get('fake', 0), 'review': cst.get('new', 0) + cst.get('unsure', 0), 'planet_like': cst.get('real', 0)}
+    ck = db.kv_get(con, 'cheops') or {}
+    crosscheck = {k: ck.get(k) for k in ('t', 'tested', 'recovered', 'depth_ok', 'median_ratio')} | {'items': [
+        {k: i.get(k) for k in ('planet', 'star', 'date', 'vmag', 'depth_lit_ppm', 'depth_ppm', 'ratio', 'dur_lit_h', 'dur_h', 'offset_min',
+                               'eph_sigma_min', 'snr', 'npts', 'scatter_ppm', 'recovered', 'depth_ok')} | {'plot': f(i.get('plot'))}
+        for i in (ck.get('items') or []) if i.get('npts')][:40]} if ck.get('tested') else None
     from .jobs import JOBS
     runs = []
     for job, spec in JOBS.items():
@@ -191,7 +196,7 @@ def build_data(con, cfg):
             'today': {'brief': {'t': brief_kv.get('t'), 'text': clean(brief_kv.get('text') or ''), 'model': brief_kv.get('model')},
                       'jobs': runs, 'always_on': bool(cfg.get('always_on'))},
             'tess': {'stats': {k: stats.get(k, 0) for k in ('done', 'queued', 'nodata', 'error', 'known')}, 'cands': tess,
-                     'engine': db.kv_get(con, 'tess_engine'), 'funnel': funnel,
+                     'engine': db.kv_get(con, 'tess_engine'), 'funnel': funnel, 'crosscheck': crosscheck,
                      'model': {k: (model or {}).get(k) for k in ('ready', 'n_user', 'n_auto', 'acc', 'top', 'need')}},
             'asteroids': {'text': (db.kv_get(con, 'neo_watch_text') or {}).get('text'), 'cad': (w.get('cad') or [])[:15],
                           'sentry': [{k: r.get(k) for k in ('des', 'fullname', 'ip', 'ps', 'ts_max', 'range', 'h', 'diameter')} for r in (w.get('sentry') or [])[:12]],

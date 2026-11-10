@@ -910,6 +910,96 @@ def missions_and_flyby_orbits():
     assert 'atlas.js' in publish.SITE_FILES and 'atlas-frame.html' in publish.SITE_FILES
 
 
+def _cheops_visit(depth=0.004, t_mid=2460000.40, dur=0.10, seed=3, n=1400, span=0.8):
+    """A synthetic CHEOPS visit: 99-minute roll-angle wobble, a slow drift, gaps every orbit, noise and one box transit."""
+    rng = np.random.default_rng(seed)
+    t = 2460000.0 + np.sort(rng.uniform(0, span, n))
+    phase = ((t - 2460000.0) / (99 / 1440)) % 1
+    keep = phase < 0.62                                   # Earth blocks the view for part of every orbit
+    t, phase = t[keep], phase[keep]
+    roll = phase * 360
+    y = 1 + 4e-4 * np.sin(np.radians(roll)) + 2e-4 * np.cos(2 * np.radians(roll)) + 6e-4 * (t - t[0]) + rng.normal(0, 3e-4, len(t))
+    if depth:
+        y[np.abs(t - t_mid) < dur / 2] -= depth
+    return {'obj_date_bjd_vect': list(t - 2400000.0), 'photom_flux_vect': list(y * 1.4e8), 'photom_event_vect': [0] * len(t),
+            'photom_roll_angle_vect': list(roll), 'photom_background_vect': [1000.0] * len(t)}
+
+
+@test
+def cheops_blind_search_recovers_known_transit():
+    from spacelab import cheops
+    pl = {'name': 'Test-1 b', 'period': 2.0, 'period_err': 1e-6, 't0': 2460000.40 - 50 * 2.0, 't0_err': 2e-4, 'dur_h': 2.4, 'depth': 0.004,
+          'ra': 10.0, 'dec': 20.0}
+    hit = cheops.transit_in_visit(pl, 2460000.0, 2460000.8)
+    assert hit and abs(hit[0] - 2460000.40) < 1e-6 and hit[1] < 0.001, hit
+    assert cheops.transit_in_visit(pl, 2460000.0, 2460000.45) is None          # the transit must be fully inside, with data on both sides
+    p = _cheops_visit()
+    p['photom_event_vect'][5] = 1
+    p['photom_flux_vect'][9] *= 1.5                                            # a cosmic-ray spike
+    t, y, roll = cheops.clean(p)
+    assert len(t) == len(p['photom_flux_vect']) - 2 and abs(np.median(y) - 1) < 1e-6
+    dip, res, sig = cheops.blind_dip(t, y, roll)
+    out = cheops.compare(pl, hit[0], hit[1], dip)
+    assert out['recovered'] and out['depth_ok'], out
+    assert abs(out['offset_min']) < 15 and 0.85 < out['ratio'] < 1.15 and out['snr'] > 20, out
+    assert 200 < sig * 1e6 < 400, sig                                          # the wobble was removed: scatter is back to the noise level
+    # no transit in the data: whatever the search finds must not count as a recovery
+    t, y, roll = cheops.clean(_cheops_visit(depth=0))
+    dip0, _, _ = cheops.blind_dip(t, y, roll)
+    out0 = cheops.compare(pl, hit[0], hit[1], dip0)
+    assert not out0['recovered'] and (dip0 is None or dip0['snr'] < 6), (out0, dip0)
+    # a transit at a different time than published is found but not counted as recovered
+    t, y, roll = cheops.clean(_cheops_visit(t_mid=2460000.25))
+    dip1, _, _ = cheops.blind_dip(t, y, roll)
+    out1 = cheops.compare(pl, hit[0], hit[1], dip1)
+    assert dip1['snr'] > 20 and not out1['recovered'] and abs(out1['offset_min'] + 216) < 15, out1
+
+
+@test
+def cheops_job_end_to_end_offline():
+    import spacelab.cheops as cheops
+    from spacelab import db, net, publish, jobs
+    con = db.connect()
+    db.kv_set(con, 'cheops', None)
+    nea = [{'pl_name': 'Test-1 b', 'hostname': 'Test-1', 'ra': 10.0, 'dec': 20.0, 'pl_orbper': 2.0, 'pl_orbpererr1': 1e-6, 'pl_tranmid': 2459900.40,
+            'pl_tranmiderr1': 2e-4, 'pl_trandur': 2.4, 'pl_trandep': 0.4, 'sy_vmag': 9.1},
+           {'pl_name': 'Vague-1 b', 'hostname': 'Vague-1', 'ra': 50.0, 'dec': -5.0, 'pl_orbper': 3.0, 'pl_orbpererr1': 0.01, 'pl_tranmid': 2459000.0,
+            'pl_tranmiderr1': 0.01, 'pl_trandur': 2.0, 'pl_trandep': 1.0, 'sy_vmag': 10.0}]
+    cols = {'file_key': ['CH_PR1_TG1_V0100', 'CH_PR1_TG2_V0100', 'CH_PR1_TG3_V0100'], 'obj_id_catname': ['Test-1', 'Vague-1', 'Nowhere'],
+            'ra_deg': [10.0001, 50.0, 200.0], 'dec_deg': [20.0001, -5.0, 0.0], 'bjd_start': [2460000.0, 2460000.0, 2460000.0], 'bjd_end': [2460000.8, 2460002.0, 2460001.0]}
+    search = {'parameters': [{'variableName': k, ('stringValues' if isinstance(v[0], str) else 'doubleValues'): v} for k, v in cols.items()]}
+    lc = _cheops_visit()
+    photo = {'parameters': [{'variableName': k, ('intValues' if k == 'photom_event_vect' else 'doubleValues'): v} for k, v in lc.items()]}
+    asked = []
+    old_t, old_f = net.fetch_text, net.fetch
+
+    def fake_fetch(url, params=None, data=None, headers=None, **k):
+        asked.append((url, data))
+        assert headers and headers.get('Accept') == 'application/json'       # without it the archive answers in a binary format
+        return json.dumps(search if url.endswith('/search') else photo).encode()
+    try:
+        net.fetch_text = lambda url, params=None, **k: json.dumps(nea)
+        net.fetch = fake_fetch
+        ctx = jobs.Ctx('cheops', 0)
+        ctx.progress = lambda *_: None
+        ctx.log = lambda *_: None
+        msg = cheops.run(ctx)
+        msg2 = cheops.run(ctx)                                               # a second run finds nothing new and keeps the result
+    finally:
+        net.fetch_text, net.fetch = old_t, old_f
+    assert msg.startswith('answer-key test: the blind search recovered 1 of 1 known transits (1 with the right depth)'), msg
+    assert msg2 == msg, msg2
+    lcs = [a for a in asked if '/photometry/' in a[0]]
+    assert len(lcs) == 1 and lcs[0][0].endswith('/photometry/Test-1') and b'CH_PR1_TG1_V0100' in lcs[0][1], lcs    # the badly-predicted planet is skipped
+    st = db.kv_get(con, 'cheops')
+    assert st['tested'] == 1 and st['recovered'] == 1 and st['items'][0]['planet'] == 'Test-1 b' and st['items'][0]['plot'].endswith('.png'), st
+    data, files = publish.build_data(con, {})
+    cc = data['tess']['crosscheck']
+    assert cc['recovered'] == 1 and cc['items'][0]['plot'] == 'files/plots/cheops/CH_PR1_TG1_V0100.png' and 'file_key' not in cc['items'][0], cc
+    assert 'plots/cheops/CH_PR1_TG1_V0100.png' in files and not publish.validate(data)
+    assert 'cheops' in jobs.JOBS
+
+
 import urllib.error  # noqa: E402
 
 if __name__ == '__main__':

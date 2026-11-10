@@ -716,6 +716,13 @@ const CHECKS = {
       if (!/Data release 4 in [\d,]+ days/.test(rows[3] ? rows[3].textContent : '')) fails.push('an exact future date shows a countdown in days');
       if (!/Dates checked 2026-01-01/.test(m.textContent) || !m.querySelector('a[href="https://example.org/tess"]')) fails.push('show when the dates were checked, and link each mission page from the data');
     }
+    const cc = t.querySelector('.hm-cross');
+    if (!cc || !/1 of 2 known transits found/.test(cc.textContent) || !/0\.93× the published one/.test(cc.textContent)) fails.push('TESS tab needs the CHEOPS answer-key card with the score (1 of 2 found)');
+    else {
+      const rows = cc.querySelectorAll('tbody tr');
+      if (rows.length !== 2 || !/found/.test(rows[0].textContent) || !/missed/.test(rows[1].textContent) || !rows[0].querySelector('img.plot')) fails.push('answer-key card lists every test, hits and misses, with the light-curve picture');
+      if (/undefined|NaN|null/.test(cc.textContent)) fails.push('answer-key card shows undefined/NaN/null');
+    }
     const one = t.querySelector('#tic-111111 .sl-falsify'), two = t.querySelector('#tic-222222 .sl-falsify'), three = t.querySelector('#tic-333333 .sl-falsify');
     if (!one || !two || !three) { fails.push('every candidate card needs the "We tried to disprove it" scorecard'); return report(24, 'Missions and falsification', fails); }
     if (!/survived 10 of 10 tests run, 1 still to run/.test(one.querySelector('summary').textContent)) fails.push('TIC 111111: all ten tests that ran were survived (Gaia not run): got "' + norm(one.querySelector('summary').textContent) + '"');

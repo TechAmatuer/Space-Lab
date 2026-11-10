@@ -264,6 +264,53 @@
    "not_planet": 1,
    "review": 114,
    "planet_like": 5
+  },
+  "crosscheck": {
+   "t": 1794200000,
+   "tested": 2,
+   "recovered": 1,
+   "depth_ok": 1,
+   "median_ratio": 0.93,
+   "items": [
+    {
+     "planet": "Example-9 b",
+     "star": "Example-9",
+     "date": "2024-05-01",
+     "vmag": 9.1,
+     "depth_lit_ppm": 4000,
+     "depth_ppm": 3720,
+     "ratio": 0.93,
+     "dur_lit_h": 2.4,
+     "dur_h": 2.16,
+     "offset_min": -3.2,
+     "eph_sigma_min": 0.4,
+     "snr": 41.0,
+     "npts": 800,
+     "scatter_ppm": 300,
+     "recovered": true,
+     "depth_ok": true,
+     "plot": "files/plots/cheops/x.png"
+    },
+    {
+     "planet": "Example-10 b",
+     "star": "Example-10",
+     "date": "2023-02-11",
+     "vmag": 11.9,
+     "depth_lit_ppm": 350,
+     "depth_ppm": null,
+     "ratio": null,
+     "dur_lit_h": 1.5,
+     "dur_h": null,
+     "offset_min": null,
+     "eph_sigma_min": 2.0,
+     "snr": null,
+     "npts": 500,
+     "scatter_ppm": 900,
+     "recovered": false,
+     "depth_ok": false,
+     "plot": null
+    }
+   ]
   }
  },
  "asteroids": {

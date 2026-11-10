@@ -19,6 +19,7 @@ JOBS = {
     'library': ('spacelab.library', 'Paper library (50 years)'),
     'beyond': ('spacelab.beyond', 'Sky watch & Beyond astronomy'),
     'radar': ('spacelab.radar', 'Space science radar (local AI)'),
+    'cheops': ('spacelab.cheops', 'CHEOPS answer-key test'),
     'ai': ('spacelab.aicatchup', 'Local AI catch-up (while the Mac is idle)'),
     'selftest': ('spacelab.selftest', 'Self-test'),
     'report': ('spacelab.reanalyze', 'Maintenance & coverage report'),

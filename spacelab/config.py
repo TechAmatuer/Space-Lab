@@ -47,6 +47,7 @@ DEFAULTS = {
         'library': 'every 3h',
         'beyond': 'every 3h',
         'radar': 'every 6h',    # the local AI reads and ranks everything new in space science
+        'cheops': 'every 72h',  # answer-key test: recover known planets in public CHEOPS data (a few visits each time)
     },
     'arxiv': {
         'categories': ['astro-ph.EP', 'astro-ph.SR', 'astro-ph.IM', 'astro-ph.GA', 'astro-ph.HE', 'astro-ph.CO'],

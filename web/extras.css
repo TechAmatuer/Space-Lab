@@ -181,3 +181,4 @@ button.b.at-mode.on,button.b.at-layer.on,button.b.at-alt.on{background:var(--acc
 .sl-ftests li{display:flex;gap:6px;align-items:baseline} .sl-ft-pass{color:var(--ok)} .sl-ft-fail{color:var(--bad)} .sl-ft-none{color:var(--muted)}
 .as-orow{display:flex;gap:10px;align-items:center;margin:6px 0} .as-orbit{width:110px;height:110px;flex:none}
 .as-oearth{fill:none;stroke:#4a90d9;stroke-width:1.5} .as-oplanet{fill:none;stroke:var(--line-2);stroke-width:1} .as-orock{fill:none;stroke:#f2994a;stroke-width:1.8} .as-osun{fill:#ffd166}
+.hm-scroll{overflow-x:auto} .hm-ccplot{width:150px;height:auto;border-radius:6px;cursor:zoom-in;display:block}

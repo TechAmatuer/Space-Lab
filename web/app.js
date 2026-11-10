@@ -546,7 +546,13 @@ document.addEventListener('click', async e => {
     if (d.check) {
       const body = modal('<p class="muted">Checking the report (and asking the MPC about duplicates)…</p>');
       const r = await api(`api/pc/${d.check}/check`);
-      body.innerHTML = `<h3>Report checks</h3>${checkList(r.checks)}<p class="small muted">Fix anything marked ⛔ before sending. ⚠️ items are worth a second look.</p>`;
+      const ready = (r.checks || []).length && !(r.checks || []).some(c => c.level === 'error');
+      body.innerHTML = `<h3>Report checks</h3>${checkList(r.checks)}<p class="small muted">Fix anything marked ⛔ before sending. ⚠️ items are worth a second look.</p>
+        ${ready ? `<div class="note"><b>Ready to send. You do the sending, Space Lab never submits for you:</b><ol class="small steps"><li><a href="api/pc/${esc(d.check)}/ades">Download the report</a> (ADES format, the one the MPC asks for today; it replaced the old 80-column lines).</li>
+          <li>Dry run first: the <a href="https://minorplanetcenter.net/submit_psv_test" target="_blank" rel="noopener">MPC's test page ↗</a> checks the file with the MPC's own validator and submits nothing.</li>
+          <li>Then the real thing: open the <a href="https://minorplanetcenter.net/submit_psv" target="_blank" rel="noopener">MPC submission page for ADES PSV files ↗</a>, choose the file and give your email address.</li>
+          <li>The MPC emails an acknowledgement with a submission ID. Keep it.</li><li>Back here, press "I submitted it: add to Results" and paste that ID in the notes.</li></ol></div>`
+        : '<p class="small warn-t">Not ready to send yet: clear the ⛔ items first.</p>'}`;
       return;
     }
     if (d.aavso) {
