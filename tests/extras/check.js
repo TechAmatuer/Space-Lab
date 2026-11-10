@@ -86,13 +86,35 @@ async function boot({ extras = true, storage = {}, data = FIXTURE, hash = '', se
     new Uint8Array(buf, 16 + 24 * n, n).set([3, 0, 2, 1, 2, 1]); new Uint8Array(buf, 16 + 25 * n, n).set([0, 0, 8, 0, 11, 0]);
     return buf;
   };
+  // solar system files: circular paths around the Sun (so the right answer is known), built around "now"
+  const SS_K = 0.01720209895, ssT0 = Date.now() / 86400000 + 2440587.5;
+  const ssCirc = (r, jd, ph) => { const wv = SS_K / Math.pow(r, 1.5), a = wv * (jd - ssT0) + ph; return [r * Math.cos(a), r * Math.sin(a), 0, -r * wv * Math.sin(a), r * wv * Math.cos(a), 0]; };
+  const SS_OBJ = [['earth', 'Earth', 'planet', 'planets', 1, 0, 2, '', ''], ['mars', 'Mars', 'planet', 'planets', 1.5, 1, 2, '', ''],
+                  ['voyager1', 'Voyager 1', 'craft', 'leaving', 170, 2, 10, 'NASA', '1977-09-05'], ['jwst', 'James Webb Space Telescope', 'craft', 'telescopes', 1.01, 0, 5, 'NASA / ESA / CSA', '2021-12-25']];
+  const ssBuild = () => {
+    const rows = [], objects = [];
+    for (const [key, name, kind, group, r, ph, step, by, launched] of SS_OBJ) {
+      const off = rows.length / 7; let n = 0, nh = 0;
+      if (kind === 'craft') for (let k = 0; k < 5; k++) { const t = -3000 + k * 700; rows.push(t, ...ssCirc(r, ssT0 + t, ph)); n++; nh++; }
+      for (let t = -30; t <= 400.001; t += step) { rows.push(t, ...ssCirc(r, ssT0 + t, ph)); n++; }
+      objects.push({ key, name, kind, group, color: '#abcdef', by, launched, what: 'What ' + name + ' does.', off, n, nh });
+    }
+    const buf = new ArrayBuffer(16 + rows.length * 4), dv = new DataView(buf);
+    [83, 76, 83, 49].forEach((c, i) => dv.setUint8(i, c)); dv.setUint32(4, objects.length, true); dv.setFloat64(8, ssT0, true);
+    new Float32Array(buf, 16).set(rows);
+    return { buf, meta: { t0: ssT0, made: 1794300000, back: 30, ahead: 400, objects, groups: [['planets', 'Planets'], ['leaving', 'Leaving the solar system'], ['telescopes', 'Space telescopes near Earth']],
+      at: { mars: [['Curiosity', 'NASA', 'rover in Gale crater since 2012']] }, lists_checked: '2026-11-10', skipped: ['Juno'], source: 'Positions: NASA/JPL Horizons.' } };
+  };
+  const SS = ssBuild();
   w.fetch = async u => { rec.fetches.push(String(u));
+    if (/solar\.json(\?v=\d+)?$/.test(String(u))) return { ok: true, text: async () => JSON.stringify(SS.meta) };
+    if (/tracks\.bin(\?v=\d+)?$/.test(String(u))) return { ok: true, arrayBuffer: async () => SS.buf };
     if (/galaxies\.bin(\?v=\d+)?$/.test(String(u))) return { ok: true, arrayBuffer: async () => uvBin() };
     if (/galaxies\.txt(\?v=\d+)?$/.test(String(u))) return { ok: true, text: async () => UV_IDS.join('\n') + '\n' };
     return /zip\.txt$/.test(String(u)) ? { ok: true, text: async () => ZIPS } : /images-api\.nasa\.gov/.test(String(u)) ? { ok: true, json: async () => NASA } : { ok: true, json: async () => json, text: async () => JSON.stringify(json) }; };
   w.eval(read('web/public.js'));
   if (extras) {
-    for (const f of ['web/beyond.js', 'web/extras.js', 'web/home.js', 'web/stargazing.js', 'web/asteroids.js', 'web/atlas.js', 'web/universe.js']) {
+    for (const f of ['web/beyond.js', 'web/extras.js', 'web/home.js', 'web/stargazing.js', 'web/asteroids.js', 'web/atlas.js', 'web/universe.js', 'web/solar.js']) {
       try { w.eval(read(f)); } catch (e) { rec.errors.push(f + ' crashed while loading: ' + e.message); }
     }
   }
@@ -499,7 +521,7 @@ const CHECKS = {
     const groups = env.$$('nav.tabs .navgroup').map(g => g.textContent).join('|');
     if (groups !== 'Explore|Research|Join in') fails.push('tabs must be grouped Explore | Research | Join in (got ' + groups + ')');
     const order = env.$$('nav.tabs button').map(b => b.dataset.tab).join(' ');
-    if (order !== 'today sky atlas universe stargazing brief beyond tess asteroids exowatch results play create mylist about') fails.push('tab order: ' + order);
+    if (order !== 'today sky solar atlas universe stargazing brief beyond tess asteroids exowatch results play create mylist about') fails.push('tab order: ' + order);
     report(17, 'Home, candidate of the day and navigation', fails);
   },
 
@@ -894,6 +916,54 @@ const CHECKS = {
     if (!env.$('#v-atlas').classList.contains('on') || env.$('#v-universe').classList.contains('on')) fails.push('a link to another tab opened while the page is showing (hash change) switches to that tab');
     report(25, '3D universe: data, search, identity cards, deep links', fails);
   },
+  async 27() {
+    const fails = [];
+    let env = await boot();
+    let v = await env.tab('solar');
+    for (let i = 0; i < 40 && v.querySelector('.ss-loading'); i++) await sleep(10);
+    const X = env.w.SpaceLabSolar;
+    if (!X || !X.data.ready || v.querySelector('.ss-loading')) { fails.push('the solar system tab loads its two files: ' + norm(v.textContent).slice(0, 200)); return report(27, 'Solar system', fails); }
+    const G = X.data, jd = G.t0 + 3.3, e = X.state(G.byKey.earth, jd), want = Math.atan2(Math.sin(0.01720209895 * 3.3), Math.cos(0.01720209895 * 3.3));
+    if (!e || Math.abs(Math.hypot(...e.p) - 1) > 2e-6 || Math.abs(Math.atan2(e.p[1], e.p[0]) - want) > 2e-6) fails.push('a position between two stored points is worked out to better than 300 km: ' + JSON.stringify(e && e.p));
+    if (X.state(G.byKey.earth, G.t0 + 401) !== null || X.state(G.byKey.earth, G.t0 - 31) !== null) fails.push('outside the stored span there is no position (nothing is made up)');
+    const orb = X.orbit(G.byKey.mars);
+    if (!orb || Math.abs(orb.a - 1.5) > 1e-4 || orb.e > 1e-3 || Math.abs(orb.years - Math.pow(1.5, 1.5)) > 1e-3) fails.push('the path around the Sun is worked out from position and speed: ' + JSON.stringify(orb && [orb.a, orb.e, orb.years]));
+    const f = X.facts(G.byKey.voyager1, G.t0);
+    if (!f || Math.abs(f.r - 170) > 1e-3 || !(f.earth > 169 && f.earth < 171) || Math.abs(f.speed - 29.7847 / Math.sqrt(170)) > 0.01) fails.push('distance and speed of a spacecraft: ' + JSON.stringify(f));
+    if (X.lightTime(149597870.7) !== '8 min 19 s' || X.lightTime(170 * 149597870.7) !== '23 h 34 min' || X.km(384400) !== '384,400 km') fails.push('light time and distances read naturally: ' + X.lightTime(149597870.7) + ' / ' + X.lightTime(170 * 149597870.7));
+    const picks = [...v.querySelectorAll('.ss-pick')].map(b => norm(b.textContent));
+    if (picks.join('|') !== 'Earth|Mars|Voyager 1|James Webb Space Telescope' || !/Not shown today because JPL gave no position: Juno/.test(v.textContent)) fails.push('every object is a button in the list, and anything left out is named: ' + picks.join('|'));
+    v.querySelector('.ss-pick[data-k="voyager1"]').click(); await sleep(5);
+    let c = norm((v.querySelector('.ss-card') || { textContent: '' }).textContent);
+    if (!/Voyager 1/.test(c) || !/NASA · launched 1977-09-05 \(49 years ago\)/.test(c) || !/Right now \(updates every second\)/.test(c) || !/From the Sun\s*170\.00 AU · 25\.43 billion km/.test(c) || !/A radio signal takes\s*23 h \d+ min to reach Earth/.test(c) || !/farther every day/.test(c)) fails.push('a spacecraft card: who, when, what, and live distance, signal time and speed: ' + c.slice(0, 500));
+    v.querySelector('.ss-pick[data-k="mars"]').click(); await sleep(5);
+    c = norm(v.querySelector('.ss-card').textContent);
+    if (!/Spacecraft here \(list checked 2026-11-10\)/.test(c) || !/Curiosity \(NASA\): rover in Gale crater/.test(c) || !/One trip around the Sun\s*671 days/.test(c)) fails.push('a planet card lists the spacecraft there and its year: ' + c.slice(0, 500));
+    const sl = v.querySelector('.ss-time'); sl.value = '100'; sl.dispatchEvent(new env.w.Event('input')); await sleep(60);
+    c = norm(v.querySelector('.ss-card').textContent);
+    if (!/^.*On [A-Z][a-z]{2} \d/.test(c) || /Right now/.test(c) || !/\+100 days from now/.test(v.querySelector('.ss-when').textContent)) fails.push('the time slider moves everything to another day and says which: ' + norm(v.querySelector('.ss-when').textContent) + ' / ' + c.slice(80, 260));
+    v.querySelector('.ss-now').click(); await sleep(60);
+    if (!/^Live/.test(v.querySelector('.ss-when').textContent)) fails.push('"Now" returns to live');
+    const fb = v.querySelector('.ss-full'), wrap = v.querySelector('.ss-wrap');
+    fb.click(); await sleep(5);
+    if (!wrap.classList.contains('sl-full') || !wrap.querySelector('.ss-bar')) fails.push('full screen for the solar system, with its buttons');
+    fb.click(); await sleep(5);
+    if (wrap.classList.contains('sl-full') || !v.querySelector('.ss-top .ss-bar')) fails.push('leaving full screen puts the buttons back');
+    v.querySelector('.ss-squeeze').click(); await sleep(5);
+    if (v.querySelector('.ss-squeeze').getAttribute('aria-pressed') !== 'true') fails.push('"Fit everything" can be switched on');
+    if (/undefined|NaN/.test(v.textContent)) fails.push('the solar system tab shows undefined or NaN');
+    env = await boot({ search: '?obj=jwst', hash: '#solar' });
+    v = env.$('#v-solar');
+    for (let i = 0; i < 40 && !v.querySelector('.ss-card'); i++) await sleep(10);
+    c = norm((v.querySelector('.ss-card') || { textContent: '' }).textContent);
+    if (!/James Webb Space Telescope/.test(c) || env.w.SpaceLabSolar.view().follow !== 'earth') fails.push('a link ?obj=jwst opens that card, centred on Earth where Webb sits: ' + c.slice(0, 120));
+    const noData = JSON.parse(JSON.stringify(FIXTURE)); delete noData.beyond.solar;
+    env = await boot({ data: noData });
+    v = await env.tab('solar');
+    if (!/built on the next daily update/.test(v.textContent)) fails.push('before the first run the tab says so');
+    if (env.rec.errors.length) fails.push('errors: ' + env.rec.errors.slice(0, 3).join(' | '));
+    report(27, 'Solar system: live positions, cards, time, full screen', fails);
+  },
   async 26() {
     const fails = [];
     const many = JSON.parse(JSON.stringify(FIXTURE));
@@ -936,7 +1006,7 @@ const CHECKS = {
 };
 
 (async () => {
-  const order = ['G', '2', '3', '5', '6', '7', '8', '9', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23', '24', '25', '26'];
+  const order = ['G', '2', '3', '5', '6', '7', '8', '9', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23', '24', '25', '26', '27'];
   for (const k of order) {
     if (ONLY && k !== ONLY && k !== 'G') continue;
     try { await CHECKS[k](); } catch (e) { report(k, 'check crashed', ['the check itself crashed (usually because an expected element is missing): ' + e.message]); }

@@ -1,5 +1,6 @@
 """Offline tests with synthetic data (no internet, no Ollama). Run:  python tests/test_offline.py"""
 import json
+import re
 import math
 import sys
 import tempfile
@@ -1472,6 +1473,81 @@ def countdown_for_running_and_queued_jobs():
     finally:
         server.STATE.clear(); server.STATE.update(old[0]); server.ORDER[:] = old[1]
     con.execute("DELETE FROM runs WHERE job IN ('zz_a', 'zz_b', 'zz_c')")
+
+
+@test
+def solar_system_positions_from_horizons():
+    from spacelab import solar, db, publish
+    K = 0.01720209895                                                     # Gauss constant: a circular orbit of radius r turns at K / r^1.5 rad/day
+    asked = []
+
+    def circ(r, jd, phase=0.0):
+        w = K / r ** 1.5
+        a = w * (jd - 2461000.0) + phase
+        return [r * math.cos(a), r * math.sin(a), 0.0, -r * w * math.sin(a), r * w * math.cos(a), 0.0]
+    radius = {'199': 0.39, '299': 0.72, '399': 1.0, '499': 1.52, '5': 5.2, '6': 9.5, '7': 19.2, '8': 30.1, '-31': 170.0, '-96': 0.3, '-170': 1.01, '1;': 2.77, '9': 35.0}
+    names = {'199': 'Mercury (199)', '299': 'Venus (299)', '399': 'Earth (399)', '499': 'Mars (499)', '5': 'Jupiter Barycenter (5)', '6': 'Saturn Barycenter (6)',
+             '7': 'Uranus Barycenter (7)', '8': 'Neptune Barycenter (8)', '-31': 'Voyager 1 (spacecraft) (-31)', '-96': 'Parker Solar Probe (spacecraft) (-96)',
+             '-170': 'James Webb Space Telescope (spacecraft) (-170)', '1;': '1 Ceres (A801 AA)', '9': 'Pluto Barycenter (9)', '-32': 'Some Other Probe (-32)'}
+
+    def fake(params):
+        hid = params['COMMAND'].strip("'")
+        asked.append((hid, params['START_TIME'], params['STEP_SIZE']))
+        if hid not in names:
+            return 'No matches found.'
+        import calendar
+        j0 = calendar.timegm(time.strptime(params['START_TIME'].strip("'"), '%Y-%m-%d %H:%M')) / 86400 + 2440587.5
+        j1 = calendar.timegm(time.strptime(params['STOP_TIME'].strip("'"), '%Y-%m-%d %H:%M')) / 86400 + 2440587.5
+        if hid == '-31' and j0 < 2443392.05:                                 # asked for before its path starts: Horizons says when it starts
+            return 'No ephemeris for target "Voyager 1 (spacecraft)" prior to A.D. 1977-SEP-05 12:59:07.1810 TDB'
+        st = params['STEP_SIZE'].strip("'")
+        n = int(st) if st.isdigit() else int(round((j1 - j0) / (float(st.split()[0]) / (24 if st.endswith('h') else 1))))
+        lines = []
+        for k in range(n + 1):
+            jd = j0 + (j1 - j0) * k / n
+            v = circ(radius.get(hid, 1.0), jd)
+            lines.append(f'{jd:.9f}, A.D. x, ' + ', '.join(f'{x:.15E}' for x in v) + ',')
+        return f'Target body name: {names[hid]}   {{source: x}}\n$$SOE\n' + '\n'.join(lines) + '\n$$EOE\n'
+    assert solar.limit_from_error('x prior to A.D. 1977-SEP-05 12:59:07.1810 TDB')[0] == 'prior to' and abs(solar.cal_jd('1977-SEP-05 12:59') - 2443392.0409) < 0.001
+    assert solar.step_text(0.25) == '6 h' and solar.step_text(5) == '5 d' and solar.cal(2440587.5) == '1970-01-01 00:00'
+    logs = []
+    t0 = 2461355.0
+    meta, hist = solar.build(logs.append, fetch=fake, now=t0)
+    full = json.loads((solar.SITE_DIR / 'solar.json').read_text())
+    keys = [o['key'] for o in full['objects']]
+    assert {'earth', 'mercury', 'voyager1', 'parker', 'jwst', 'ceres', 'pluto'} <= set(keys) and 'voyager2' not in keys and 'juice' not in keys, keys
+    assert 'Voyager 2' in meta['skipped'] and any("Voyager 2: left out (Horizons answered for 'Some Other Probe (-32)')" in x for x in logs), logs[:6]   # wrong name: never shown
+    tr = solar.read(solar.SITE_DIR / 'tracks.bin', full)
+    e = tr['earth']
+    assert abs(e[0, 0] - (t0 - 30)) < 1e-3 and abs(e[-1, 0] - (t0 + 400)) < 1e-3 and np.allclose(np.linalg.norm(e[:, 1:4], axis=1), 1.0, atol=1e-6)
+    v1 = next(o for o in full['objects'] if o['key'] == 'voyager1')
+    assert any(a[0] == '-31' and '1977-09-05 14' in a[1] for a in asked), [a for a in asked if a[0] == '-31']   # asked again from where its path starts
+    assert v1['nh'] > 100 and tr['voyager1'][0, 0] < 2443500 and np.all(np.diff(tr['voyager1'][:, 0]) > 0) and 'voyager1' in hist     # path since launch, in time order
+    assert v1['launched'] == '1977-09-05' and 'golden record' in v1['what'] and full['at']['mars'][2][0] == 'MAVEN' and 'ended in 2026' in full['at']['mars'][2][2]
+    pk = tr['parker']
+    assert abs(np.median(np.diff(pk[:, 0])) - 0.25) < 1e-3 and len(pk) > 1700
+    r = solar.summary_now(full['objects'], tr, t0)
+    assert abs(r['voyager1'] - 170) < 1e-3 and abs(r['parker'] - 0.3) < 1e-4
+    n_before = len(asked)
+    solar.build(lambda *a: None, fetch=fake, now=t0 + 1, history=hist)                                 # next day: the paths since launch are reused
+    assert not any(a[2] == f"'{solar.HISTORY_N}'" for a in asked[n_before:])
+    # too little from Horizons: the map is left as it was
+    old = (solar.SITE_DIR / 'tracks.bin').read_bytes()
+    try:
+        solar.build(lambda *a: None, fetch=lambda p: 'No matches found.', now=t0 + 2)
+        raise AssertionError('must refuse')
+    except RuntimeError as ex:
+        assert 'left as it was' in str(ex)
+    assert (solar.SITE_DIR / 'tracks.bin').read_bytes() == old
+    con = db.connect()
+    db.kv_set(con, 'solar', meta)
+    data, files = publish.build_data(con, {})
+    so = data['beyond']['solar']
+    assert so['json'] == 'files/plots/solar/solar.json' and so['bin'] == 'files/plots/solar/tracks.bin' and so['n_craft'] == 3 and not publish.validate(data), so
+    assert 'solar.js' in publish.SITE_FILES and {'plots/solar/solar.json', 'plots/solar/tracks.bin'} <= set(files)
+    for k, hid, name, kind, group, step, color in solar.OBJECTS:                                        # every object has its text
+        assert k in solar.ABOUT and solar.ABOUT[k][2] and (kind != 'craft' or re.match(r'\d{4}-\d{2}-\d{2}$', solar.ABOUT[k][1])), k
+        assert any(g[0] == group for g in solar.GROUPS), group
 
 
 @test

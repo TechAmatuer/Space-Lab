@@ -50,6 +50,7 @@ DEFAULTS = {
         'cheops': 'every 72h',  # answer-key test: recover known planets in public CHEOPS data (a few visits each time)
         'plates': 'every 24h',  # old photographic plates for newly found distant objects (the 2026 ED138 method)
         'universe': 'every 720h',  # the 3D galaxy map's files (the catalogues rarely change)
+        'solar': 'every 24h',      # where the planets and spacecraft are (JPL Horizons), for the live solar system map
         'variables': 'every 12h',  # variable stars in the TESS light curves: catalogue checks, back-fill of earlier stars
     },
     'arxiv': {

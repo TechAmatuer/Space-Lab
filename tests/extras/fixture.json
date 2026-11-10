@@ -5005,6 +5005,13 @@
    "n_left_out": 3,
    "virgo_dist": 16.6,
    "made": 1794300000.5
+  },
+  "solar": {
+   "made": 1794300000.0,
+   "n": 4,
+   "n_craft": 2,
+   "json": "files/plots/solar/solar.json",
+   "bin": "files/plots/solar/tracks.bin"
   }
  },
  "daily": {

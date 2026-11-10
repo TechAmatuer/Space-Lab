@@ -21,7 +21,7 @@ from . import classifier, config, db, net
 API = 'https://api.github.com'
 SITE = config.DATA / 'public'
 WEB = config.ROOT / 'web'
-SITE_FILES = ('public.html', 'public.js', 'style.css', 'lcviewer.js', 'orbit3d.js', 'extras.js', 'extras.css', 'beyond.js', 'home.js', 'stargazing.js', 'asteroids.js', 'atlas.js', 'atlas-frame.html', 'universe.js')
+SITE_FILES = ('public.html', 'public.js', 'style.css', 'lcviewer.js', 'orbit3d.js', 'extras.js', 'extras.css', 'beyond.js', 'home.js', 'stargazing.js', 'asteroids.js', 'atlas.js', 'atlas-frame.html', 'universe.js', 'solar.js')
 TITLE = 'Space Lab: hunting planets and asteroids with open NASA data'
 
 
@@ -188,6 +188,9 @@ def build_data(con, cfg):
     for r in results:
         r['note'] = clean(r.get('note'))
     beyond = _beyond_public(db.kv_get(con, 'beyond') or {})
+    so = db.kv_get(con, 'solar') or {}
+    if f(so.get('json')) and f(so.get('bin')):         # the live solar system (spacelab/solar.py): two files on this site
+        beyond['solar'] = {'made': so.get('made'), 'n': so.get('n'), 'n_craft': so.get('n_craft'), 'json': f(so['json']), 'bin': f(so['bin'])}
     uv = db.kv_get(con, 'universe') or {}
     if f(uv.get('bin')) and f(uv.get('txt')):          # the 3D universe (spacelab/universe.py): files on this site, details in data.json
         beyond['universe'] = {**{k: uv.get(k) for k in ('n', 'made', 'h0', 'env_counts', 'landmarks', 'famous', 'blueshift', 'blueshift_note',

@@ -56,7 +56,7 @@ function runExtras(tab) {
 }
 
 // Tabs in groups, so 12 tabs still read clearly. Extras' tabs are slotted in by id; unknown tabs go before About.
-const NAV = [['Explore', ['today', 'sky', 'atlas', 'universe', 'stargazing', 'brief', 'beyond']], ['Research', ['tess', 'asteroids', 'exowatch', 'results']],
+const NAV = [['Explore', ['today', 'sky', 'solar', 'atlas', 'universe', 'stargazing', 'brief', 'beyond']], ['Research', ['tess', 'asteroids', 'exowatch', 'results']],
              ['Join in', ['play', 'create', 'mylist']], ['', ['about']]];
 let navReady = false;
 function layoutNav() {
