@@ -34,6 +34,7 @@ MATCH = 30.0               # arcsec: a catalogued variable this close is taken t
 BLEND_R = 42.0             # arcsec: two TESS pixels
 SERVICES = ('VSX', 'Gaia DR3 variability', 'ASAS-SN variables')
 VSX_API = 'https://www.aavso.org/vsx/index.php'
+_SLOW = {}                 # VizieR mirrors that failed during this run -> when
 CAT_V = 2                  # catalogue check version: 2 = a mirror's error page no longer counts as an answer
 
 
@@ -252,14 +253,18 @@ def _vizier(source, ra, dec, radius_arcsec):
     from .catalogs import VIZIER, _rows, answered
     params = {'-source': source, '-c': f'{ra:.5f} {dec:+.5f}', '-c.rs': f'{radius_arcsec:.0f}', '-out.add': '_r', '-out.max': '20'}
     txt = None
-    for base in VIZIER:                                   # the first mirror whose database really answered
+    order = sorted(VIZIER, key=lambda b: _SLOW.get(b, 0))  # a mirror that just failed is asked last (saves a long wait per star)
+    for base in order:                                    # the first mirror whose database really answered
         try:
-            t = net.fetch_text(base + '/viz-bin/asu-tsv', params=params, timeout=90)
+            t = net.fetch_text(base + '/viz-bin/asu-tsv', params=params, timeout=40)
         except Exception:
+            _SLOW[base] = time.time()
             continue
         if answered(t, source):
+            _SLOW.pop(base, None)
             txt = t
             break
+        _SLOW[base] = time.time()
     if txt is None:
         raise ConnectionError(f'no VizieR mirror answered for {source}')
     rows = _rows(txt)

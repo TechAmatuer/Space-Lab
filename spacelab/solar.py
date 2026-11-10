@@ -151,17 +151,28 @@ def cal_jd(text):
     return calendar.timegm((y, mo, d, h, mi, 0)) / 86400.0 + 2440587.5
 
 
+_NUM = r'([-+]?\d+\.?\d*(?:[EeDd][-+]?\d+)?)'
+_STATE = re.compile(r'(\d+\.\d+)\s*=\s*A\.D\.[^\n]*\n\s*X\s*=\s*' + _NUM + r'\s*Y\s*=\s*' + _NUM + r'\s*Z\s*=\s*' + _NUM
+                    + r'\s*\n\s*VX\s*=\s*' + _NUM + r'\s*VY\s*=\s*' + _NUM + r'\s*VZ\s*=\s*' + _NUM)
+
+
 def parse_vectors(text):
     """(name Horizons gave, [[jd, x, y, z, vx, vy, vz], ...]) from a Horizons vector table (AU, AU/day)."""
     name = (re.search(r'Target body name:\s*(.*?)\s*\{', text) or re.search(r'Target body name:\s*([^\n]*)', text))
     rows = []
     if '$$SOE' in text and '$$EOE' in text:
-        for ln in text.split('$$SOE')[1].split('$$EOE')[0].strip().splitlines():
-            p = [x.strip() for x in ln.split(',')]
-            try:
-                rows.append([float(p[0])] + [float(x) for x in p[2:8]])
-            except (ValueError, IndexError):
-                continue
+        body = text.split('$$SOE')[1].split('$$EOE')[0]
+        # Horizons' own layout: a line "JD = A.D. date", then "X = .. Y = .. Z = ..", then "VX= .. VY= .. VZ= ..".
+        # (Its comma-separated layout stopped carrying the numbers in 2026, so the labelled one is read.)
+        for m in _STATE.finditer(body):
+            rows.append([float(m.group(1))] + [float(m.group(k)) for k in range(2, 8)])
+        if not rows:                                            # the comma-separated layout, if a reply ever comes that way
+            for ln in body.strip().splitlines():
+                p = [x.strip() for x in ln.split(',')]
+                try:
+                    rows.append([float(p[0])] + [float(x) for x in p[2:8]])
+                except (ValueError, IndexError):
+                    continue
     return (name.group(1).strip() if name else ''), rows
 
 
@@ -181,7 +192,7 @@ def vectors(hid, jd0, jd1, step, fetch=None):
             break
         text = fetch({'format': 'text', 'COMMAND': f"'{hid}'", 'OBJ_DATA': 'NO', 'MAKE_EPHEM': 'YES', 'EPHEM_TYPE': 'VECTORS',
                       'CENTER': "'500@10'", 'REF_PLANE': 'ECLIPTIC', 'START_TIME': f"'{cal(jd0)}'", 'STOP_TIME': f"'{cal(jd1)}'",
-                      'STEP_SIZE': f"'{step}'", 'VEC_TABLE': '2', 'CSV_FORMAT': 'YES', 'OUT_UNITS': "'AU-D'", 'VEC_CORR': 'NONE'})
+                      'STEP_SIZE': f"'{step}'", 'VEC_TABLE': '2', 'OUT_UNITS': "'AU-D'", 'VEC_CORR': 'NONE'})
         name, rows = parse_vectors(text)
         if rows:
             break

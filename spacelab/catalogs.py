@@ -10,7 +10,7 @@ import time
 
 from . import config, net
 
-VIZIER = ('https://vizier.cds.unistra.fr', 'https://vizier.cfa.harvard.edu', 'https://vizier.iucaa.in')
+VIZIER = ('https://vizier.cds.unistra.fr', 'https://vizier.cfa.harvard.edu', 'https://vizier.idia.ac.za', 'https://vizier.iucaa.in')
 
 
 def answered(tsv, source):

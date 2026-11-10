@@ -1506,8 +1506,15 @@ def solar_system_positions_from_horizons():
         for k in range(n + 1):
             jd = j0 + (j1 - j0) * k / n
             v = circ(radius.get(hid, 1.0), jd)
-            lines.append(f'{jd:.9f}, A.D. x, ' + ', '.join(f'{x:.15E}' for x in v) + ',')
+            e = [f'{x: .15E}' for x in v]                                    # exactly as Horizons prints it (checked against the live service)
+            lines.append(f'{jd:.9f} = A.D. 2026-Nov-10 12:00:00.0000 TDB \n X ={e[0]} Y ={e[1]} Z ={e[2]}\n VX={e[3]} VY={e[4]} VZ={e[5]}')
         return f'Target body name: {names[hid]}   {{source: x}}\n$$SOE\n' + '\n'.join(lines) + '\n$$EOE\n'
+    real = ('$$SOE\n2461355.000000000 = A.D. 2026-Nov-10 12:00:00.0000 TDB \n X =-3.221143497811347E+01 Y =-1.371429763277359E+02 Z = 9.922520425841653E+01\n'
+            ' VX=-1.195249269248731E-03 VY=-7.861203967160285E-03 VZ= 5.678201728773907E-03\n$$EOE')    # Voyager 1, copied from Horizons
+    rr = solar.parse_vectors('Target body name: Voyager 1 (spacecraft) (-31)    {source: x}\n' + real)
+    assert rr[0] == 'Voyager 1 (spacecraft) (-31)' and len(rr[1]) == 1 and abs(math.hypot(*rr[1][0][1:4]) - 172.31) < 0.05 and abs(rr[1][0][6] - 5.678201728773907e-3) < 1e-12, rr
+    assert solar.parse_vectors('$$SOE\n2461355.000000000, A.D. 2026-Nov-10 12:00:00.0000,\n$$EOE')[1] == []        # the empty comma layout: no rows, never zeros
+    assert solar.parse_vectors('$$SOE\n2461355.0, A.D. x, 1.0, 2.0, 3.0, 0.1, 0.2, 0.3,\n$$EOE')[1] == [[2461355.0, 1.0, 2.0, 3.0, 0.1, 0.2, 0.3]]
     assert solar.limit_from_error('x prior to A.D. 1977-SEP-05 12:59:07.1810 TDB')[0] == 'prior to' and abs(solar.cal_jd('1977-SEP-05 12:59') - 2443392.0409) < 0.001
     assert solar.step_text(0.25) == '6 h' and solar.step_text(5) == '5 d' and solar.cal(2440587.5) == '1970-01-01 00:00'
     logs = []
@@ -1673,6 +1680,13 @@ def universe_never_replaces_the_map_with_a_broken_download():
         try:
             universe.build(lambda *a: None)
             raise AssertionError('an error page must stop the build')
+        except ConnectionError:
+            pass
+        # what the mirror really sent on 10 Nov 2026 while its database was down: a tidy header that names no table
+        _net.fetch_text = lambda url, params=None, **kw: '#\n#   VizieR Astronomical Server\n#INFO\tpublisher=CDS\n\n#RESOURCE=\n#Name:\n#Title:\n'
+        try:
+            universe.build(lambda *a: None)
+            raise AssertionError('an empty reply must stop the build')
         except ConnectionError:
             pass
         head = '#Name: J/ApJS/199/26/table3\nID\tRAJ2000\n \t \n--\t--\n'

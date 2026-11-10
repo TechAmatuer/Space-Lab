@@ -35,7 +35,7 @@ import numpy as np
 
 from . import config, db, net
 
-MIRRORS = ('https://vizier.cfa.harvard.edu', 'https://vizier.cds.unistra.fr', 'https://vizier.iucaa.in')
+MIRRORS = ('https://vizier.cfa.harvard.edu', 'https://vizier.idia.ac.za', 'https://vizier.cds.unistra.fr', 'https://vizier.iucaa.in')
 H0 = 70.0
 OMEGA_M = 0.3
 C_KMS = 299792.458
@@ -168,6 +168,7 @@ LANDMARKS = [
 
 def _asu(params, timeout=300):
     """A VizieR table from the first mirror whose database really answers (a mirror that is down sends an error page)."""
+    from .catalogs import answered
     err = ConnectionError('no VizieR mirror answered')
     for base in MIRRORS:
         try:
@@ -175,7 +176,7 @@ def _asu(params, timeout=300):
         except Exception as e:
             err = e
             continue
-        if '****' in t[:4000] or '#Name:' not in t:
+        if not answered(t, params.get('-source', '')):       # an error page, or an empty reply that names no table
             err = ConnectionError(f'{base}: the catalogue database is not reachable right now')
             continue
         return t
