@@ -61,9 +61,13 @@ def parse(xml_text, source):
                 date = _when(el.text.strip())
                 break
         desc_el = get('description') if get('description') is not None else get('summary')
-        desc = re.sub(r'<[^>]+>', ' ', html.unescape(desc_el.text or '')) if desc_el is not None else ''
+        raw = (desc_el.text or '') if desc_el is not None else ''
+        body = get('encoded')                                   # content:encoded holds the full article on WordPress sites
+        raw_all = raw + ' ' + ((body.text or '') if body is not None else '') + ' ' + (link or '')
+        desc = re.sub(r'<[^>]+>', ' ', html.unescape(raw))
         items.append({'source': source, 'title': re.sub(r'\s+', ' ', html.unescape(title)).strip(), 'url': (link or '').strip(),
-                      'date': date, 'summary': re.sub(r'\s+', ' ', desc).strip()[:300]})
+                      'date': date, 'summary': re.sub(r'\s+', ' ', desc).strip()[:300],
+                      'arxiv': arxiv_ids(html.unescape(raw_all))})
     return items
 
 
@@ -96,6 +100,12 @@ POP_FEEDS = [
     ('The Conversation', 'https://theconversation.com/us/technology/articles.atom'),
 ]
 ARXIV_RE = re.compile(r'arxiv\.org/(?:abs|pdf)/(\d{4}\.\d{4,5})', re.I)
+ARXIV_ID_RE = re.compile(r'arxiv\.org/(?:abs|pdf)/(\d{4}\.\d{4,5})|arXiv:\s?(\d{4}\.\d{4,5})', re.I)
+
+
+def arxiv_ids(text):
+    """arXiv ids (YYMM.NNNNN) linked or quoted in a piece of text, without version suffixes."""
+    return sorted({a or b for a, b in ARXIV_ID_RE.findall(text or '')})
 DOI_RE = re.compile(r'(10\.\d{4,9}/[A-Za-z0-9._;()/:+-]+)')
 NATURE_RE = re.compile(r'nature\.com/articles/(s\d{5}-\d{3}-\d{4,5}-[0-9a-z])', re.I)
 HREF_RE = re.compile(r'href=["\']([^"\']+)["\']', re.I)

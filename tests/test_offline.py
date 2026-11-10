@@ -1205,6 +1205,41 @@ def mpc_send_needs_review_test_email_sarc_and_confirmation():
     assert 'ra' not in pub[pid]['obs'][0] and pub[pid]['obs'][0]['snr'] == 9 and '12.3456' not in json.dumps(data), pub[pid]
 
 
+@test
+def radar_never_lists_the_same_story_twice():
+    from spacelab import radar, news
+    # arXiv ids are read from the article's own text and links (Universe Today links the paper it covers)
+    xml = ('<rss><channel><item><title>Astronomers map a giant void</title><link>https://www.universetoday.com/a/</link>'
+           '<description>&lt;p&gt;A new study (&lt;a href="https://arxiv.org/abs/2611.01234v2"&gt;paper&lt;/a&gt;) maps it.&lt;/p&gt;</description>'
+           '</item></channel></rss>')
+    it = news.parse(xml, 'Universe Today')[0]
+    assert it['arxiv'] == ['2611.01234'] and 'paper' in it['summary'], it
+    assert news.arxiv_ids('see arXiv:2610.38693 and https://arxiv.org/pdf/2611.02371v1') == ['2610.38693', '2611.02371']
+    mk = lambda src, title, url, arxiv=(), summ='': dict(source=src, title=title, url=url, date=1.0, summary=summ, arxiv=list(arxiv))
+    raw = [mk('arXiv (new research)', 'A Bayesian census of cosmic voids in 2MRS', 'https://arxiv.org/abs/2611.01234', ['2611.01234']),
+           mk('Universe Today', 'Astronomers map a giant void', 'https://www.universetoday.com/a/', ['2611.01234'], 'plain words'),
+           mk('Space.com', 'Rubin finds a distant dwarf planet candidate', 'https://space.com/x'),
+           mk('Phys.org', 'New dwarf planet candidate spotted beyond Neptune by Rubin', 'https://phys.org/y'),
+           mk('ESA', 'Euclid releases its first big data set', 'https://esa.int/z'),
+           mk('NASA', 'Webb sees water on a hot planet', 'https://nasa.gov/w', ['2611.09999'])]
+    merged = radar.merge_duplicates(raw)
+    # a fake embedding: stories about the same thing point the same way
+    topic = lambda t: [1.0 if k in t.lower() else 0.0 for k in ('void', 'dwarf planet', 'euclid', 'webb')] + [0.05]
+    recent = [{'id': 'old1', 'title': 'Euclid opens its first big release', 'summary': '', 'sources': ['ESO'], 'arxiv': []},
+              {'id': 'old2', 'title': 'Hot planet has water, Webb finds', 'summary': '', 'sources': ['NASA Science'], 'arxiv': ['2611.09999']}]
+    fresh, grew, folded = radar.dedupe(merged, recent, lambda texts: [topic(t) for t in texts])
+    titles = sorted(x['title'] for x in fresh)
+    assert titles == ['Astronomers map a giant void', 'Rubin finds a distant dwarf planet candidate'], titles
+    void = next(x for x in fresh if 'void' in x['title'])
+    assert void['sources'] == ['arXiv (new research)', 'Universe Today'] and void['url'] == 'https://www.universetoday.com/a/', void
+    dp = next(x for x in fresh if 'dwarf' in x['title'])
+    assert set(dp['sources']) == {'Space.com', 'Phys.org'}, dp
+    assert grew == {'old1': ['ESA'], 'old2': ['NASA']} and set(folded) == {'https://esa.int/z', 'https://nasa.gov/w'}, (grew, folded)
+    # without the embedding model the arXiv-id rules still work and nothing crashes
+    fresh2, grew2, _ = radar.dedupe(radar.merge_duplicates(raw), recent, None)
+    assert len(fresh2) == 3 and grew2 == {'old2': ['NASA']}, (len(fresh2), grew2)     # void (by arXiv id), dwarf planet (by words), Euclid
+
+
 import urllib.error  # noqa: E402
 
 if __name__ == '__main__':

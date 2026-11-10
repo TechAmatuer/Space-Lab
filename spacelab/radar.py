@@ -89,8 +89,70 @@ def merge_duplicates(items):
                 twin['sources'].append(it['source'])
                 twin['links'].append(it['url'])
             continue
-        out.append(dict(it, sources=[it['source']], links=[it['url']]))
+        out.append(dict(it, sources=[it['source']], links=[it['url']], arxiv=list(it.get('arxiv') or [])))
     return out
+
+
+def _cos(a, b):
+    import math
+    na, nb = math.sqrt(sum(x * x for x in a)), math.sqrt(sum(x * x for x in b))
+    return sum(x * y for x, y in zip(a, b)) / (na * nb) if na and nb else 0.0
+
+
+def _absorb(into, it):
+    for src, url in zip(it.get('sources') or [it['source']], it.get('links') or [it['url']]):
+        if src not in into['sources']:
+            into['sources'].append(src)
+            into.setdefault('links', []).append(url)
+    into['arxiv'] = sorted(set(into.get('arxiv') or []) | set(it.get('arxiv') or []))
+
+
+def dedupe(fresh, recent, embed=None, same=0.86):
+    """Remove repeats the word check misses, so the local AI never reads or lists the same story twice:
+    1. a news article that links the arXiv paper it reports on becomes one item with that paper;
+    2. stories with the same meaning (bge-m3 embeddings, cosine >= `same`) become one item, within this run;
+    3. a story already listed in the last days is added to that item's sources instead of being listed again.
+    Returns (new items to rate, {recent item id: [extra sources]}, links of stories folded into older ones)."""
+    out = []
+    for it in fresh:                                                         # 1. article <-> paper by arXiv id
+        ids = set(it.get('arxiv') or [])
+        twin = next((o for o in out if ids & set(o.get('arxiv') or [])), None) if ids else None
+        if twin:
+            news_first = 'arXiv' in twin['sources'][0] and 'arXiv' not in it['source']
+            _absorb(twin, it)
+            if news_first:                                                   # the plain-English article leads, the paper is a source
+                twin.update(title=it['title'], url=it['url'], summary=it.get('summary') or twin.get('summary'))
+            continue
+        out.append(it)
+    grew, folded = {}, []
+    old_by_arxiv = {a: r for r in recent for a in r.get('arxiv') or []}
+    keep = []
+    for it in out:                                                           # 3a. already listed, same paper
+        r = next((old_by_arxiv[a] for a in it.get('arxiv') or [] if a in old_by_arxiv), None)
+        if r:
+            grew.setdefault(r['id'], []).extend(s for s in it['sources'] if s not in r['sources'])
+            folded += it.get('links') or [it['url']]
+            continue
+        keep.append(it)
+    if embed and keep:
+        text = lambda x: (x['title'] + '. ' + (x.get('summary') or ''))[:600]
+        vec = embed([text(x) for x in keep] + [text(x) for x in recent])
+        if vec and len(vec) == len(keep) + len(recent):
+            kv, rv = vec[:len(keep)], vec[len(keep):]
+            final, fv = [], []
+            for it, v in zip(keep, kv):
+                j = max(range(len(recent)), key=lambda k: _cos(v, rv[k])) if recent else None
+                if j is not None and _cos(v, rv[j]) >= same:                 # 3b. already listed, same meaning
+                    grew.setdefault(recent[j]['id'], []).extend(s for s in it['sources'] if s not in recent[j]['sources'])
+                    folded += it.get('links') or [it['url']]
+                    continue
+                k = max(range(len(final)), key=lambda q: _cos(v, fv[q])) if final else None
+                if k is not None and _cos(v, fv[k]) >= same:                 # 2. same meaning in this run
+                    _absorb(final[k], it)
+                    continue
+                final.append(it); fv.append(v)
+            keep = final
+    return keep, grew, folded
 
 
 def keyword_score(it):
@@ -141,13 +203,22 @@ def run(ctx):
     seen = db.kv_get(con, 'radar_seen') or {}
     raw, ok, bad = collect(log)
     # the best of this morning's arXiv digest joins the radar
-    for p in db.rows(con, "SELECT id, title, url, summary, published FROM arxiv WHERE rank IS NOT NULL AND rank <= 5 "
-                          "ORDER BY published DESC, rank LIMIT 5"):
-        raw.append({'source': 'arXiv (new research)', 'title': p['title'], 'url': p['url'], 'date': time.time(), 'summary': p.get('summary') or ''})
-    fresh = [it for it in merge_duplicates(raw) if _id(it['url']) not in seen][:MAX_NEW]
+    # the best of this morning's arXiv astro-ph digest joins the radar
+    for p in db.rows(con, "SELECT id, title, url, summary, published FROM arxiv WHERE rank IS NOT NULL AND rank <= 10 "
+                          "ORDER BY published DESC, rank LIMIT 10"):
+        raw.append({'source': 'arXiv (new research)', 'title': p['title'], 'url': p['url'], 'date': time.time(),
+                    'summary': p.get('summary') or '', 'arxiv': [str(p['id']).split('v')[0]]})
+    merged = merge_duplicates(raw)
+    fresh = [it for it in merged if _id(it['url']) not in seen and not any(_id(u) in seen for u in it['links'])][:MAX_NEW]
+    recent = [x for x in (old.get('items') or []) if x.get('found', 0) > time.time() - 4 * 86400]
+    fresh, grew, folded = dedupe(fresh, recent, llm.embed if llm.models() else None)
     for it in fresh:
         it['id'] = _id(it['url'])
-    log(f'{len(raw)} items from {len(ok)} sources; {len(fresh)} new after removing repeats' + (f'; {len(bad)} sources failed' if bad else ''))
+    for u in folded:                                      # proven repeats of stories already listed: never read again
+        seen[_id(u)] = time.time()
+    log(f'{len(raw)} items from {len(ok)} sources; {len(fresh)} new after removing repeats'
+        + (f'; {sum(len(v) for v in grew.values())} more sources added to stories already listed' if grew else '')
+        + (f'; {len(bad)} sources failed' if bad else ''))
     rated = {}
     if llm.models():
         for i in range(0, len(fresh), 8):
@@ -162,11 +233,17 @@ def run(ctx):
         if it['id'] not in rated and llm.models() and ctx.time_left() < 120:
             continue           # not read yet: leave it for the next run instead of guessing
         seen[it['id']] = now
+        for u in it['links']:
+            seen[_id(u)] = now
         text = it['title'] + ' ' + it.get('summary', '')
         lab = sorted({lab for rx, lab in pats if rx.search(text)})
-        kept.append({'id': it['id'], 'title': it['title'], 'url': it['url'], 'sources': it['sources'], 'links': it['links'][:5],
+        kept.append({'id': it['id'], 'title': it['title'], 'url': it['url'], 'sources': it['sources'], 'links': it['links'][:5], 'arxiv': it.get('arxiv') or [],
                      'date': it['date'] or now, 'found': now, 'score': r['score'], 'topic': r['topic'],
                      'summary': r['summary'] or it.get('summary', '')[:240], 'why': r['why'], 'ai': it['id'] in rated, 'lab': lab})
+    for x in old.get('items') or []:                      # stories already listed that other outlets covered since
+        for src in grew.get(x['id'], []):
+            if src not in x['sources']:
+                x['sources'].append(src)
     items = [x for x in (kept + (old.get('items') or [])) if x['found'] > now - KEEP_DAYS * 86400]
     items.sort(key=lambda x: (-x['score'], -x['date']))
     digest = old.get('digest')
