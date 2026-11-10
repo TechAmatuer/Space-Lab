@@ -1516,6 +1516,15 @@ def solar_system_positions_from_horizons():
     assert solar.parse_vectors('$$SOE\n2461355.000000000, A.D. 2026-Nov-10 12:00:00.0000,\n$$EOE')[1] == []        # the empty comma layout: no rows, never zeros
     assert solar.parse_vectors('$$SOE\n2461355.0, A.D. x, 1.0, 2.0, 3.0, 0.1, 0.2, 0.3,\n$$EOE')[1] == [[2461355.0, 1.0, 2.0, 3.0, 0.1, 0.2, 0.3]]
     assert solar.limit_from_error('x prior to A.D. 1977-SEP-05 12:59:07.1810 TDB')[0] == 'prior to' and abs(solar.cal_jd('1977-SEP-05 12:59') - 2443392.0409) < 0.001
+    # every spacecraft listed at a world has a Wikipedia article, and so does every object the map can show
+    for body, items in solar.AT.items():
+        for d in items:
+            assert d['n'] and d['note'] and (d.get('wiki') or d.get('links')), (body, d)
+            for lab, t in d.get('links', []):
+                assert lab and t and '_' not in t, (body, lab, t)
+    keys = {o[0] for o in solar.OBJECTS}
+    assert set(solar.AT) <= keys and {k for k, *_ in solar.OBJECTS if k != 'ed138'} <= set(solar.WIKI), set(k for k, *_ in solar.OBJECTS) - set(solar.WIKI)
+    assert solar.WIKI['euclid'] == 'Euclid (space telescope)' and solar.PHOTO_Q['psyche'] == 'Psyche spacecraft'
     assert solar.step_text(0.25) == '6 h' and solar.step_text(5) == '5 d' and solar.cal(2440587.5) == '1970-01-01 00:00'
     logs = []
     t0 = 2461355.0
@@ -1530,7 +1539,7 @@ def solar_system_positions_from_horizons():
     v1 = next(o for o in full['objects'] if o['key'] == 'voyager1')
     assert any(a[0] == '-31' and '1977-09-05 14' in a[1] for a in asked), [a for a in asked if a[0] == '-31']   # asked again from where its path starts
     assert v1['nh'] > 100 and tr['voyager1'][0, 0] < 2443500 and np.all(np.diff(tr['voyager1'][:, 0]) > 0) and 'voyager1' in hist     # path since launch, in time order
-    assert v1['launched'] == '1977-09-05' and 'golden record' in v1['what'] and full['at']['mars'][2][0] == 'MAVEN' and 'ended in 2026' in full['at']['mars'][2][2]
+    assert v1['launched'] == '1977-09-05' and 'golden record' in v1['what'] and full['at']['mars'][2]['n'] == 'MAVEN' and 'ended in 2026' in full['at']['mars'][2]['note'] and v1['wiki'] == 'Voyager 1' and v1['q'] == 'Voyager 1'
     pk = tr['parker']
     assert abs(np.median(np.diff(pk[:, 0])) - 0.25) < 1e-3 and len(pk) > 1700
     r = solar.summary_now(full['objects'], tr, t0)

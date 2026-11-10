@@ -198,7 +198,9 @@ button.b.at-mode.on,button.b.at-layer.on,button.b.at-alt.on{background:var(--acc
 .uv-home{position:absolute;left:0;top:0;color:#fff;font-size:16px;margin:-10px 0 0 -6px;text-shadow:0 0 6px #6cf} .uv-home span{font-size:10px;margin-left:4px;opacity:.75}
 .uv-sel{position:absolute;left:0;top:0;width:22px;height:22px;margin:-11px 0 0 -11px;border:2px solid #fff;border-radius:50%;box-shadow:0 0 8px #fff}
 .uv-read{position:absolute;left:8px;top:8px;right:8px;color:#b9c3d0;background:rgba(5,8,15,.55);padding:3px 8px;border-radius:6px;pointer-events:none;font-size:11px}
-.uv-cardbox{position:absolute;right:8px;bottom:8px;max-width:420px;width:calc(100% - 16px)} .uv-cardbox:empty{display:none}
+.uv-cardbox{position:absolute;right:8px;bottom:8px;max-width:420px;width:calc(100% - 16px);max-height:calc(100% - 16px);overflow:auto} .uv-cardbox:empty{display:none}
+.sl-media{margin:6px 0}.sl-media-acts{gap:6px;flex-wrap:wrap;align-items:center}.sl-media-acts a{white-space:nowrap}.sl-wiki{margin:4px 0 6px}
+.ss-at ul{margin:2px 0 6px;padding-left:18px}.ss-sec{font-weight:600;margin:6px 0 0;color:var(--ink-2)}.ss-links{color:var(--muted)}
 .uv-card{background:var(--panel);border:1px solid var(--line-2);border-radius:10px;padding:10px 12px;box-shadow:var(--shadow);max-height:60vh;overflow:auto}
 .uv-card h3{margin:0} .uv-facts th{text-align:left;padding-right:8px;vertical-align:top;color:var(--muted);font-weight:normal;white-space:nowrap}
 .uv-acts{gap:8px;flex-wrap:wrap;margin-top:6px} .uv-dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin:0 3px 0 6px}

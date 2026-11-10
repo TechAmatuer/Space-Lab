@@ -86,6 +86,16 @@
       ${orb ? `<tr><th>One trip around the Sun</th><td>${orb.years < 2 ? num(orb.years * 365.25, 0) + ' days' : num(orb.years, orb.years < 20 ? 1 : 0) + ' years'}</td></tr>` : ''}`;
     return `<caption>${V.live ? 'Right now (updates every second)' : 'On ' + esc(fmtDate(jd))}</caption>${rows}`;
   }
+  // spacecraft at a world, under their headings, each name linking to its Wikipedia article (older files: [name, who, note])
+  const wikiUrl = t => 'https://en.wikipedia.org/wiki/' + encodeURIComponent(String(t).replace(/ /g, '_'));
+  const wlink = (t, label, bold) => `<a href="${esc(wikiUrl(t))}" target="_blank" rel="noopener" title="Wikipedia: ${esc(t)}">${bold ? `<b>${esc(label)}</b>` : esc(label)}</a>`;
+  function atList(at) {
+    const items = at.map(x => (Array.isArray(x) ? { n: x[0], by: x[1], note: x[2] } : x || {}));
+    const secs = [...new Set(items.map(x => x.sec || ''))];
+    return secs.map(sec => `${sec ? `<div class="ss-sec">${esc(sec)}</div>` : ''}<ul>${items.filter(x => (x.sec || '') === sec).map(x =>
+      `<li>${x.wiki ? wlink(x.wiki, x.n, true) : `<b>${esc(x.n)}</b>`}${x.by ? ` (${esc(x.by)})` : ''}: ${esc(x.note || '')}${
+        x.links && x.links.length ? `<br><span class="ss-links">${x.links.map(l => wlink(l[1], l[0])).join(' · ')}</span>` : ''}</li>`).join('')}</ul>`).join('');
+  }
   function card(o) {
     const jd = V.jd, at = (G.meta.at || {})[o.key];
     const yrs = o.launched ? (jd - (Date.parse(o.launched + 'T00:00:00Z') / 86400000 + 2440587.5)) / 365.25 : null;
@@ -93,7 +103,8 @@
       <div class="small muted">${esc(groupName(o.group))}${o.by ? ' · ' + esc(o.by) : ''}${o.launched ? ` · launched ${esc(o.launched)}${yrs > 0 ? ` (${num(yrs, yrs < 3 ? 1 : 0)} years ago)` : ''}` : ''}</div>
       <p class="small">${esc(o.what || '')}</p>
       <table class="small ss-facts">${liveRows(o)}</table>
-      ${at && at.length ? `<details class="small" open><summary><b>Spacecraft here</b> <span class="muted">(list checked ${esc(G.meta.lists_checked || '')})</span></summary><ul>${at.map(x => `<li><b>${esc(x[0])}</b>${x[1] ? ` (${esc(x[1])})` : ''}: ${esc(x[2])}</li>`).join('')}</ul></details>` : ''}
+      <div class="ss-media"></div>
+      ${at && at.length ? `<details class="small ss-at"${at.length <= 8 ? ' open' : ''}><summary><b>Spacecraft ${o.kind === 'craft' ? 'with it' : 'here, and what was left here'}</b> <span class="muted">(${at.length}; tap a name for its Wikipedia article; list checked ${esc(G.meta.lists_checked || '')})</span></summary>${atList(at)}</details>` : ''}
       <div class="row ss-acts"><button class="b ss-centre" data-k="${esc(o.key)}">Centre on it</button><button class="b ss-share" data-k="${esc(o.key)}">Share link</button></div></div>`;
   }
 
@@ -231,6 +242,9 @@
     if (!o) return;
     V.sel = key; V.cardJd = null;
     V.el.querySelector('.ss-cardbox').innerHTML = card(o);
+    const mh = V.el.querySelector('.ss-cardbox .ss-media');            // its Wikipedia summary, NASA's and other agencies' pictures
+    if (mh && window.SpaceLabMedia) window.SpaceLabMedia.media(mh, { q: o.q || String(o.name).replace(/\s*\(.*\)/, ''), wiki: o.wiki || o.name,
+      expect: o.wiki ? null : /planet|asteroid|comet|spacecraft|probe|telescope|mission|satellite|dwarf|observatory|orbiter/i, agencies: o.kind === 'craft' ? [] : ['hubble', 'webb'] });
     if (centre) {
       V.follow = key;
       const f = facts(o, V.jd);

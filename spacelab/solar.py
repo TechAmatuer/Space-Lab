@@ -115,22 +115,108 @@ ABOUT = {
     'roadster': ['SpaceX', '2018-02-06', 'A car. It was the dummy load of the first Falcon Heavy rocket and has been circling the Sun ever since, out past Mars and back.'],
 }
 # spacecraft that sit at a planet (they would all fall on one dot at this scale): [name, who, what]
+# Spacecraft at each world: what is there now, and what was left there. Every one links to its Wikipedia article
+# (titles checked against Wikipedia's own API on LISTS_CHECKED; a title that stops resolving is simply shown without a link).
+# n: name, by: who built or runs it, note: one line, wiki: Wikipedia article title, links: several articles [label, title],
+# sec: the heading it is listed under.
+def _c(n, by, note, wiki=None, sec='', links=None):
+    d = {'n': n, 'by': by, 'note': note, 'sec': sec}
+    if wiki:
+        d['wiki'] = wiki
+    if links:
+        d['links'] = links
+    return d
+
+
 AT = {
-    'mercury': [['BepiColombo', 'ESA / JAXA', 'two orbiters, entering orbit on 21 November 2026']],
-    'earth': [['More than 14,000 working satellites', '', 'most of them for internet, navigation, weather and Earth pictures (Sky watch tab shows some passing over you)'],
-              ['International Space Station', 'USA, Russia, Europe, Japan, Canada', 'people have lived aboard without a break since 2000'],
-              ['Tiangong', 'China', 'China\'s space station, crewed since 2021'],
-              ['Hubble Space Telescope', 'NASA / ESA', 'in orbit since 1990, still working'],
-              ['At the Moon', '', 'NASA\'s Lunar Reconnaissance Orbiter, India\'s Chandrayaan-2, Korea\'s Danuri and China\'s relay satellites; on the surface, six Apollo sites and landers from five countries'],
-              ['1.5 million km towards the Sun', '', 'the Sun watchers SOHO, ACE, DSCOVR, Wind, Aditya-L1 and IMAP'],
-              ['1.5 million km away from the Sun', '', 'the telescopes James Webb, Euclid and, since 2026, Nancy Grace Roman']],
-    'mars': [['Mars Reconnaissance Orbiter', 'NASA', 'the sharpest camera at Mars, since 2006'], ['Mars Odyssey', 'NASA', 'the longest-working spacecraft at another planet, since 2001'],
-             ['MAVEN', 'NASA', 'showed how Mars lost its air; it fell silent in December 2025 and the mission was ended in 2026. It still circles Mars'], ['Mars Express', 'ESA', 'since 2003'], ['ExoMars Trace Gas Orbiter', 'ESA', 'sniffs for methane'],
-             ['Tianwen-1', 'China', 'orbiter, since 2021'], ['Hope', 'United Arab Emirates', 'weather satellite for Mars'],
-             ['Curiosity', 'NASA', 'rover in Gale crater since 2012'], ['Perseverance', 'NASA', 'rover in Jezero crater since 2021, collecting samples']],
-    'jupiter': [['Juno', 'NASA', 'in orbit since 2016 (it has its own dot on this map)']],
-    'ceres': [['Dawn', 'NASA', 'switched off in 2018, still in orbit']],
+    'mercury': [_c('BepiColombo', 'ESA / JAXA', 'two orbiters, entering orbit on 21 November 2026 (it has its own dot on this map)', 'BepiColombo'),
+                _c('MESSENGER', 'NASA', 'the first Mercury orbiter (2011-2015); it ended by crashing into the surface', 'MESSENGER', 'Left there')],
+    'venus': [_c('Akatsuki', 'JAXA', 'Venus weather orbiter from 2015; contact was lost in 2024 and it still circles Venus', 'Akatsuki (spacecraft)'),
+              _c('Venus Express', 'ESA', 'orbiter 2006-2014, then burned up in Venus\'s air', 'Venus Express', 'Left there'),
+              _c('Magellan', 'NASA', 'mapped the hidden surface by radar, 1990-1994', 'Magellan (spacecraft)', 'Left there'),
+              _c('Venera and Vega landers', 'Soviet Union', 'the only craft to have sent pictures from the surface, which is hot enough to melt lead', 'Venera program', 'Left there',
+                 [['Venera program', 'Venera program'], ['Vega program', 'Vega program']])],
+    'earth': [_c('More than 14,000 working satellites', '', 'most of them for internet, navigation, weather and Earth pictures (Sky watch tab shows some passing over you)', 'Satellite', 'Around Earth'),
+              _c('International Space Station', 'USA, Russia, Europe, Japan, Canada', 'people have lived aboard without a break since 2000', 'International Space Station', 'Around Earth'),
+              _c('Tiangong', 'China', 'China\'s space station, crewed since 2021', 'Tiangong space station', 'Around Earth'),
+              _c('Hubble Space Telescope', 'NASA / ESA', 'in orbit since 1990', 'Hubble Space Telescope', 'Around Earth'),
+              _c('Chandra X-ray Observatory', 'NASA', 'X-ray telescope, launched 1999', 'Chandra X-ray Observatory', 'Around Earth'),
+              _c('XMM-Newton', 'ESA', 'X-ray telescope, launched 1999', 'XMM-Newton', 'Around Earth'),
+              _c('Fermi', 'NASA', 'gamma-ray telescope, launched 2008', 'Fermi Gamma-ray Space Telescope', 'Around Earth'),
+              _c('Swift', 'NASA', 'catches gamma-ray bursts within minutes, launched 2004', 'Neil Gehrels Swift Observatory', 'Around Earth'),
+              _c('NuSTAR', 'NASA', 'high-energy X-ray telescope, launched 2012', 'NuSTAR', 'Around Earth'),
+              _c('IXPE', 'NASA / ASI', 'measures how X-rays are polarised, launched 2021', 'IXPE', 'Around Earth'),
+              _c('XRISM', 'JAXA / NASA', 'X-ray spectroscopy, launched 2023', 'X-Ray Imaging and Spectroscopy Mission', 'Around Earth'),
+              _c('Einstein Probe', 'China / ESA', 'wide-field X-ray sky watcher, launched 2024', 'Einstein Probe', 'Around Earth'),
+              _c('SPHEREx', 'NASA', 'maps the whole sky in 102 infrared colours, launched 2025', 'SPHEREx', 'Around Earth'),
+              _c('GPS and the other navigation fleets', 'USA, Europe, China, Russia', 'GPS, Galileo, BeiDou and GLONASS', 'Satellite navigation', 'Around Earth',
+                 [['GPS', 'Global Positioning System'], ['Galileo', 'Galileo (satellite navigation system)'], ['BeiDou', 'BeiDou'], ['GLONASS', 'GLONASS']]),
+              _c('Landsat', 'NASA / USGS', 'pictures of Earth\'s land since 1972', 'Landsat program', 'Around Earth'),
+              _c('Lunar Reconnaissance Orbiter', 'NASA', 'maps the Moon, since 2009', 'Lunar Reconnaissance Orbiter', 'At the Moon'),
+              _c('Chandrayaan-2 orbiter', 'India', 'since 2019', 'Chandrayaan-2', 'At the Moon'),
+              _c('Danuri', 'South Korea', 'Korea\'s first Moon orbiter, since 2022', 'Danuri', 'At the Moon'),
+              _c('Queqiao-2', 'China', 'relay satellite for landers on the far side, since 2024', 'Queqiao-2', 'At the Moon'),
+              _c('CAPSTONE', 'NASA', 'tested the orbit planned for the Gateway station, launched 2022', 'CAPSTONE', 'At the Moon'),
+              _c('Six Apollo landing sites', 'NASA', 'twelve people walked on the Moon, 1969-1972; their instruments and rovers are still there', 'Apollo program', 'On the Moon',
+                 [['Apollo 11', 'Apollo 11'], ['Apollo 12', 'Apollo 12'], ['Apollo 14', 'Apollo 14'], ['Apollo 15', 'Apollo 15'], ['Apollo 16', 'Apollo 16'], ['Apollo 17', 'Apollo 17']]),
+              _c('Luna and Lunokhod', 'Soviet Union', 'robot landers, sample returns and the first rovers, 1966-1976', 'Luna programme', 'On the Moon',
+                 [['Luna programme', 'Luna programme'], ['Lunokhod 1', 'Lunokhod 1'], ['Lunokhod 2', 'Lunokhod 2']]),
+              _c('Chang\'e landers and Yutu rovers', 'China', 'including the first landing on the far side (2019) and the first far-side samples (2024)', 'Chinese Lunar Exploration Program', 'On the Moon',
+                 [['Chang\'e 3', "Chang'e 3"], ['Chang\'e 4', "Chang'e 4"], ['Chang\'e 5', "Chang'e 5"], ['Chang\'e 6', "Chang'e 6"]]),
+              _c('Chandrayaan-3', 'India', 'Vikram lander and Pragyan rover, near the south pole since 2023', 'Chandrayaan-3', 'On the Moon'),
+              _c('SLIM', 'JAXA', 'Japan\'s pinpoint lander, 2024', 'Smart Lander for Investigating Moon', 'On the Moon'),
+              _c('Commercial landers', 'USA', 'Odysseus (2024), Blue Ghost and Athena (2025)', 'Commercial Lunar Payload Services', 'On the Moon',
+                 [['Odysseus', 'IM-1'], ['Blue Ghost', 'Blue Ghost Mission 1'], ['Athena', 'IM-2']]),
+              _c('Sun watchers 1.5 million km towards the Sun', '', 'SOHO is on this map; with it work ACE, DSCOVR, Wind, Aditya-L1 and IMAP', 'Lagrange point', '1.5 million km from Earth',
+                 [['ACE', 'Advanced Composition Explorer'], ['DSCOVR', 'Deep Space Climate Observatory'], ['Wind', 'Wind (spacecraft)'], ['Aditya-L1', 'Aditya-L1'], ['IMAP', 'Interstellar Mapping and Acceleration Probe']]),
+              _c('Telescopes 1.5 million km away from the Sun', '', 'Webb and Euclid are on this map; with them work Spektr-RG and, since 2026, Nancy Grace Roman', 'Lagrange point', '1.5 million km from Earth',
+                 [['Spektr-RG', 'Spektr-RG'], ['Nancy Grace Roman', 'Nancy Grace Roman Space Telescope']])],
+    'mars': [_c('Mars Reconnaissance Orbiter', 'NASA', 'the sharpest camera at Mars, since 2006', 'Mars Reconnaissance Orbiter', 'Orbiting'),
+             _c('Mars Odyssey', 'NASA', 'the longest-working spacecraft at another planet, since 2001', '2001 Mars Odyssey', 'Orbiting'),
+             _c('MAVEN', 'NASA', 'showed how Mars lost its air; it fell silent in December 2025 and the mission was ended in 2026. It still circles Mars', 'MAVEN', 'Orbiting'),
+             _c('Mars Express', 'ESA', 'since 2003', 'Mars Express', 'Orbiting'),
+             _c('ExoMars Trace Gas Orbiter', 'ESA / Roscosmos', 'sniffs for methane, since 2016', 'Trace Gas Orbiter', 'Orbiting'),
+             _c('Tianwen-1', 'China', 'orbiter, since 2021', 'Tianwen-1', 'Orbiting'),
+             _c('Hope', 'United Arab Emirates', 'weather satellite for Mars, since 2021', 'Emirates Mars Mission', 'Orbiting'),
+             _c('Curiosity', 'NASA', 'rover in Gale crater since 2012', 'Curiosity (rover)', 'On the ground'),
+             _c('Perseverance', 'NASA', 'rover in Jezero crater since 2021, collecting samples', 'Perseverance (rover)', 'On the ground'),
+             _c('Ingenuity', 'NASA', 'the first aircraft on another world: 72 flights, grounded in 2024', 'Ingenuity (helicopter)', 'On the ground'),
+             _c('Zhurong', 'China', 'rover, landed 2021', 'Zhurong (rover)', 'On the ground'),
+             _c('Earlier landers and rovers', 'NASA', 'Viking 1 and 2, Sojourner, Spirit, Opportunity, Phoenix and InSight', 'Exploration of Mars', 'On the ground',
+                [['Viking 1', 'Viking 1'], ['Viking 2', 'Viking 2'], ['Sojourner', 'Sojourner (rover)'], ['Spirit', 'Spirit (rover)'], ['Opportunity', 'Opportunity (rover)'], ['Phoenix', 'Phoenix (spacecraft)'], ['InSight', 'InSight']])],
+    'jupiter': [_c('Juno', 'NASA', 'in orbit since 2016 (it has its own dot on this map)', 'Juno (spacecraft)'),
+                _c('Galileo', 'NASA', 'orbiter 1995-2003, then sent into Jupiter so it could never reach Europa', 'Galileo (spacecraft)', 'Left there')],
+    'saturn': [_c('Cassini', 'NASA / ESA / ASI', 'orbiter 2004-2017, then sent into Saturn', 'Cassini–Huygens', 'Left there'),
+               _c('Huygens', 'ESA', 'landed on the moon Titan in 2005: the farthest landing ever made', 'Huygens (spacecraft)', 'Left there')],
+    'ceres': [_c('Dawn', 'NASA', 'switched off in 2018, still in orbit', 'Dawn (spacecraft)')],
+    'vesta': [_c('Dawn', 'NASA', 'orbited Vesta in 2011-2012 before moving on to Ceres', 'Dawn (spacecraft)', 'Visited by')],
+    'didymos': [_c('DART', 'NASA', 'crashed into the small moon Dimorphos in 2022 on purpose, and changed its orbit', 'Double Asteroid Redirection Test', 'Visited by'),
+                _c('Hera', 'ESA', 'on its way to inspect the crash site (it has its own dot on this map)', 'Hera (space mission)')],
+    'apophis': [_c('OSIRIS-APEX', 'NASA', 'on its way, to arrive in 2029 just after Apophis passes close to Earth', 'OSIRIS-REx')],
+    'pluto': [_c('New Horizons', 'NASA', 'flew past in 2015 (it has its own dot on this map)', 'New Horizons', 'Visited by')],
+    'halley': [_c('The 1986 armada', 'ESA, Soviet Union, Japan', 'Giotto, Vega 1 and 2, Suisei and Sakigake flew past Halley in 1986', 'Halley Armada', 'Visited by',
+                  [['Giotto', 'Giotto (spacecraft)'], ['Vega 1', 'Vega 1'], ['Vega 2', 'Vega 2'], ['Suisei', 'Suisei (spacecraft)'], ['Sakigake', 'Sakigake']])],
 }
+# Wikipedia articles of the objects on the map (same check as above)
+WIKI = {
+    'mercury': 'Mercury (planet)', 'venus': 'Venus', 'earth': 'Earth', 'mars': 'Mars', 'jupiter': 'Jupiter', 'saturn': 'Saturn', 'uranus': 'Uranus',
+    'neptune': 'Neptune', 'ceres': 'Ceres (dwarf planet)', 'vesta': '4 Vesta', 'psyche16': '16 Psyche', 'apophis': '99942 Apophis',
+    'didymos': '65803 Didymos', 'pluto': 'Pluto', 'eris': 'Eris (dwarf planet)', 'haumea': 'Haumea', 'makemake': 'Makemake', 'sedna': 'Sedna (dwarf planet)',
+    'halley': "Halley's Comet", 'atlas3i': '3I/ATLAS',
+    'voyager1': 'Voyager 1', 'voyager2': 'Voyager 2', 'pioneer10': 'Pioneer 10', 'pioneer11': 'Pioneer 11', 'newhorizons': 'New Horizons',
+    'parker': 'Parker Solar Probe', 'solo': 'Solar Orbiter', 'stereoa': 'STEREO', 'soho': 'Solar and Heliospheric Observatory', 'bepi': 'BepiColombo',
+    'juice': 'Jupiter Icy Moons Explorer', 'clipper': 'Europa Clipper', 'lucy': 'Lucy (spacecraft)', 'psyche': 'Psyche (spacecraft)',
+    'hera': 'Hera (space mission)', 'apex': 'OSIRIS-REx', 'hayabusa2': 'Hayabusa2', 'juno': 'Juno (spacecraft)', 'jwst': 'James Webb Space Telescope',
+    'euclid': 'Euclid (space telescope)', 'tess': 'Transiting Exoplanet Survey Satellite', 'gaia': 'Gaia (spacecraft)', 'spitzer': 'Spitzer Space Telescope',
+    'kepler': 'Kepler space telescope', 'roadster': "Elon Musk's Tesla Roadster",
+}
+# words to search NASA's photo library with, where the name on the map would find the wrong things
+PHOTO_Q = {'psyche16': 'asteroid Psyche', 'psyche': 'Psyche spacecraft', 'hera': 'Hera mission Didymos', 'apex': 'OSIRIS-REx',
+           'lucy': 'Lucy spacecraft', 'juno': 'Juno spacecraft Jupiter', 'gaia': 'Gaia spacecraft', 'euclid': 'Euclid telescope',
+           'tess': 'TESS satellite', 'roadster': 'Starman Tesla Roadster', 'atlas3i': '3I/ATLAS', 'stereoa': 'STEREO spacecraft',
+           'hayabusa2': 'Hayabusa2', 'sedna': 'Sedna dwarf planet', 'eris': 'Eris dwarf planet', 'ceres': 'Ceres Dawn', 'vesta': 'Vesta Dawn'}
+
+
 MON = {m: k + 1 for k, m in enumerate(('JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'))}
 
 
@@ -254,6 +340,7 @@ def build(log, fetch=None, now=None, history=None):
             continue
         about = ABOUT.get(key, ['', '', ''])
         o = {'key': key, 'name': name, 'kind': kind, 'group': group, 'color': color, 'by': about[0], 'launched': about[1], 'what': about[2],
+             'wiki': WIKI.get(key, ''), 'q': PHOTO_Q.get(key, re.sub(r'\s*\(.*\)', '', name)),
              'horizons': got, 'nh': 0}
         if kind == C and about[1]:                           # the path since launch, for the trail
             h = history.get(key)

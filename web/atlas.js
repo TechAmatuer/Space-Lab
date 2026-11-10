@@ -56,6 +56,88 @@
   }
   window.SpaceLabFull = fullScreen;
 
+  // ------------------------------------------------------------------ the agencies' own libraries, shared with the 3D universe and the solar system
+  // NASA's Image and Video Library, Wikimedia Commons (where ESA, ESA/Hubble, ESA/Webb, ESO, JAXA and others publish openly licensed
+  // pictures) and Wikipedia's article summaries. All three answer a web page directly; nothing goes through Space Lab.
+  const WIKI_API = 'https://en.wikipedia.org/api/rest_v1/page/summary/', COMMONS_API = 'https://commons.wikimedia.org/w/api.php';
+  const wikiUrl = t => 'https://en.wikipedia.org/wiki/' + encodeURIComponent(String(t).replace(/ /g, '_'));
+  const okCommons = u => typeof u === 'string' && /^https:\/\/(upload|thumb)\.wikimedia\.org\//.test(u);
+  const OPEN = /^(public domain|cc0|cc[ -]by(-sa)?[ -]\d)/i;                // licences that let anyone show the picture with credit
+  const plain = h => { try { return new DOMParser().parseFromString(String(h || ''), 'text/html').body.textContent.replace(/\s+/g, ' ').trim(); } catch (_) { return ''; } };
+  const AGENCY = {                                                      // the agencies' own picture searches, opened in a new tab
+    hubble: ['ESA/Hubble', q => 'https://esahubble.org/images/?search=' + encodeURIComponent(q)],
+    webb: ['ESA/Webb', q => 'https://esawebb.org/images/?search=' + encodeURIComponent(q)],
+    eso: ['ESO', q => 'https://www.eso.org/public/images/?search=' + encodeURIComponent(q)],
+  };
+  const wikiCache = {};
+  function wikiSummary(title) {
+    return wikiCache[title] || (wikiCache[title] = fetch(WIKI_API + encodeURIComponent(String(title).replace(/ /g, '_')) + '?redirect=true')
+      .then(r => (r.ok ? r.json() : null)).catch(() => null));
+  }
+  // The first article of `titles` that exists (and, with `expect`, reads like the right subject), as a short summary and a link.
+  async function wiki(host, titles, expect) {
+    if (!host) return;
+    const list = (Array.isArray(titles) ? titles : [titles]).filter(Boolean);
+    for (const t of list) {
+      const j = await wikiSummary(t);
+      // judged by Wikipedia's one-line description when there is one ("Galaxy in Hydra"); its text can mention anything
+      if (!j || j.type !== 'standard' || (expect && !expect.test(j.description || j.extract || ''))) continue;
+      const url = ((j.content_urls || {}).desktop || {}).page || wikiUrl(t);
+      if (!/^https:\/\/en\.wikipedia\.org\/wiki\//.test(url)) continue;
+      const ex = String(j.extract || ''), cut = ex.length > 380 ? ex.slice(0, ex.lastIndexOf('. ', 380) + 1 || 380) : ex;
+      host.innerHTML = `<p class="small sl-wiki"><b>Wikipedia:</b> ${esc(cut)} <a href="${esc(url)}" target="_blank" rel="noopener">Read the article ↗</a></p>`;
+      return true;
+    }
+    host.innerHTML = '';
+    return false;
+  }
+  function commons(host, q, page) {
+    if (!host || !q) return;
+    host.innerHTML = '<p class="small muted">Asking Wikimedia Commons…</p>';
+    S.track('media/commons', true);
+    const off = ((page || 1) - 1) * 12;
+    const u = `${COMMONS_API}?action=query&format=json&origin=*&generator=search&gsrnamespace=6&gsrlimit=12&gsroffset=${off}&gsrsearch=${encodeURIComponent(q + ' filetype:bitmap')}`
+      + '&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=320&iiextmetadatafilter=LicenseShortName|Artist|Credit|ObjectName|ImageDescription|DateTimeOriginal';
+    fetch(u).then(r => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))).then(js => {
+      const pages = Object.values((js.query || {}).pages || {}).sort((a, b) => (a.index || 0) - (b.index || 0));
+      const items = pages.map(p => {
+        const ii = (p.imageinfo || [])[0] || {}, m = ii.extmetadata || {}, v = k => plain((m[k] || {}).value);
+        return { title: v('ObjectName') || String(p.title || '').replace(/^File:/, '').replace(/\.\w+$/, ''), th: ii.thumburl, page: ii.descriptionurl,
+                 lic: v('LicenseShortName'), by: v('Artist') || v('Credit'), text: v('ImageDescription'), date: v('DateTimeOriginal').slice(0, 10) };
+      }).filter(x => okCommons(x.th) && OPEN.test(x.lic) && /^https:\/\/commons\.wikimedia\.org\//.test(x.page || ''));
+      if (!items.length) { host.innerHTML = `<p class="small muted">No openly licensed pictures for "${esc(q)}" at Wikimedia Commons.</p>`; return; }
+      host.innerHTML = `<p class="small muted">Openly licensed pictures for "${esc(q)}" from ESA, ESO, JAXA, NASA and others, collected at Wikimedia Commons. Tap one to enlarge.</p>
+        <div class="at-thumbs">${items.map((x, i) => `<button class="at-thumb" data-i="${i}" title="${esc(x.title)}"><img src="${esc(x.th)}" alt="${esc(x.title)}" loading="lazy" referrerpolicy="no-referrer"></button>`).join('')}</div>
+        <div class="at-big"></div>${pages.length >= 12 ? '<button class="b at-more">More pictures</button>' : ''}`;
+      host.querySelectorAll('.at-thumb').forEach(b => b.addEventListener('click', () => {
+        const x = items[+b.dataset.i], big = host.querySelector('.at-big');
+        big.innerHTML = `<figure><img src="${esc(x.th.replace(/\/320px-/, '/960px-'))}" alt="${esc(x.title)}" referrerpolicy="no-referrer" data-th="${esc(x.th)}">
+          <figcaption><b>${esc(x.title)}</b> <span class="small muted">${esc(x.date)}${x.by ? ' · ' + esc(x.by.slice(0, 160)) : ''} · ${esc(x.lic)}</span>
+          ${x.text ? `<p class="small">${esc(x.text.slice(0, 600))}${x.text.length > 600 ? '…' : ''}</p>` : ''}
+          <p class="small"><a href="${esc(x.page)}" target="_blank" rel="noopener">Full size, credit and licence at Wikimedia Commons ↗</a></p></figcaption></figure>`;
+        const im = big.querySelector('img');
+        im.addEventListener('error', () => { if (im.src !== im.dataset.th) im.src = im.dataset.th; }, { once: true });
+        big.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }));
+      const more = host.querySelector('.at-more');
+      if (more) more.addEventListener('click', () => commons(host, q, (page || 1) + 1));
+    }).catch(e => { host.innerHTML = `<p class="small warn-t">Wikimedia Commons did not answer (${esc(e.message)}). Try again in a moment.</p>`; });
+  }
+  // One panel: a Wikipedia summary, NASA photos, other agencies' pictures, and links to the agencies' own searches.
+  // o: { q: words for the photo search, wiki: article title or list of titles, expect: what the article must be about, agencies: ['hubble', ...] }
+  function media(host, o) {
+    if (!host || !o || !o.q) return;
+    const links = (o.agencies || []).filter(k => AGENCY[k]).map(k => `<a href="${esc(AGENCY[k][1](o.q))}" target="_blank" rel="noopener">${esc(AGENCY[k][0])} ↗</a>`).join('');
+    host.innerHTML = `<div class="sl-media"><div class="sl-wikibox"></div>
+      <div class="row small sl-media-acts"><button class="b sl-nasa">📷 NASA photos</button><button class="b sl-commons" title="Openly licensed pictures from ESA, ESA/Hubble, ESA/Webb, ESO, JAXA and others, collected at Wikimedia Commons">🖼 Other agencies</button>${links}</div>
+      <div class="sl-gallery"></div></div>`;
+    if (o.wiki) wiki(host.querySelector('.sl-wikibox'), o.wiki, o.expect);
+    const g = host.querySelector('.sl-gallery');
+    host.querySelector('.sl-nasa').addEventListener('click', () => photos(g, o.q));
+    host.querySelector('.sl-commons').addEventListener('click', () => commons(g, o.q));
+  }
+  window.SpaceLabMedia = { media, wiki, commons, photos: (h, q) => photos(h, q), wikiUrl };
+
   // ------------------------------------------------------------------ what the atlas knows
   const LAYERS = [    // whole-sky pictures in different kinds of light
     ['vis', 'Visible light', { url: ESA + 'DSSColor' }, 'The sky as a big telescope camera sees it (Digitized Sky Survey, STScI/NASA).'],
@@ -170,11 +252,17 @@
       <div class="row small">${sky_ ? `<span class="muted mono">RA ${hms(item.ra)} · Dec ${dms(item.dec)}</span>` : isFinite(item.lat) ? `<span class="muted mono">${Math.abs(item.lat).toFixed(2)}°${item.lat < 0 ? 'S' : 'N'} · ${Math.abs(item.lon).toFixed(2)}°${item.lon < 0 ? 'W' : 'E'}</span>` : ''}
         ${i.q ? `<button class="b at-photos" data-q="${esc(i.q)}">📷 NASA photos</button>` : ''}
         ${i.url ? `<a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.urlText || 'details')} ↗</a>` : ''}
+        ${i.q ? `<button class="b sl-commons" title="Openly licensed pictures from ESA, ESA/Hubble, ESA/Webb, ESO, JAXA and others, collected at Wikimedia Commons">🖼 Other agencies</button>` : ''}
+        ${sky_ && i.q ? Object.keys(AGENCY).map(k => `<a href="${esc(AGENCY[k][1](i.q))}" target="_blank" rel="noopener">${esc(AGENCY[k][0])} ↗</a>`).join('') : ''}
         ${sky_ ? `<a href="${esasky(item.ra, item.dec, item.fov || 0.5)}" target="_blank" rel="noopener">open in ESASky ↗</a>` : ''}</div>
-      <div class="at-gallery"></div>`;
-    const ph = box.querySelector('.at-photos');
+      <div class="sl-wikibox"></div><div class="at-gallery"></div>`;
+    const ph = box.querySelector('.at-photos'), cm = box.querySelector('.sl-commons');
     if (ph) ph.addEventListener('click', () => photos(box.querySelector('.at-gallery'), ph.dataset.q));
+    if (cm) cm.addEventListener('click', () => commons(box.querySelector('.at-gallery'), i.q));
+    // the place's Wikipedia article, when one exists and is about this kind of thing (a TIC number or a made-up search finds nothing)
+    if (i.q || i.wiki) wiki(box.querySelector('.sl-wikibox'), [i.wiki, i.title, i.q].filter(Boolean), ATLAS_WIKI);
   }
+  const ATLAS_WIKI = /nebula|galax|cluster|star|remnant|supernova|quasar|constellation|black hole|crater|\bmare\b|lunar|moon|mars|martian|planet|asteroid|comet|mission|rover|lander|probe|spacecraft|telescope|volcano|valley|canyon|basin|impact|mons\b|landing|astronom/i;
   const safeImg = u => (typeof u === 'string' && u.startsWith(NASA_FILES)) ? u.replace(/ /g, '%20') : '';
   function photos(host, q, page) {
     if (!host || !q) return;

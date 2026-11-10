@@ -127,6 +127,7 @@
     const sim = `https://simbad.cds.unistra.fr/simbad/sim-id?Ident=${encodeURIComponent('2MASX J' + id)}`;
     return `<div class="uv-card"><div class="row"><h3>${esc(nameOf(i))}</h3><span class="spacer"></span><button class="b uv-x" aria-label="Close">✕</button></div>
       ${f && f.note ? `<p class="small">${esc(f.note)}</p>` : ''}
+      ${f || G.names[i] ? '<div class="uv-media"></div>' : ''}
       <table class="small uv-facts"><tr><th>2MASS ID</th><td class="mono">2MASX J${esc(id)}${G.names[i] ? ` · ${esc(G.names[i])}` : ''}</td></tr>
         <tr><th>Distance</th><td>${fmtDist(d)}<br><span class="muted">${distSource(i, d)}</span></td></tr>
         ${G.cz[i] > 0 ? `<tr><th>Moving away</th><td>${G.cz[i].toLocaleString()} km/s (redshift ${num(G.cz[i] / 299792.458, 4)})</td></tr>`
@@ -164,7 +165,7 @@
     if (l.kind === 'zoa') return `<div class="uv-card"><div class="row"><h3>${esc(l.name)}</h3><span class="spacer"></span><button class="b uv-x" aria-label="Close">✕</button></div>
       <p class="small">${esc(l.note)}</p></div>`;
     return `<div class="uv-card"><div class="row"><h3>${esc(l.name)}</h3><span class="spacer"></span><button class="b uv-x" aria-label="Close">✕</button></div>
-      <p class="small">${esc(l.note)}</p><p class="small muted">${fmtDist(l.dist)} · RA ${fmtRa(l.ra)} · Dec ${fmtDec(l.dec)} · ${l.measured ? 'centre of the matching galaxy group' : 'approximate centre from the literature'}</p>
+      <p class="small">${esc(l.note)}</p><div class="uv-media"></div><p class="small muted">${fmtDist(l.dist)} · RA ${fmtRa(l.ra)} · Dec ${fmtDec(l.dec)} · ${l.measured ? 'centre of the matching galaxy group' : 'approximate centre from the literature'}</p>
       <div class="row uv-acts"><button class="b uv-golm" data-k="${k}">Fly here</button></div></div>`;
   }
 
@@ -387,6 +388,8 @@
     V.sel = i;
     V.el.querySelector('.uv-cardbox').innerHTML = galaxyCard(i);
     wireCard();
+    const f = famousOf(i), m = f && /\((M\d+)\)/.exec(f.name), cat = G.names[i];
+    cardMedia(m ? m[1] : f ? f.name : cat, [f && f.name, m && m[1], cat], /galax|quasar|cluster|group|merger|nucle/i);
     if (fly) flyTo([G.xyz[3 * i], G.xyz[3 * i + 1], G.xyz[3 * i + 2]], Math.max(4, Math.min(40, dist(i) * 0.25)));
     redraw();
     S.track('universe/galaxy', true);
@@ -395,6 +398,7 @@
     const l = U().landmarks[k];
     V.el.querySelector('.uv-cardbox').innerHTML = landmarkCard(k);
     wireCard();
+    if (l.kind !== 'zoa') cardMedia(l.name, [l.name], /cluster|void|wall|galax|filament|supercluster|attractor/i);
     if (fly) flyTo(l.xyz, l.kind === 'void' ? 70 : l.kind === 'region' ? 90 : 25);
   }
   // ------------------------------------------------------------------ the picture: the Space atlas, opened on this galaxy
@@ -497,6 +501,11 @@
     const box = V.el.querySelector('.uv-cardbox');
     box.insertAdjacentHTML('beforeend', `<p class="small">Copy this: <input class="uv-copyfield" value="${esc(text)}" readonly></p>`);
     const f = box.querySelector('.uv-copyfield:last-of-type'); if (f) { f.focus(); f.select(); }
+  }
+  // the card's Wikipedia summary and pictures from NASA's library and other agencies (only for galaxies that have a name)
+  function cardMedia(q, titles, expect) {
+    const h = V.el.querySelector('.uv-cardbox .uv-media');
+    if (h && q && window.SpaceLabMedia) window.SpaceLabMedia.media(h, { q, wiki: titles.filter(Boolean), expect, agencies: ['hubble', 'webb', 'eso'] });
   }
   function wireCard() {
     const box = V.el.querySelector('.uv-cardbox');

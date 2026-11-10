@@ -73,6 +73,27 @@ async function boot({ extras = true, storage = {}, data = FIXTURE, hash = '', se
   const ZIPS = '12345 4000 -10500\n10001 4075 -7400\n';
   const NASA = { collection: { metadata: { total_hits: 30 }, items: [1, 2, 3].map(i => ({ data: [{ nasa_id: 'PIA0000' + i, title: 'Test photo ' + i + ' <b>', description: 'A <i>described</i> picture.', date_created: '2020-01-0' + i + 'T00:00:00Z', center: 'JPL' }],
     links: [{ href: i === 3 ? 'https://evil.example/x~thumb.jpg' : 'https://images-assets.nasa.gov/image/PIA0000' + i + '/PIA0000' + i + '~thumb.jpg' }] })) } };
+  // Wikipedia summaries: a 404, an article about the wrong kind of thing, and an extract carrying markup that must stay plain text
+  const WIKI = {
+    Voyager_1: { d: 'NASA space probe launched in 1977', x: 'Voyager 1 is a space probe. <script>window.__pwned = 1</script> It is the farthest human-made object.' },
+    M87: { d: 'Supergiant elliptical galaxy in Virgo', x: 'Messier 87 is a supergiant elliptical galaxy.', page: 'Messier_87' },
+    NGC_4993: { d: 'Galaxy in the constellation of Hydra', x: 'NGC 4993 is a lenticular galaxy.' },
+    UGC_9999: { d: 'Roman goddess of the hearth', x: 'Not a galaxy at all.' },
+    Orion_Nebula: { d: 'Diffuse nebula in the constellation Orion', x: 'The Orion Nebula is a diffuse nebula.' },
+    Mars: { d: 'Fourth planet from the Sun', x: 'Mars is the fourth planet.' }, Earth: { d: 'Third planet from the Sun', x: 'Earth is our home.' },
+  };
+  const wikiAnswer = u => {
+    const t = decodeURIComponent((/summary\/([^?]+)/.exec(u) || [])[1] || ''), w0 = WIKI[t];
+    if (!w0) return { ok: false, status: 404, json: async () => ({ type: 'https://mediawiki.org/wiki/HyperSwitch/errors/not_found' }) };
+    return { ok: true, json: async () => ({ type: 'standard', title: t, description: w0.d, extract: w0.x, content_urls: { desktop: { page: 'https://en.wikipedia.org/wiki/' + (w0.page || t) } } }) };
+  };
+  // Wikimedia Commons: an open licence, a non-free one, a picture from a foreign server, and a public-domain one on the new thumbnail server
+  const COMMONS = { query: { pages: {
+    1: { index: 1, title: 'File:X.jpg', imageinfo: [{ thumburl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/X.jpg/320px-X.jpg', descriptionurl: 'https://commons.wikimedia.org/wiki/File:X.jpg',
+         extmetadata: { LicenseShortName: { value: 'CC BY 4.0' }, Artist: { value: '<a href="https://esawebb.org">ESA/Webb</a><img src="https://evil.example/t.gif">' }, ObjectName: { value: 'Carina <b>test</b>' }, ImageDescription: { value: 'A <i>nice</i> nebula.' } } }] },
+    2: { index: 2, title: 'File:Y.jpg', imageinfo: [{ thumburl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/bb/Y.jpg/320px-Y.jpg', descriptionurl: 'https://commons.wikimedia.org/wiki/File:Y.jpg', extmetadata: { LicenseShortName: { value: 'Fair use' } } }] },
+    3: { index: 3, title: 'File:Z.jpg', imageinfo: [{ thumburl: 'https://evil.example/320px-Z.jpg', descriptionurl: 'https://commons.wikimedia.org/wiki/File:Z.jpg', extmetadata: { LicenseShortName: { value: 'CC BY-SA 4.0' } } }] },
+    4: { index: 4, title: 'File:W.png', imageinfo: [{ thumburl: 'https://thumb.wikimedia.org/wikipedia/commons/thumb/c/cc/W.png/320px-W.png', descriptionurl: 'https://commons.wikimedia.org/wiki/File:W.png', extmetadata: { LicenseShortName: { value: 'Public domain' }, Credit: { value: 'NASA' } } }] } } } };
   rec.fetches = [];
   const UV_IDS = ['12304942+1223279\tNGC 4486', '12000000+0000000\t', '13094770-2323017\tNGC 4993', '15000000-1000000\tUGC 9999',
                   '00424433+4116074\tNGC 224', '09553318+6903549\tNGC 3031'];
@@ -97,13 +118,16 @@ async function boot({ extras = true, storage = {}, data = FIXTURE, hash = '', se
       const off = rows.length / 7; let n = 0, nh = 0;
       if (kind === 'craft') for (let k = 0; k < 5; k++) { const t = -3000 + k * 700; rows.push(t, ...ssCirc(r, ssT0 + t, ph)); n++; nh++; }
       for (let t = -30; t <= 400.001; t += step) { rows.push(t, ...ssCirc(r, ssT0 + t, ph)); n++; }
-      objects.push({ key, name, kind, group, color: '#abcdef', by, launched, what: 'What ' + name + ' does.', off, n, nh });
+      objects.push({ key, name, kind, group, color: '#abcdef', by, launched, what: 'What ' + name + ' does.', off, n, nh, wiki: key === 'voyager1' ? 'Voyager 1' : '' });
     }
     const buf = new ArrayBuffer(16 + rows.length * 4), dv = new DataView(buf);
     [83, 76, 83, 49].forEach((c, i) => dv.setUint8(i, c)); dv.setUint32(4, objects.length, true); dv.setFloat64(8, ssT0, true);
     new Float32Array(buf, 16).set(rows);
     return { buf, meta: { t0: ssT0, made: 1794300000, back: 30, ahead: 400, objects, groups: [['planets', 'Planets'], ['leaving', 'Leaving the solar system'], ['telescopes', 'Space telescopes near Earth']],
-      at: { mars: [['Curiosity', 'NASA', 'rover in Gale crater since 2012']] }, lists_checked: '2026-11-10', skipped: ['Juno'], source: 'Positions: NASA/JPL Horizons.' } };
+      at: { mars: [['Curiosity', 'NASA', 'rover in Gale crater since 2012']],                     // the older layout still reads
+            earth: [{ n: 'Hubble Space Telescope', by: 'NASA / ESA', note: 'in orbit since 1990', wiki: 'Hubble Space Telescope', sec: 'Around Earth' },
+                    { n: 'Tiangong', by: 'China', note: 'crewed since 2021', wiki: 'Tiangong space station', sec: 'Around Earth' },
+                    { n: 'Six Apollo landing sites', by: 'NASA', note: 'still there', wiki: 'Apollo program', sec: 'On the Moon', links: [['Apollo 11', 'Apollo 11'], ['Apollo 12', 'Apollo 12']] }] }, lists_checked: '2026-11-10', skipped: ['Juno'], source: 'Positions: NASA/JPL Horizons.' } };
   };
   const SS = ssBuild();
   w.fetch = async u => { rec.fetches.push(String(u));
@@ -111,6 +135,8 @@ async function boot({ extras = true, storage = {}, data = FIXTURE, hash = '', se
     if (/tracks\.bin(\?v=\d+)?$/.test(String(u))) return { ok: true, arrayBuffer: async () => SS.buf };
     if (/galaxies\.bin(\?v=\d+)?$/.test(String(u))) return { ok: true, arrayBuffer: async () => uvBin() };
     if (/galaxies\.txt(\?v=\d+)?$/.test(String(u))) return { ok: true, text: async () => UV_IDS.join('\n') + '\n' };
+    if (/^https:\/\/en\.wikipedia\.org\/api\/rest_v1\/page\/summary\//.test(String(u))) return wikiAnswer(String(u));
+    if (/^https:\/\/commons\.wikimedia\.org\/w\/api\.php\?/.test(String(u))) return { ok: true, json: async () => COMMONS };
     return /zip\.txt$/.test(String(u)) ? { ok: true, text: async () => ZIPS } : /images-api\.nasa\.gov/.test(String(u)) ? { ok: true, json: async () => NASA } : { ok: true, json: async () => json, text: async () => JSON.stringify(json) }; };
   w.eval(read('web/public.js'));
   if (extras) {
@@ -710,6 +736,9 @@ const CHECKS = {
     a.querySelector('.at-place').click(); await sleep(5);
     const info = a.querySelector('.at-info');
     if (!/Orion Nebula/.test(info.textContent) || !info.querySelector('.at-photos') || !info.querySelector('a[href^="https://sky.esa.int/esasky/"]')) fails.push('tapping a place shows what it is, a NASA photos button and an ESASky link');
+    for (let k = 0; k < 30 && !info.querySelector('.sl-wiki'); k++) await sleep(10);
+    if (!info.querySelector('.sl-wiki a[href="https://en.wikipedia.org/wiki/Orion_Nebula"]') || !/diffuse nebula/.test(info.textContent)) fails.push('a place shows its Wikipedia summary');
+    if (!info.querySelector('.sl-commons') || !info.querySelector('a[href="https://esahubble.org/images/?search=Orion%20Nebula"]') || !info.querySelector('a[href="https://esawebb.org/images/?search=Orion%20Nebula"]')) fails.push('a sky place also offers other agencies\' pictures and the ESA/Hubble and ESA/Webb searches');
     info.querySelector('.at-photos').click(); await sleep(20);
     const th = info.querySelectorAll('.at-thumb img');
     if (th.length !== 2) fails.push('photos: only pictures from NASA\'s own image server may be shown (2 of the 3 test results)');
@@ -805,9 +834,21 @@ const CHECKS = {
     if (!card || !/2MASX J12304942\+1223279/.test(card.textContent) || !/in a knot/.test(card.textContent) || !/rich cluster \(180 galaxies/.test(card.textContent)) fails.push('the identity card shows the 2MASS ID, the cosmic-web class and the group');
     if (card && (!card.querySelector('a[href^="https://ned.ipac.caltech.edu/byname?objname=2MASX%20J12304942%2B1223279"]') || !card.querySelector('a[href^="https://simbad.cds.unistra.fr/simbad/sim-id?Ident=2MASX"]'))) fails.push('the card links NED and SIMBAD by the 2MASS name');
     if (card) { const a = ((card.querySelector('.uv-copy') || { getAttribute: () => '' }).getAttribute('data-c') === '12h30m49.42s +12d23m27.9s'), b = /RA 12h30m49\.42s · Dec \+12°23′27\.9″/.test(card.textContent); if (!a || !b) fails.push('the card gives J2000 coordinates from the 2MASS ID, and a Stellarium copy button (' + a + ',' + b + ')'); }
+    for (let k = 0; k < 30 && card && !card.querySelector('.sl-wiki'); k++) await sleep(10);
+    if (!card || !card.querySelector('.uv-media .sl-wiki a[href="https://en.wikipedia.org/wiki/Messier_87"]') || !card.querySelector('.uv-media a[href="https://esahubble.org/images/?search=M87"]')) fails.push('a named galaxy shows its Wikipedia summary (found through its Messier number) and the agencies\' picture searches');
+    if (card) { card.querySelector('.sl-nasa').click(); await sleep(20); if (!env.rec.fetches.some(u => /images-api\.nasa\.gov\/search\?q=M87&/.test(u)) || card.querySelectorAll('.sl-gallery .at-thumb').length !== 2) fails.push('a galaxy card opens NASA\'s photos of it'); }
     if (card && !/about 6[6-9] million light-years/.test(card.textContent)) fails.push('distance in Mpc and light-years: ' + norm(card.textContent).slice(0, 300));
     if (card && (!/The measured distance of its group \(Cosmicflows-4\)/.test(card.textContent) || !/Moving away\s*1,284 km\/s/.test(norm(card.textContent)))) fails.push('the card says where the distance comes from (its group, measured): ' + norm(card.textContent).slice(0, 400));
     const open = async t => { const rr = await find(t); const b = rr[0] && rr[0].querySelector('.uv-res'); if (b) { b.click(); await sleep(10); } return norm((v.querySelector('.uv-card') || { textContent: '' }).textContent); };
+    await open('UGC 9999'); await sleep(40);
+    let ug = v.querySelector('.uv-card');
+    if (!ug || !ug.querySelector('.uv-media .sl-nasa') || ug.querySelector('.sl-wiki')) fails.push('a Wikipedia article about something else (the test "UGC 9999" is a goddess) is never shown on a galaxy card');
+    await open('120000'); await sleep(20);
+    ug = v.querySelector('.uv-card');
+    if (!ug || !ug.querySelector('a[href="https://esahubble.org/images/?search=Antennae%20Galaxies"]')) fails.push('a famous galaxy is searched for by its famous name');
+    { const X = env.w.SpaceLabUniverse, k = X.data.ids.indexOf('15000000-1000000'), keep = X.data.names[k];
+      X.data.names[k] = ''; const html = X.galaxyCard(k); X.data.names[k] = keep;
+      if (/uv-media/.test(html)) fails.push('a galaxy without a name gets no photo search (it would only find unrelated pictures)'); }
     r = await find('Andromeda');
     if (!r.length || !/Andromeda Galaxy/.test(r[0].textContent) || /not on this map/.test(r[0].textContent)) fails.push('Andromeda has a measured distance, so it is on the map and search finds it');
     let txt = await open('M31');
@@ -950,9 +991,25 @@ const CHECKS = {
     v.querySelector('.ss-pick[data-k="voyager1"]').click(); await sleep(5);
     let c = norm((v.querySelector('.ss-card') || { textContent: '' }).textContent);
     if (!/Voyager 1/.test(c) || !/NASA · launched 1977-09-05 \(49 years ago\)/.test(c) || !/Right now \(updates every second\)/.test(c) || !/From the Sun\s*170\.00 AU · 25\.43 billion km/.test(c) || !/A radio signal takes\s*23 h \d+ min to reach Earth/.test(c) || !/farther every day/.test(c)) fails.push('a spacecraft card: who, when, what, and live distance, signal time and speed: ' + c.slice(0, 500));
+    for (let k = 0; k < 30 && !v.querySelector('.ss-card .sl-wiki'); k++) await sleep(10);
+    const wk = v.querySelector('.ss-card .sl-wiki');
+    if (!wk || !/farthest human-made object/.test(wk.textContent) || !wk.querySelector('a[href="https://en.wikipedia.org/wiki/Voyager_1"]') || v.querySelector('.ss-card script') || env.w.__pwned) fails.push('a spacecraft card shows its Wikipedia summary as plain text, with a link to the article');
+    v.querySelector('.ss-card .sl-nasa').click(); await sleep(20);
+    if (v.querySelectorAll('.ss-card .sl-gallery .at-thumb img').length !== 2 || !env.rec.fetches.some(u => /^https:\/\/images-api\.nasa\.gov\/search\?q=Voyager%201&/.test(u))) fails.push('the card opens NASA\'s photos of that spacecraft');
+    v.querySelector('.ss-card .sl-commons').click(); await sleep(20);
+    const ct = [...v.querySelectorAll('.ss-card .sl-gallery .at-thumb img')];
+    if (ct.length !== 2 || ct.some(i => !/^https:\/\/(upload|thumb)\.wikimedia\.org\//.test(i.getAttribute('src')))) fails.push('other agencies: only openly licensed pictures from Wikimedia\'s own servers (2 of the 4 test results), got ' + ct.length);
+    if (!env.rec.fetches.some(u => /commons\.wikimedia\.org\/w\/api\.php\?.*origin=\*.*gsrsearch=Voyager%201%20filetype%3Abitmap/.test(u))) fails.push('other agencies: one search of Wikimedia Commons for the spacecraft');
+    if (ct[0]) { ct[0].closest('button').click(); await sleep(5); }
+    const cbig = v.querySelector('.ss-card .sl-gallery .at-big');
+    if (!cbig || !/CC BY 4\.0/.test(cbig.textContent) || !/ESA\/Webb/.test(cbig.textContent) || !/Carina test/.test(cbig.textContent) || cbig.querySelector('figcaption img, figcaption b b, figcaption i') || !cbig.querySelector('a[href="https://commons.wikimedia.org/wiki/File:X.jpg"]')) fails.push('an enlarged picture names its maker and licence as plain text and links to its Commons page');
+    v.querySelector('.ss-pick[data-k="earth"]').click(); await sleep(5);
+    const atl = v.querySelector('.ss-card .ss-at');
+    if (!atl || atl.querySelectorAll('.ss-sec').length !== 2 || !/Around Earth/.test(atl.textContent) || !atl.querySelector('a[href="https://en.wikipedia.org/wiki/Hubble_Space_Telescope"]')
+        || !atl.querySelector('a[href="https://en.wikipedia.org/wiki/Tiangong_space_station"]') || atl.querySelectorAll('.ss-links a').length !== 2 || !atl.querySelector('a[href="https://en.wikipedia.org/wiki/Apollo_11"][target="_blank"]')) fails.push('every spacecraft at a world links to its Wikipedia article, under headings');
     v.querySelector('.ss-pick[data-k="mars"]').click(); await sleep(5);
     c = norm(v.querySelector('.ss-card').textContent);
-    if (!/Spacecraft here \(list checked 2026-11-10\)/.test(c) || !/Curiosity \(NASA\): rover in Gale crater/.test(c) || !/One trip around the Sun\s*671 days/.test(c)) fails.push('a planet card lists the spacecraft there and its year: ' + c.slice(0, 500));
+    if (!/Spacecraft here, and what was left here \(1; tap a name for its Wikipedia article; list checked 2026-11-10\)/.test(c) || !/Curiosity \(NASA\): rover in Gale crater/.test(c) || !/One trip around the Sun\s*671 days/.test(c)) fails.push('a planet card lists the spacecraft there and its year: ' + c.slice(0, 500));
     const sl = v.querySelector('.ss-time'); sl.value = '100'; sl.dispatchEvent(new env.w.Event('input')); await sleep(60);
     c = norm(v.querySelector('.ss-card').textContent);
     if (!/^.*On [A-Z][a-z]{2} \d/.test(c) || /Right now/.test(c) || !/\+100 days from now/.test(v.querySelector('.ss-when').textContent)) fails.push('the time slider moves everything to another day and says which: ' + norm(v.querySelector('.ss-when').textContent) + ' / ' + c.slice(80, 260));
