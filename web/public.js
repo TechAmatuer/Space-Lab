@@ -96,6 +96,18 @@ function today() {
     <div class="grid g2">${jobs || '<div class="card empty">No runs yet.</div>'}</div>`;
 }
 
+// Variable stars found in the same light curves (only the ones the owner has looked at are listed)
+function varCard(v) {
+  if (!v || !v.searched) return '';
+  const rows = (v.stars || []).map(s => `<tr><td><a href="https://exofop.ipac.caltech.edu/tess/target.php?id=${s.tic}" target="_blank" rel="noopener">TIC ${s.tic}</a></td><td>${esc(s.type || '')}</td>
+    <td class="mono">${num(s.period, 4)} d</td><td class="mono">${num(s.amp, 1)} ppt</td><td>${s.status === 'submitted' ? 'sent to VSX' : 'checked by a person'}</td></tr>`).join('');
+  return `<h2>Variable stars in the same light curves</h2><div class="card"><p class="small">Every light curve is also searched for stars whose brightness changes in a repeating way: spotted stars turning, pairs of stars eclipsing each other, flares.
+    So far <b>${Number(v.searched).toLocaleString()}</b> light curves searched, <b>${Number(v.clear || 0).toLocaleString()}</b> with a clear repeating signal, <b>${Number(v.known || 0).toLocaleString()}</b> of them already in catalogues of variable stars.
+    ${v.candidates ? `${v.candidates} possible new variable star(s) wait for a person's look.` : ''}</p>
+    ${rows ? `<table class="compact"><tr><th>star</th><th>type</th><th>period</th><th>amplitude</th><th></th></tr>${rows}</table>` : ''}
+    ${(v.stars || []).filter(s => s.plot).slice(0, 4).map(s => `<img class="plot" src="${esc(s.plot)}" alt="TIC ${s.tic} folded light curve" loading="lazy">`).join('')}</div>`;
+}
+
 // The TESS tab shows the strongest candidates first, a page at a time: 120 full cards with plots are heavy on a phone.
 const TESS_PAGE = 20;
 let tessShown = TESS_PAGE, wantTic = null;
@@ -144,7 +156,7 @@ function tess() {
       <p><b>Bottom left: all dips stacked.</b> Every dip lined up on top of each other. The red box is the simple transit model. A flat-bottomed U or box suits a planet; a sharp V often means two stars eclipsing.</p>
       <p><b>Bottom right: odd vs even dips.</b> If odd and even dips have different depths, it's probably an eclipsing binary at twice the period. The dashed line is the brightness halfway between dips and should be flat (a dip there means a secondary eclipse, i.e. a star).</p></details></div>
     <div class="card"><details><summary>How this tab works</summary><p style="margin:0">A GPU-based Box Least Squares search finds repeating brightness dips in TESS light curves. Each candidate goes through false-positive checks (depth ratios, centroid test, star density) before being shown here. A local vision AI then reads the diagnostic plots to give a first verdict. Your personal ML model scores each one based on past decisions.</p></details></div>
-    ${cards || '<div class="card empty">No signals under review right now.</div>'}${more}`;
+    ${cards || '<div class="card empty">No signals under review right now.</div>'}${more}${varCard(t.variables)}`;
 }
 
 function asteroids() {

@@ -1310,6 +1310,91 @@ def publish_makes_smaller_webp_pictures():
 
 
 @test
+def variable_stars_found_checked_and_prepared_for_vsx():
+    from spacelab import variables, db, publish, server, config
+    rng = np.random.default_rng(11)
+    t = np.concatenate([np.arange(1000, 1026, 2 / 1440), np.arange(1030, 1056, 2 / 1440)])      # two sectors, 2-min cadence
+    noise = rng.normal(0, 1e-3, t.size)
+    # a spotted cool dwarf: 5 ppt, every 2.3 days, with a few flares
+    f = 1 + 2.5e-3 * np.sin(2 * np.pi * t / 2.3) + noise
+    for t0 in (1003.1, 1011.7, 1035.2, 1047.9):
+        k = np.searchsorted(t, t0)
+        f[k:k + 6] += np.array([30, 22, 15, 9, 5, 3]) * 1e-3
+    r = variables.analyze(t, f, teff=3400)
+    assert r['strong'] and r['kind'] == 'rotation' and abs(r['period'] - 2.3) < 0.01 and 4 < r['amp'] < 6 and r['flares'] >= 3, r
+    assert r['vsx_type'] == 'BY+UV' and r['fap'] < 1e-10 and r['cycles'] > 20, r
+    # a detached eclipsing binary: two eclipses per 3.1-day orbit; the periodogram finds half, the shape gives the orbit
+    ph = ((t - 1000.3) / 3.1) % 1
+    eb = 1 + noise * 0.5 - 0.02 * np.exp(-0.5 * (np.minimum(ph, 1 - ph) / 0.01) ** 2) - 0.012 * np.exp(-0.5 * ((ph - 0.5) / 0.01) ** 2)
+    r2 = variables.analyze(t, eb, teff=4800)
+    assert r2['strong'] and r2['kind'] == 'eclipsing (detached)' and abs(r2['period'] - 3.1) < 0.01 and r2['vsx_type'] == 'EA' and 17 < r2['amp'] < 22, r2
+    # noise alone, and a slow drift over a sector (a typical instrument effect), are not variable stars
+    assert not variables.analyze(t, 1 + noise)['strong']
+    sector0 = np.where(t < 1028, 1000, 1030)
+    ramp = variables.analyze(t, 1 + noise + 0.004 * (t - sector0) / 26)                       # each sector drifts the same way
+    assert not ramp['strong'] and 'a slow trend, not a repeat' in ramp['why_not'], ramp
+    one = variables.analyze(t, 1 + noise + np.where(t > 1028, 3e-3 * np.sin(2 * np.pi * t / 1.7), 0))   # only in the second sector
+    assert not one['strong'] and 'seen in only one stretch of data' in one['why_not'], one
+    assert r['segments'] == [2, 2] and r['why_not'] == []
+    assert variables.analyze(t[:100], f[:100]) is None
+    # catalogues: a service that cannot be asked means nothing can be concluded
+    res, ok = variables.known(0, 0, {'VSX': lambda: [], 'Gaia DR3 variability': lambda: (_ for _ in ()).throw(OSError('down')), 'ASAS-SN variables': lambda: []})
+    assert not ok and res['Gaia DR3 variability'] is None
+    res, ok = variables.known(0, 0, {'VSX': lambda: [{'name': 'V0001 Xyz', 'type': 'BY'}], 'X': lambda: []})
+    assert ok and res['VSX'][0]['name'] == 'V0001 Xyz'
+    # neighbours within two TESS pixels: an equally bright star 20" away could cause 5 ppt; a faint one 30" away could not
+    g = {'ra': np.array([150.0, 150.0 + 20 / 3600, 150.0 - 30 / 3600]), 'dec': np.array([10.0, 10.0, 10.0]), 'g': np.array([12.0, 12.0, 19.0])}
+    b = variables.blend_check(150.0, 10.0, 5.0, g)
+    assert b['target_g'] == 12.0 and len(b['suspects']) == 1 and abs(b['suspects'][0]['sep'] - 19.7) < 0.5 and 'could cause it' in b['verdict'], b
+    b2 = variables.blend_check(150.0, 10.0, 5.0, {k: v[[0, 2]] for k, v in g.items()})
+    assert not b2['suspects'] and b2['verdict'] == 'only this star is bright enough to cause it', b2
+    # end to end: stored by the planet hunter, checked, picture and VSX fields made, judged by you, shown on the public page
+    con = db.connect()
+    con.execute('INSERT OR REPLACE INTO tess_targets(tic, ra, dec, tmag, teff, status, sectors) VALUES(?,?,?,?,?,?,?)', (999001, 150.0, 10.0, 11.2, 3400, 'done', '45,46'))
+
+    class LC:
+        pass
+    lc = LC(); lc.time = LC(); lc.flux = LC(); lc.time.value = t; lc.flux.value = f
+    rr = variables.from_lightcurve(999001, lc, 3400)
+    assert rr['strong'] and (config.DATA / rr['npz']).is_file()
+    variables.record(con, 999001, rr)
+    variables.record(con, 999002, {'status': 'no TESS data'})
+    row = db.one(con, 'SELECT * FROM tess_var WHERE tic=999001')
+    assert row['status'] == 'new'
+    st = variables.check_one(con, {'observer_name': 'A. Tester'}, lambda *a: None, None, row,
+                             gaia_fn=lambda ra, dec: {'ra': g['ra'][[0, 2]], 'dec': g['dec'][[0, 2]], 'pmra': np.zeros(2), 'pmdec': np.zeros(2), 'g': g['g'][[0, 2]]},
+                             lookups={'VSX': lambda: [], 'Gaia DR3 variability': lambda: [], 'ASAS-SN variables': lambda: []})
+    row = db.one(con, 'SELECT * FROM tess_var WHERE tic=999001')
+    ch = json.loads(row['checks'])
+    fields = dict(ch['vsx'])
+    assert st == 'candidate' and row['status'] == 'candidate' and (config.DATA / row['plot']).is_file(), row
+    assert fields['Variability type'] == 'BY+UV' and abs(float(fields['Period (days)']) - 2.3) < 0.01 and fields['Discoverer'] == 'A. Tester', fields
+    assert fields['Coordinates (J2000)'].startswith('10:00:00.00 +10:00:00') and fields['Magnitude range (TESS passband)'].startswith('11.200 - 11.2'), fields
+    assert 2457000 + 1000 < ch['epoch'] < 2457000 + 1056 and ch['blend']['verdict'] == 'only this star is bright enough to cause it'
+    assert db.one(con, "SELECT * FROM tasks WHERE key='var:999001'")
+    # a star a catalogue already has is "known"; one that could not be checked waits
+    variables.record(con, 999003, dict(rr, npz=rr['npz']))
+    con.execute('INSERT OR REPLACE INTO tess_targets(tic, ra, dec, tmag, status) VALUES(?,?,?,?,?)', (999003, 20.0, -5.0, 9.0, 'done'))
+    r3 = db.one(con, 'SELECT * FROM tess_var WHERE tic=999003')
+    assert variables.check_one(con, {}, lambda *a: None, None, r3, lookups={'VSX': lambda: None.x}) == 'new'
+    assert variables.check_one(con, {}, lambda *a: None, None, r3, lookups={'VSX': lambda: [{'name': 'NSV 1'}]}) == 'known'
+    s = variables.summary(con)
+    assert s['candidates'] == 1 and s['known'] == 1 and s['clear'] == 2 and s['searched'] == 2, s
+    # public page: nothing until you look; then counts and the star you called real
+    data, files = publish.build_data(con, {})
+    v = data['tess']['variables']
+    assert v['candidates'] == 1 and v['stars'] == [] and not publish.validate(data), v
+    assert server.post_action('/api/var/999001', {'v': 'bogus'})[0] == 400
+    assert server.post_action('/api/var/999001', {'v': 'real'})[0] == 200
+    assert db.one(con, "SELECT status FROM tasks WHERE key='var:999001'")['status'] == 'done'
+    data, files = publish.build_data(con, {})
+    v = data['tess']['variables']
+    assert v['stars'][0]['tic'] == 999001 and v['stars'][0]['type'] == 'BY+UV' and v['stars'][0]['plot'].startswith('files/plots/variables/'), v
+    api = server.api_var()
+    assert api['cands'][0]['tic'] == 999001 and api['cands'][0]['checks']['vsx'] and 'npz' not in api['cands'][0]
+
+
+@test
 def radar_never_lists_the_same_story_twice():
     from spacelab import radar, news
     # arXiv ids are read from the article's own text and links (Universe Today links the paper it covers)

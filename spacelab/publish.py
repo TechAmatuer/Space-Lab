@@ -225,7 +225,21 @@ def build_data(con, cfg):
                       'news': _topics(((db.kv_get(con, 'news') or {}).get('items') or [])[:30]),
                       'paper_news': _topics(((db.kv_get(con, 'paper_news') or {}).get('items') or [])[:40]),
                       'library': {k: lib.get(k) for k in ('papers', 'embedded', 'years', 'complete', 'topics')}}}
+    data['tess']['variables'] = _variables_public(con, f)
     return data, files
+
+
+def _variables_public(con, f):
+    """Variable stars found in the TESS light curves: the counts, and the stars the owner looked at and called real or
+    submitted. Unreviewed candidates stay private until then (they may be instrument effects)."""
+    from . import variables
+    s = variables.summary(con)
+    stars = []
+    for r in db.rows(con, "SELECT v.tic, v.period, v.amp, v.kind, v.vsx_type, v.plot, v.status, t.ra, t.dec, t.tmag FROM tess_var v "
+                          "LEFT JOIN tess_targets t ON t.tic = v.tic WHERE v.status IN ('real','submitted') ORDER BY v.updated DESC LIMIT 60"):
+        stars.append({'tic': r['tic'], 'period': r['period'], 'amp': r['amp'], 'kind': r['kind'], 'type': r['vsx_type'],
+                      'status': r['status'], 'ra': r['ra'], 'dec': r['dec'], 'tmag': r['tmag'], 'plot': f(r['plot'])})
+    return {k: s.get(k) for k in ('searched', 'clear', 'known', 'candidates', 'real', 'submitted')} | {'stars': stars}
 
 
 SCHEMA_VERSION = 5

@@ -50,6 +50,7 @@ DEFAULTS = {
         'cheops': 'every 72h',  # answer-key test: recover known planets in public CHEOPS data (a few visits each time)
         'plates': 'every 24h',  # old photographic plates for newly found distant objects (the 2026 ED138 method)
         'universe': 'every 720h',  # the 3D galaxy map's files (the catalogues rarely change)
+        'variables': 'every 12h',  # variable stars in the TESS light curves: catalogue checks, back-fill of earlier stars
     },
     'arxiv': {
         'categories': ['astro-ph.EP', 'astro-ph.SR', 'astro-ph.IM', 'astro-ph.GA', 'astro-ph.HE', 'astro-ph.CO'],
@@ -79,6 +80,9 @@ DEFAULTS = {
         'max_period': 30.0,
         'sde_min': 9.0,
         'snr_min': 7.1,
+    },
+    'variables': {               # variable stars in TESS light curves (spacelab/variables.py); never submitted from here
+        'backfill_min': 25, 'checks_per_run': 40, 'time_budget_min': 45,
     },
     'plates': {                  # old-plate precovery of distant objects (spacelab/plates.py)
         'manual': ['2026 ED138'],    # always searched first; objects already measured by others become accuracy tests

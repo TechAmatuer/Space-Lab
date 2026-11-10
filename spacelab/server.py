@@ -296,6 +296,22 @@ def ctoi_draft(c):
             'notes': notes, 'url': 'https://exofop.ipac.caltech.edu/tess/upload_ctoi.php'}
 
 
+def api_var():
+    """Variable-star candidates from the TESS light curves, for Meridian (spacelab/variables.py)."""
+    from . import variables
+    con = db.connect()
+    variables.ensure(con)
+    out = []
+    for r in db.rows(con, "SELECT v.*, t.ra, t.dec, t.tmag FROM tess_var v LEFT JOIN tess_targets t ON t.tic = v.tic "
+                          "WHERE v.status IN ('candidate','real','unsure','submitted') ORDER BY v.status='candidate' DESC, v.snr DESC LIMIT 200"):
+        r = dict(r)
+        for k in ('info', 'checks', 'ai', 'known'):
+            r[k] = j(r.get(k))
+        r.pop('npz', None)
+        out.append(r)
+    return {'summary': variables.summary(con), 'cands': out}
+
+
 def api_tess():
     con = db.connect()
     stats = {r['status']: r['n'] for r in db.rows(con, 'SELECT status, COUNT(*) AS n FROM tess_targets GROUP BY status')}
@@ -438,6 +454,16 @@ def post_action(path, body):
         return 400, {'error': 'bad action'}
     if kind == 'cloud-check':
         return cloud_check(body.get('image') or '')
+    if kind == 'var' and oid.isdigit():                  # your verdict on a variable-star candidate (nothing is sent anywhere)
+        st = {'real': 'real', 'fake': 'fake', 'unsure': 'unsure', 'submitted': 'submitted', 'reopen': 'candidate'}.get(body.get('v'))
+        if not st:
+            return 400, {'error': 'bad verdict'}
+        from . import variables
+        variables.ensure(con)
+        con.execute('UPDATE tess_var SET status=?, updated=? WHERE tic=?', (st, now, int(oid)))
+        if st in ('real', 'fake', 'submitted'):
+            db.close_task(con, f'var:{oid}')
+        return 200, {'ok': True}
     if kind == 'task':
         st = {'done': 'done', 'dismiss': 'dismissed', 'reopen': 'open'}.get(body.get('action'))
         if not st:
@@ -665,6 +691,8 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, state())
             if p == '/api/arxiv':
                 return self.send(200, api_arxiv(q))
+            if p == '/api/var':
+                return self.send(200, api_var())
             if p == '/api/tess':
                 return self.send(200, api_tess())
             if p == '/api/exo':

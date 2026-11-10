@@ -130,7 +130,7 @@ async function loadCore(tab) {
     if (tab === 'today') return renderToday(S.state || await refreshState());
     if (tab === 'arxiv') return renderArxiv(await api('api/arxiv' + (S.arxivDate ? '?date=' + S.arxivDate : '')));
     if (tab === 'exowatch') { const x = await api('api/exo'); S.lastExo = x.datasets; return renderExo(x); }
-    if (tab === 'tess') return renderTess(await api('api/tess'));
+    if (tab === 'tess') { const [x, v] = await Promise.all([api('api/tess'), api('api/var').catch(() => null)]); renderTess(x); return renderVars(v); }
     if (tab === 'asteroids') return renderNeo(await api('api/neo'));
     if (tab === 'setup') return renderSetup(await api('api/settings'));
   } catch (e) { $('#v-' + tab).innerHTML = `<div class="card bad-t">Could not load: ${esc(e.message)}</div>`; }
@@ -346,6 +346,44 @@ function tessExtras(c) {
   if (cen) out.push(`<div class="note ${cen.verdict === 'off target' ? 'bad' : cen.verdict === 'on target' ? 'ok' : 'warn'}"><b>Centroid test</b>: ${esc(cen.verdict)} — the dip's light comes from ${num(cen.offset_arcsec, 0)}″ from the star (${num(cen.signif, 1)}σ; signal strength ${num(cen.snr, 0)})${cen.png ? `<br><img class="thumb plot" src="${fileUrl(cen.png)}" alt="centroid test" loading="lazy">` : ''}</div>`);
   return out.join('');
 }
+// Variable stars found in the same TESS light curves (spacelab/variables.py). Nothing is submitted from here: VSX needs your login.
+function renderVars(v) {
+  if (!v || !v.summary) return;
+  const s = v.summary, cs = v.cands || [];
+  const card = c => {
+    const i = c.info || {}, ch = c.checks || {}, bl = ch.blend || {}, ai = c.ai, vsx = ch.vsx || [];
+    const cat = Object.entries(ch.catalogues || {}).map(([k, m]) => `${esc(k)}: ${m === null ? 'could not be asked' : m.length ? m.map(x => esc(x.name)).join(', ') : 'nothing within 30″ ✓'}`).join(' · ');
+    const text = vsx.map(([k, val]) => `${k}: ${val}`).join('\n');
+    return `<div class="card" id="var-${c.tic}"><div class="row"><h3>TIC ${c.tic}</h3><span class="chip">${esc(c.vsx_type || '')}</span>
+        ${bl.suspects && bl.suspects.length ? '<span class="chip warn">neighbour could cause it</span>' : ''}<span class="spacer"></span><span class="chip ${c.status === 'real' || c.status === 'submitted' ? 'ok' : 'warn'}">${esc(c.status)}</span></div>
+      ${c.plot ? `<img class="plot" src="${fileUrl(c.plot)}" alt="TESS light curve, periodogram and folded light curve" loading="lazy">` : ''}
+      <ul class="small"><li><b>${esc(i.kind || '')}</b>, every <b>${num(c.period, 5)} days</b>, amplitude ${num(c.amp, 1)} ppt (noise ${num(i.noise, 2)} ppt per half hour), ${num(i.cycles, 0)} cycles seen${i.flares ? `, ${i.flares} flares` : ''}</li>
+        <li>catalogues of known variable stars: ${cat || 'not checked yet'}</li>
+        <li>neighbours within two TESS pixels: ${esc(bl.verdict || 'not checked')}${(bl.suspects || []).slice(0, 2).map(x => ` (G ${num(x.g, 1)} star ${num(x.sep, 0)}″ away would need ${num(x.needed * 100, 0)}%)`).join('')}</li>
+        ${ai ? `<li>local AI's first look: <b>${esc(ai.verdict)}</b>${ai.type ? ', ' + esc(ai.type) : ''}${ai.reasons && ai.reasons.length ? ' (' + ai.reasons.map(esc).join('; ') + ')' : ''}</li>` : ''}</ul>
+      <div class="row"><button class="b good" data-varv="${c.tic}" data-v="real">Yes, a real variable star</button><button class="b bad" data-varv="${c.tic}" data-v="fake">No / instrument effect</button><button class="b" data-varv="${c.tic}" data-v="unsure">Unsure</button>
+        <span class="spacer"></span><a class="b" href="https://exofop.ipac.caltech.edu/tess/target.php?id=${c.tic}" target="_blank" rel="noopener">ExoFOP ↗</a></div>
+      ${c.status === 'real' || c.status === 'submitted' ? `<details style="margin-top:8px"${c.status === 'real' ? ' open' : ''}><summary>Submit it to VSX yourself</summary>
+        <ol class="small"><li>Log in at <a href="https://www.aavso.org/vsx/" target="_blank" rel="noopener">aavso.org/vsx</a> (a free AAVSO account), open <b>Submit</b> → <b>New Star Form</b>.</li>
+          <li>Search VSX and SIMBAD for the position once more by hand: these catalogues were checked, recent papers may not be.</li>
+          <li>Copy these values into the form, and attach the picture above as the phase plot.</li>
+          <li>Come back and press "I submitted it".</li></ol>
+        <textarea class="mono small" rows="${vsx.length + 2}" readonly style="width:100%">${esc(text)}</textarea>
+        <div class="row"><button class="b" data-varcopy="${c.tic}">Copy</button>${c.status === 'real' ? `<button class="b primary" data-varv="${c.tic}" data-v="submitted">I submitted it</button>` : '<span class="chip ok">submitted</span>'}</div></details>` : ''}</div>`;
+  };
+  const html = `<h2>Variable stars in the same light curves</h2>
+    <div class="card"><div class="kv"><b>Light curves searched</b><span>${s.searched || 0}</span><b>With a clear repeating signal</b><span>${s.clear || 0}</span>
+      <b>Already catalogued</b><span>${s.known || 0} (VSX, Gaia DR3 or ASAS-SN)</span><b>Waiting for a catalogue check</b><span>${s.waiting || 0}</span>
+      <b>New candidates</b><span>${s.candidates || 0} to look at, ${s.real || 0} you called real, ${s.submitted || 0} submitted</span></div>
+      <p class="small muted">Every TESS light curve is also searched for repeating brightness changes: spotted stars rotating, eclipsing binaries, flares. One that no catalogue of variable stars has is a possible new variable star. Discovery credit comes from the AAVSO's Variable Star Index (VSX), and you submit it yourself; nothing is sent from here.</p></div>
+    ${cs.map(card).join('') || '<div class="card empty">No new candidates yet. The back-fill of stars checked earlier runs every 12 hours.</div>'}`;
+  const v0 = $('#v-tess');
+  const box = document.createElement('div'); box.id = 'varstars'; box.innerHTML = html;
+  const after = v0.querySelector('.card');
+  if (after) after.after(box); else v0.appendChild(box);
+  S.varCands = cs;
+}
+
 function renderTess(x) {
   S.tessShared = x.shared;
   const st = x.stats;
@@ -566,6 +604,8 @@ document.addEventListener('click', async e => {
     if (d.read) { await api('api/arxiv/' + encodeURIComponent(d.read), { read: t.checked }); return; }
     if (d.tf) { S.tessFilter = d.tf; return load('tess'); }
     if (d.tv) { await api('api/tess/' + d.tv, { verdict: d.v }); refreshState(); return load('tess'); }
+    if (d.varv) { await api('api/var/' + d.varv, { v: d.v }); refreshState(); return load('tess'); }
+    if (d.varcopy) { const ta = document.querySelector(`#var-${d.varcopy} textarea`); if (ta) { ta.select(); try { await navigator.clipboard.writeText(ta.value); } catch (_) { document.execCommand('copy'); } t.textContent = 'Copied ✓'; } return; }
     if (d.pv) { await api('api/pc/' + d.pv, { verdict: d.v }); refreshState(); return load('asteroids'); }
     if (d.exo) {
       if (d.act === 'discard' && !confirm('Discard this dataset from the list? (files stay on disk)')) return;

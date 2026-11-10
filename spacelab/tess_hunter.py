@@ -460,6 +460,8 @@ def process_star(job):
             out['status'] = 'nodata'
             return out
         out.update(kind=kind, sectors=sectors)
+        from . import variables                              # the same light curve, before flattening: a variable star?
+        out['var'] = variables.from_lightcurve(tic, lc, star.get('teff'))
         t, y, e = detrend(lc)
         w = best_window(t)
         ts, ys, es = bin_lc(t[w], y[w], e[w], 10 / 1440)
@@ -621,6 +623,9 @@ def run(ctx):
                 con.execute("UPDATE tess_targets SET status='error', checked=?, note=? WHERE tic=?", (time.time(), r.get('note'), star['tic']))
                 continue
             c, p = record(con, llm, star, r)
+            if 'var' in r:
+                from . import variables
+                variables.record(con, star['tic'], r['var'])
             ncand += c
             npass += p
             con.execute("UPDATE tess_targets SET status='done', checked=?, note=?, sectors=? WHERE tic=?",

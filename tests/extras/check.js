@@ -888,7 +888,19 @@ const CHECKS = {
     const card = env.w.SpaceLab.showTic(900033);
     if (!card || card.id !== 'tic-900033') fails.push('SpaceLab.showTic brings a later candidate onto the page for "go to" links');
     if (env.rec.errors.length) fails.push('errors: ' + env.rec.errors.slice(0, 3).join(' | '));
-    report(26, 'TESS tab: a page at a time', fails);
+    // variable stars found in the same light curves
+    const withVar = JSON.parse(JSON.stringify(FIXTURE));
+    withVar.tess.variables = { searched: 3371, clear: 412, known: 380, candidates: 5, real: 1, submitted: 0,
+      stars: [{ tic: 777, period: 2.30012, amp: 5.1, kind: 'rotation', type: 'BY+UV', status: 'real', ra: 150, dec: 10, tmag: 11.2, plot: 'files/plots/variables/TIC777.png' }] };
+    env = await boot({ data: withVar });
+    t = await env.tab('tess');
+    const vt = norm(t.textContent);
+    if (!/3,371 light curves searched, 412 with a clear repeating signal, 380 of them already in catalogues/.test(vt) || !/5 possible new variable star\(s\) wait for a person's look/.test(vt)) fails.push('the TESS tab reports the variable-star search honestly: ' + vt.slice(-400));
+    if (!t.querySelector('a[href="https://exofop.ipac.caltech.edu/tess/target.php?id=777"]') || !/BY\+UV/.test(vt) || !/2\.3001 d/.test(vt) || !t.querySelector('img[src="files/plots/variables/TIC777.png"]')) fails.push('a star the owner checked is listed with type, period and its folded light curve');
+    env = await boot();
+    t = await env.tab('tess');
+    if (/Variable stars in the same light curves/.test(t.textContent)) fails.push('no variable-star card before the search has run');
+    report(26, 'TESS tab: a page at a time, and variable stars', fails);
   },
 };
 
