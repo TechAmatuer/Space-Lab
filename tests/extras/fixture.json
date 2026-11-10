@@ -5003,7 +5003,8 @@
    "n_measured": 1234,
    "n_group_measured": 567,
    "n_left_out": 3,
-   "virgo_dist": 16.6
+   "virgo_dist": 16.6,
+   "made": 1794300000.5
   }
  },
  "daily": {

@@ -87,8 +87,8 @@ async function boot({ extras = true, storage = {}, data = FIXTURE, hash = '', se
     return buf;
   };
   w.fetch = async u => { rec.fetches.push(String(u));
-    if (/galaxies\.bin$/.test(String(u))) return { ok: true, arrayBuffer: async () => uvBin() };
-    if (/galaxies\.txt$/.test(String(u))) return { ok: true, text: async () => UV_IDS.join('\n') + '\n' };
+    if (/galaxies\.bin(\?v=\d+)?$/.test(String(u))) return { ok: true, arrayBuffer: async () => uvBin() };
+    if (/galaxies\.txt(\?v=\d+)?$/.test(String(u))) return { ok: true, text: async () => UV_IDS.join('\n') + '\n' };
     return /zip\.txt$/.test(String(u)) ? { ok: true, text: async () => ZIPS } : /images-api\.nasa\.gov/.test(String(u)) ? { ok: true, json: async () => NASA } : { ok: true, json: async () => json, text: async () => JSON.stringify(json) }; };
   w.eval(read('web/public.js'));
   if (extras) {
@@ -712,6 +712,16 @@ const CHECKS = {
     env = await boot({ storage: { sl_atlas_ok: 'true', sl_atlas_mode: '"moon"' } });
     a = await env.tab('atlas');
     if (a.querySelector('.at-ask') || !a.querySelector('.at-world') || !/Apollo 11/.test(a.textContent)) fails.push('a returning visitor goes straight to the last map (the Moon, with Apollo sites)');
+    const afb = a.querySelector('.at-full');
+    if (!afb) fails.push('the atlas has a Full screen button');
+    else {
+      afb.click(); await sleep(5);
+      if (!a.classList.contains('sl-full') || !/Leave full screen/.test(afb.textContent) || !a.querySelector('.at-world')) fails.push('atlas full screen: the whole atlas fills the window, with its buttons');
+      afb.click(); await sleep(5);
+      if (a.classList.contains('sl-full') || a.classList.contains('sl-fs')) fails.push('the same button leaves full screen');
+    }
+    for (const o of env.w.SpaceLabAtlas.OVERLAYS) if (o[2].url && !/^https:\/\/(skies|cdn\.skies|esdchips)\.esac\.esa\.int\/|^https:\/\/alasky\.cds\.unistra\.fr\//.test(o[2].url)) fails.push('overlay from an unexpected server: ' + o[0]);
+    if (!env.w.SpaceLabAtlas.OVERLAYS.some(o => o[0] === 'sdss') || !env.w.SpaceLabAtlas.OVERLAYS.some(o => o[0] === 'webbesa')) fails.push('sharper picture layers (SDSS, Webb through ESA) are offered');
     const frame = read('web/atlas-frame.html');
     if (!/window\.origin === 'null'/.test(frame) || !/aladin-lite@\d+\.\d+\.\d+\/dist/.test(frame) || /latest/.test(frame.replace(/never "latest"/, ''))) fails.push('atlas-frame.html must refuse to run outside the sandbox and load a fixed viewer version');
     for (const p of env.w.SpaceLabAtlas.PLACES) if (!(p[2] >= 0 && p[2] < 360 && Math.abs(p[3]) <= 90 && p[4] > 0 && p[5] && p[6])) fails.push('bad place entry: ' + p[1]);
@@ -759,6 +769,11 @@ const CHECKS = {
     const U = env.w.SpaceLabUniverse;
     if (!U.data.ready || U.data.n !== 6 || U.data.ids[2] !== '13094770-2323017' || U.data.env[0] !== 3 || U.data.how[2] !== 2 || U.data.meth[4] !== 11) fails.push('galaxy file and name index read correctly');
     const oldFile = (await (await env.w.fetch('files/plots/universe/galaxies.bin')).arrayBuffer()).slice(0, 16 + 24 * 6);
+    if (!env.rec.fetches.some(f => /galaxies\.bin\?v=1794300001$/.test(f)) || !env.rec.fetches.some(f => /galaxies\.txt\?v=1794300001$/.test(f))) fails.push('the galaxy files are asked for with the build time, so a cached old copy is never mixed with new data: ' + env.rec.fetches.filter(f => /galax/.test(f)).join(' '));
+    for (const bad of ['x.bin?v=12&a=b', 'x.bin?v=abc', 'https://evil.example/x.bin?v=1']) {
+      const ok = await env.w.SpaceLab.loadBytes(bad).then(() => true, () => false);
+      if (ok) fails.push('only a numeric version may follow a file name: ' + bad);
+    }
     if (U.parseBin(oldFile).how.length !== 6 || U.parseBin(oldFile).how[2] !== 0 || U.parseBin(oldFile).cz[4] !== -300) fails.push('an older galaxy file (no distance-source bytes) still loads');
     const q = v.querySelector('.uv-q'), find = async t => { q.value = t; q.dispatchEvent(new env.w.Event('input')); await sleep(200); return [...v.querySelectorAll('.uv-results li')]; };
     let r = await find('M87');
@@ -856,6 +871,22 @@ const CHECKS = {
       at.click(); await sleep(30);
       const saved = JSON.parse(env.w.localStorage.getItem('sl_atlas_view') || 'null');
       if (!env.$('#v-atlas').classList.contains('on') || !saved || Math.abs(saved[0] - 187.7059) > 0.001 || Math.abs(saved[1] - 12.3911) > 0.001 || !(saved[2] > 0.1 && saved[2] < 1.5)) fails.push('"See its picture" opens the atlas on the galaxy: ' + JSON.stringify(saved));
+    }
+    // full screen (here: the fill-the-window way, as on an iPhone), auto-turn and picture quality
+    {
+      const fb = v.querySelector('.uv-full'), wrap = v.querySelector('.uv-wrap'), sp = v.querySelector('.uv-spin'), ql = v.querySelector('.uv-qual');
+      if (!fb || !sp || !ql) fails.push('the 3D map has Full screen, Auto-turn and Quality controls');
+      else {
+        fb.click(); await sleep(5);
+        if (!wrap.classList.contains('sl-full') || !wrap.querySelector('.uv-bar') || !/Leave full screen/.test(fb.textContent) || sp.getAttribute('aria-pressed') !== 'true') fails.push('full screen: the map fills the window, search and buttons ride along, the map turns by itself');
+        env.w.document.dispatchEvent(new env.w.KeyboardEvent('keydown', { key: 'Escape' })); await sleep(5);
+        if (wrap.classList.contains('sl-full') || wrap.querySelector('.uv-bar') || !v.querySelector('.uv-top .uv-bar') || sp.getAttribute('aria-pressed') !== 'false') fails.push('Esc leaves full screen and puts everything back');
+        sp.click(); await sleep(5);
+        if (sp.getAttribute('aria-pressed') !== 'true') fails.push('Auto-turn can be switched on by itself');
+        sp.click();
+        ql.value = 'fast'; ql.dispatchEvent(new env.w.Event('change'));
+        if (JSON.parse(env.w.localStorage.getItem('sl_uv_quality')) !== 'fast') fails.push('the quality choice is remembered');
+      }
     }
     env.w.location.hash = '#atlas';
     env.w.dispatchEvent(new env.w.Event('hashchange'));

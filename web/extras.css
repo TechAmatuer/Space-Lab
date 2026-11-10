@@ -212,3 +212,21 @@ button.b.at-mode.on,button.b.at-layer.on,button.b.at-alt.on{background:var(--acc
 .uv-tour{position:absolute;left:10px;bottom:10px;max-width:min(440px,calc(100% - 20px));background:rgba(12,16,26,.94);border:1px solid #2a3140;border-radius:10px;padding:10px 12px;z-index:4}
 .uv-tour p{margin:4px 0 8px}
 @media (max-width:600px){.uv-tour{left:6px;right:6px;bottom:6px;max-width:none}}
+
+/* full screen for the atlas, the 3D universe and the solar system */
+.sl-noscroll{overflow:hidden}
+.sl-full{position:fixed !important;inset:0;z-index:1000;margin:0 !important;max-width:none !important;max-height:none !important;height:100vh !important;height:100dvh !important;border-radius:0 !important}
+.uv-wrap.sl-fs,.ss-wrap.sl-fs{height:100vh;height:100dvh;max-height:none;margin:0;border:0;border-radius:0;width:100%}
+.uv-wrap.sl-fs .uv-bar,.ss-wrap.sl-fs .ss-bar{position:absolute;left:8px;right:8px;top:8px;z-index:5;background:rgba(8,11,19,.72);border-radius:10px;padding:6px 8px;backdrop-filter:blur(6px)}
+.uv-wrap.sl-fs .uv-read{top:auto;bottom:8px;right:auto;max-width:60%}
+.uv-wrap.sl-fs .uv-tour{bottom:40px}
+.uv-spin.on{border-color:var(--ok);color:var(--ok)}
+.uv-wrap{background:radial-gradient(ellipse at 50% 45%, #070a16 0%, #03040a 70%)}
+#v-atlas.sl-fs{display:flex;flex-direction:column;background:var(--bg);padding:8px;overflow:auto;position:relative}
+#v-atlas.sl-fs .at-top{margin:0;padding:6px 10px} #v-atlas.sl-fs .at-top h3,#v-atlas.sl-fs .at-top p{display:none}
+#v-atlas.sl-fs .at-stage{flex:1;display:flex;flex-direction:column;min-height:0;margin:6px 0 0;padding:8px}
+#v-atlas.sl-fs .at-map{flex:1;height:auto;max-height:none;min-height:220px}
+#v-atlas.sl-fs .at-places,#v-atlas.sl-fs .at-layerinfo,#v-atlas.sl-fs .at-ask{display:none}
+#v-atlas.sl-fs .at-set{margin:4px 0 0}
+#v-atlas.sl-fs .at-info{position:absolute;right:20px;bottom:20px;width:min(380px,calc(100% - 40px));max-height:45vh;overflow:auto;z-index:6;box-shadow:var(--shadow)} #v-atlas.sl-fs .at-info:empty{display:none}
+#v-atlas.sl-fs .sl-suggest{display:none}

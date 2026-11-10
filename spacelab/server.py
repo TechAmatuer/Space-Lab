@@ -25,6 +25,7 @@ from .jobs import JOBS
 WEB = config.ROOT / 'web'
 JOBQ = queue.Queue()
 QUEUED = set()
+ORDER = []                  # the queued jobs in the order they will run
 STATE = {'running': None, 'proc': None, 'started': time.time()}
 LOCK = threading.Lock()
 
@@ -39,6 +40,7 @@ def enqueue(job, trigger='schedule'):
         if job in QUEUED or STATE['running'] == job:
             return False
         QUEUED.add(job)
+        ORDER.append((job, trigger))
     JOBQ.put((job, trigger))
     log(f'queued {job} ({trigger})')
     return True
@@ -49,7 +51,9 @@ def worker():
         job, trigger = JOBQ.get()
         with LOCK:
             QUEUED.discard(job)
+            ORDER[:] = [x for x in ORDER if x[0] != job]
             STATE['running'] = job
+            STATE['run_started'], STATE['run_trigger'] = time.time(), trigger
         con = db.connect()
         cfg = config.load()
         jd = config.LOGS / job
@@ -241,6 +245,49 @@ def j(x):
     return json.loads(x) if isinstance(x, str) and x[:1] in '[{' else x
 
 
+def typical_seconds(con, job, trigger=None):
+    """How long this job usually takes: the middle value of its last finished runs, of the same kind of start when there
+    are enough (a background run is much shorter than the nightly one). Returns (seconds or None, runs counted)."""
+    rows = db.rows(con, "SELECT finished - started AS d, trigger FROM runs WHERE job=? AND status='ok' AND finished IS NOT NULL "
+                        'ORDER BY id DESC LIMIT 12', (job,))
+    same = [r['d'] for r in rows if r['trigger'] == trigger]
+    ds = sorted(same if len(same) >= 3 else [r['d'] for r in rows])
+    return (ds[len(ds) // 2] if ds else None), len(ds)
+
+
+def eta(con, cfg, now=None):
+    """Countdown for Meridian: the running job (when it started, how long it usually takes, the longest it may run) and the
+    queued jobs in order with their usual length."""
+    now = now or time.time()
+    out = {'running': None, 'queue': [], 'total': None}
+    left = 0.0
+    known = True
+    job = STATE.get('running')
+    if job:
+        typ, n = typical_seconds(con, job, STATE.get('run_trigger'))
+        budget = (cfg.get(job) or {}).get('time_budget_min') if isinstance(cfg.get(job), dict) else None
+        if budget and STATE.get('run_trigger') == 'full-time mode':
+            budget = min(float(budget), 50.0)
+        started = STATE.get('run_started') or now
+        out['running'] = {'job': job, 'started': started, 'typical': typ, 'n': n, 'budget': budget * 60 if budget else None}
+        if typ is None:
+            known = False
+        else:
+            left += max(0.0, typ - (now - started))
+    with LOCK:
+        order = list(ORDER)
+    for q, trig in order:
+        typ, n = typical_seconds(con, q, trig)
+        out['queue'].append({'job': q, 'typical': typ, 'n': n})
+        if typ is None:
+            known = False
+        else:
+            left += typ
+    if (job or order) and known:
+        out['total'] = left
+    return out
+
+
 def state():
     con = db.connect()
     cfg = config.load()
@@ -253,7 +300,7 @@ def state():
         runs[job] = r
     done_today = con.execute("SELECT COUNT(*) FROM tasks WHERE status='done' AND updated > ?", (time.time() - 86400,)).fetchone()[0]
     return {'now': time.time(), 'brief': db.kv_get(con, 'brief'), 'tasks': tasks, 'runs': runs, 'done_today': done_today,
-            'running': STATE['running'], 'queue': sorted(QUEUED), 'schedule': cfg['schedule'], 'always_on': bool(cfg.get('always_on')),
+            'running': STATE['running'], 'queue': [x[0] for x in ORDER], 'eta': eta(con, cfg), 'schedule': cfg['schedule'], 'always_on': bool(cfg.get('always_on')),
             'jobs': {k: v[1] for k, v in JOBS.items()}, 'inbox': str(config.EXO_INBOX),
             'profile': {k: cfg.get(k) for k in ('observer_name', 'aavso_code', 'contact_email', 'sarc_verified')},
             'selftest': db.kv_get(con, 'selftest'), 'disk': db.kv_get(con, 'disk'), 'contributions': db.contributions(con),

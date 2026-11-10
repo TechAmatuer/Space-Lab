@@ -233,9 +233,14 @@
     if (!gl) return null;
     const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
     const prog = (vs, fs) => { const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(p); return p; };
-    const pts = prog(`attribute vec3 p; attribute vec3 c; attribute float s; uniform mat4 M; uniform vec3 eye; uniform float k; uniform float dpr; varying vec3 vc; varying float va;
-      void main(){ gl_Position = M * vec4(p,1.0); float d = max(distance(p, eye), 0.5); float px = s * k / d; gl_PointSize = clamp(px, 2.2 * dpr, 26.0 * dpr); vc = c; va = clamp(px / (3.0 * dpr), 0.55, 1.0); }`,
-      `precision mediump float; varying vec3 vc; varying float va; void main(){ vec2 q = gl_PointCoord - 0.5; float r = dot(q,q) * 4.0; if (r > 1.0) discard; gl_FragColor = vec4(vc * va * (0.25 + 1.1 * exp(-r * 2.5)), 1.0); }`);
+    // hq = 1 (high quality): every galaxy is a sharp core inside a soft glow, on a bigger sprite; hq = 0: a plain soft dot
+    const pts = prog(`attribute vec3 p; attribute vec3 c; attribute float s; uniform mat4 M; uniform vec3 eye; uniform float k; uniform float dpr; uniform float hq; varying vec3 vc; varying float va;
+      void main(){ gl_Position = M * vec4(p,1.0); float d = max(distance(p, eye), 0.5); float px = s * k / d; float g = 1.0 + 1.2 * hq;
+        gl_PointSize = clamp(px * g, (2.2 + 2.3 * hq) * dpr, (26.0 + 38.0 * hq) * dpr); vc = c; va = clamp(px / (3.0 * dpr), 0.55, 1.0); }`,
+      `precision mediump float; varying vec3 vc; varying float va; uniform float hq; void main(){ vec2 q = gl_PointCoord - 0.5; float r = dot(q,q) * 4.0; if (r > 1.0) discard;
+        float soft = 0.25 + 1.1 * exp(-r * 2.5);
+        float fine = (1.45 * exp(-r * 13.0) + 0.20 * exp(-r * 3.2)) * (1.0 - r) + 0.05 * (1.0 - r) * (1.0 - r);
+        gl_FragColor = vec4(vc * va * mix(soft, fine, hq), 1.0); }`);
     const lines = prog(`attribute vec3 p; uniform mat4 M; void main(){ gl_Position = M * vec4(p,1.0); }`,
       `precision mediump float; uniform vec4 col; void main(){ gl_FragColor = col; }`);
     const buf = data => { const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW); return b; };
@@ -251,8 +256,10 @@
   }
   function draw() {
     if (!V || !V.glx) return;
-    const { gl, pts, lines } = V.glx, cv = V.canvas, dpr = Math.min(2, window.devicePixelRatio || 1);
+    const { gl, pts, lines } = V.glx, cv = V.canvas, hq = LS.get('sl_uv_quality', 'high') !== 'fast';
     const w = cv.clientWidth, h = cv.clientHeight;
+    // high quality draws at the screen's full sharpness (up to 3x), never more than about 9 million pixels
+    const dpr = Math.min(hq ? 3 : 1.5, window.devicePixelRatio || 1, Math.max(1, Math.sqrt(9e6 / Math.max(1, w * h))));
     if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
     gl.viewport(0, 0, cv.width, cv.height);
     gl.clearColor(0.012, 0.016, 0.03, 1); gl.clear(gl.COLOR_BUFFER_BIT);
@@ -273,6 +280,7 @@
     gl.uniform3fv(gl.getUniformLocation(pts, 'eye'), vp.eye);
     gl.uniform1f(gl.getUniformLocation(pts, 'k'), cv.height / 2 / Math.tan(V.cam.fov / 2));
     gl.uniform1f(gl.getUniformLocation(pts, 'dpr'), dpr);
+    gl.uniform1f(gl.getUniformLocation(pts, 'hq'), hq ? 1 : 0);
     for (const [nm, b, sz] of [['p', V.glx.pos, 3], ['c', V.glx.col, 3], ['s', V.glx.size, 1]]) { a = gl.getAttribLocation(pts, nm); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.enableVertexAttribArray(a); gl.vertexAttribPointer(a, sz, gl.FLOAT, false, 0, 0); }
     gl.drawArrays(gl.POINTS, 0, G.n);
     gl.disable(gl.BLEND);
@@ -321,6 +329,11 @@
       V.cam.t = [0, 1, 2].map(k => a.t[k] + (a.t2[k] - a.t[k]) * e);
       V.cam.d = Math.exp(Math.log(a.d) + (Math.log(a.d2) - Math.log(a.d)) * e);
       if (f >= 1) V.anim = null; else more = true;
+    }
+    if (V.spin && V.cam.mode === 'orbit' && !V.anim && !V.hold) {       // slow turn around the supergalactic pole
+      const m = (U() || {}).eq_to_sg || [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+      V.cam.q = qnorm(qmul(qaxis(m[2], dt * 0.07), V.cam.q));
+      more = true;
     }
     if (V.cam.mode === 'fly') {
       const k = V.keys, sp = (k.shift ? 4 : 1) * Math.max(8, Math.hypot(...V.cam.eye) * 0.35) * dt;
@@ -590,7 +603,8 @@
     if (G.ready || G.loading) return G.loading;
     const u = U();
     G.loading = (async () => {
-      const [buf, txt] = await Promise.all([S.loadBytes(u.bin), S.load(u.txt)]);
+      const ver = u.made ? '?v=' + Math.round(u.made) : '';          // a new build is a new address: no stale copy from a cache
+      const [buf, txt] = await Promise.all([S.loadBytes(u.bin + ver), S.load(u.txt + ver)]);
       const bin = parseBin(buf);
       Object.assign(G, bin, parseTxt(txt, bin.version === 2 ? bin.n : 0));
       if (G.ids.length !== G.n) throw new Error('the galaxy files do not match; they will be rebuilt');
@@ -610,7 +624,9 @@
         <div class="row uv-bar"><div class="uv-search"><input type="search" class="uv-q" placeholder="Search: Whirlpool, M87, NGC 4993, Coma, Boötes Void, 2MASS ID" aria-label="Search galaxies, clusters and voids"><ul class="uv-results"></ul></div>
           <button class="b uv-mode">Orbit mode (F)</button>
           <select class="uv-color" aria-label="Colour the galaxies by"><option value="env">Colour: cosmic web</option><option value="dist">Colour: distance</option><option value="type">Colour: galaxy type</option></select>
-          <button class="b uv-home-btn">Home (H)</button><button class="b uv-view">Share this view</button><button class="b primary uv-tour-btn">▶ Take the tour</button></div></div>
+          <button class="b uv-home-btn">Home (H)</button><button class="b uv-view">Share this view</button><button class="b primary uv-tour-btn">▶ Take the tour</button>
+          <button class="b uv-spin" aria-pressed="false" title="Turn the map slowly by itself">⟳ Auto-turn</button><button class="b primary uv-full">⛶ Full screen</button>
+          <select class="uv-qual" aria-label="Picture quality"><option value="high">Quality: high</option><option value="fast">Quality: fast (older phones)</option></select></div></div>
       <div class="uv-wrap"><canvas class="uv-canvas" aria-label="3D map of about 43,500 galaxies. Use search to find one."></canvas><div class="uv-labels"></div>
         <div class="uv-read small mono"></div><div class="uv-joy" hidden><span></span></div><div class="uv-cardbox"></div><div class="uv-tour" hidden></div>
         <div class="uv-loading small">Loading ${Number(u.n).toLocaleString()} galaxies…</div></div>
@@ -644,6 +660,22 @@
         if (sn) { tourEnd(); V.el.querySelector('.uv-cardbox').innerHTML = snCard(+sn.dataset.s); wireCard(); }
       });
       el.querySelector('.uv-tour-btn').addEventListener('click', tourStart);
+      const spinB = el.querySelector('.uv-spin'), qual = el.querySelector('.uv-qual'), wrap = el.querySelector('.uv-wrap'), bar = el.querySelector('.uv-bar'), barHome = bar.parentNode;
+      const setSpin = on => { V.spin = on; spinB.setAttribute('aria-pressed', on ? 'true' : 'false'); spinB.classList.toggle('on', on); V.last = 0; redraw(); };
+      spinB.addEventListener('click', () => setSpin(!V.spin));
+      V.canvas.addEventListener('pointerdown', () => { V.hold = true; });
+      for (const ev of ['pointerup', 'pointercancel']) V.canvas.addEventListener(ev, () => { V.hold = false; if (V.spin) redraw(); });
+      qual.value = LS.get('sl_uv_quality', 'high') === 'fast' ? 'fast' : 'high';
+      qual.addEventListener('change', () => { LS.set('sl_uv_quality', qual.value); redraw(); });
+      // full screen: the map fills the screen, the search and buttons ride along on top, and the map turns slowly by itself
+      if (window.SpaceLabFull) {
+        let spunByFs = false;
+        window.SpaceLabFull(wrap, el.querySelector('.uv-full'), on => {
+          if (on) { wrap.appendChild(bar); if (!V.spin) { spunByFs = true; setSpin(true); } S.track('universe/fullscreen', true); }
+          else { barHome.appendChild(bar); if (spunByFs) { spunByFs = false; setSpin(false); } }
+          redraw();
+        });
+      } else el.querySelector('.uv-full').hidden = true;
       const sn = supernovae(), note = el.querySelector('.uv-snnote');
       if (note) note.textContent = G.snAll ? ` ✷ ${sn.length} of the ${G.snAll} newest supernova candidates (ALeRCE) went off in a galaxy of this map; the rest are farther away.`
         + ' Gravitational-wave alerts are not pinned: each comes with a patch of sky hundreds of square degrees wide and no galaxy. The one that had a galaxy, GW170817, is NGC 4993: search for it.' : '';

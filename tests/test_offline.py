@@ -1445,6 +1445,36 @@ def variable_stars_found_checked_and_prepared_for_vsx():
 
 
 @test
+def countdown_for_running_and_queued_jobs():
+    from spacelab import server, db
+    con = db.connect()
+    con.execute("DELETE FROM runs WHERE job IN ('zz_a', 'zz_b', 'zz_c')")
+    t0 = 1.0e9
+    for k, (d, trig) in enumerate([(600, 'schedule'), (3000, 'schedule'), (480, 'full-time mode'), (500, 'full-time mode'), (520, 'full-time mode'), (4000, 'schedule')]):
+        con.execute('INSERT INTO runs(job, started, finished, status, trigger) VALUES(?,?,?,?,?)', ('zz_a', t0 + k, t0 + k + d, 'ok', trig))
+    con.execute('INSERT INTO runs(job, started, finished, status, trigger) VALUES(?,?,?,?,?)', ('zz_a', t0 + 50, t0 + 51, 'error', 'full-time mode'))
+    con.execute('INSERT INTO runs(job, started, finished, status, trigger) VALUES(?,?,?,?,?)', ('zz_b', t0, t0 + 40, 'ok', 'you'))
+    assert server.typical_seconds(con, 'zz_a', 'full-time mode') == (500, 3)          # background runs judged by background runs
+    assert server.typical_seconds(con, 'zz_a', 'you') == (600, 6)                     # too few of that kind: all finished runs
+    assert server.typical_seconds(con, 'zz_c') == (None, 0)
+    old = dict(server.STATE), list(server.ORDER)
+    try:
+        server.STATE.update(running='zz_a', run_started=t0 + 9000, run_trigger='full-time mode')
+        server.ORDER[:] = [('zz_b', 'you')]
+        e = server.eta(con, {'zz_a': {'time_budget_min': 120}}, now=t0 + 9100)
+        assert e['running']['typical'] == 500 and e['running']['budget'] == 3000 and e['queue'] == [{'job': 'zz_b', 'typical': 40, 'n': 1}], e
+        assert abs(e['total'] - 440) < 1e-6, e                                         # 400 s left of this one + 40 s for the next
+        server.ORDER[:] = [('zz_b', 'you'), ('zz_c', 'you')]
+        assert server.eta(con, {}, now=t0 + 9100)['total'] is None                     # a job that never ran: no promise
+        server.STATE.update(running=None)
+        server.ORDER[:] = []
+        assert server.eta(con, {}) == {'running': None, 'queue': [], 'total': None}
+    finally:
+        server.STATE.clear(); server.STATE.update(old[0]); server.ORDER[:] = old[1]
+    con.execute("DELETE FROM runs WHERE job IN ('zz_a', 'zz_b', 'zz_c')")
+
+
+@test
 def radar_never_lists_the_same_story_twice():
     from spacelab import radar, news
     # arXiv ids are read from the article's own text and links (Universe Today links the paper it covers)

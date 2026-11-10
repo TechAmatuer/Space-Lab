@@ -30,10 +30,10 @@ window.SpaceLab = {
   weather: (lat, lon) => fetch(`https://api.open-meteo.com/v1/forecast?latitude=${(+lat).toFixed(1)}&longitude=${(+lon).toFixed(1)}&hourly=cloud_cover&forecast_days=2&timeformat=unixtime&timezone=auto`)
     .then(r => (r.ok ? r.json() : Promise.reject(new Error('weather service: HTTP ' + r.status)))),
   // load a file from this same site (never another site), e.g. the ZIP code table for the dark-sky finder
-  load: p => /^[A-Za-z0-9_./-]+$/.test(p) && !p.includes('..') && !p.startsWith('/')
+  load: p => /^[A-Za-z0-9_./-]+(\?v=[0-9]+)?$/.test(p) && !p.includes('..') && !p.startsWith('/')
     ? fetch(p).then(r => (r.ok ? r.text() : Promise.reject(new Error('HTTP ' + r.status)))) : Promise.reject(new Error('only files from this site')),
   // the same, as raw bytes (the 3D universe's galaxy file)
-  loadBytes: p => /^[A-Za-z0-9_./-]+$/.test(p) && !p.includes('..') && !p.startsWith('/')
+  loadBytes: p => /^[A-Za-z0-9_./-]+(\?v=[0-9]+)?$/.test(p) && !p.includes('..') && !p.startsWith('/')
     ? fetch(p).then(r => (r.ok ? r.arrayBuffer() : Promise.reject(new Error('HTTP ' + r.status)))) : Promise.reject(new Error('only files from this site')),
   onRender(fn) { HOOKS.push(fn); },
   showTic: tic => showTic(tic),                      // the card of TESS candidate `tic`, shown even if it was on a later page                   // fn(tabName, viewElement, data) after every tab render

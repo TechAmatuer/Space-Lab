@@ -35,10 +35,10 @@ window.SpaceLab = {
   weather: (lat, lon) => fetch(`https://api.open-meteo.com/v1/forecast?latitude=${(+lat).toFixed(1)}&longitude=${(+lon).toFixed(1)}&hourly=cloud_cover&forecast_days=2&timeformat=unixtime&timezone=auto`)
     .then(r => (r.ok ? r.json() : Promise.reject(new Error('weather service: HTTP ' + r.status)))),
   // load a file from this same site (never another site), e.g. the ZIP code table for the dark-sky finder
-  load: p => /^[A-Za-z0-9_./-]+$/.test(p) && !p.includes('..') && !p.startsWith('/')
+  load: p => /^[A-Za-z0-9_./-]+(\?v=[0-9]+)?$/.test(p) && !p.includes('..') && !p.startsWith('/')
     ? fetch(p).then(r => (r.ok ? r.text() : Promise.reject(new Error('HTTP ' + r.status)))) : Promise.reject(new Error('only files from this site')),
   // the same, as raw bytes (the 3D universe's galaxy file)
-  loadBytes: p => /^[A-Za-z0-9_./-]+$/.test(p) && !p.includes('..') && !p.startsWith('/')
+  loadBytes: p => /^[A-Za-z0-9_./-]+(\?v=[0-9]+)?$/.test(p) && !p.includes('..') && !p.startsWith('/')
     ? fetch(p).then(r => (r.ok ? r.arrayBuffer() : Promise.reject(new Error('HTTP ' + r.status)))) : Promise.reject(new Error('only files from this site')),
   onRender(fn) { HOOKS.push(fn); },
   addTab(id, title, render) {
@@ -143,16 +143,51 @@ function afterRender() {
 }
 
 // ------------------------------------------------------------------ state + today
+// Countdown: how long the running job and the queue should still take, from how long each job usually takes.
+const dur = s => s < 90 ? `${Math.max(1, Math.round(s))} s` : s < 5400 ? `${Math.round(s / 60)} min` : `${(s / 3600).toFixed(1)} h`;
+function etaText(st, long) {
+  const e = st && st.eta, r = e && e.running;
+  if (!e || (!r && !(e.queue || []).length)) return '';
+  const now = Date.now() / 1000 + (S.clockOff || 0), parts = [];
+  if (r) {
+    const el = now - r.started;
+    if (r.typical == null) parts.push(`running for ${dur(el)} (first run, no estimate yet)`);
+    else if (el <= r.typical) parts.push(`about ${dur(r.typical - el)} left${long ? ` (usually takes ${dur(r.typical)})` : ''}`);
+    else { parts.push(`taking longer than usual: ${dur(el)} so far, usually ${dur(r.typical)}${r.budget && el < r.budget ? `, at most ${dur(r.budget - el)} more` : ''}`); }
+  }
+  if (long && (e.queue || []).length) parts.push('then ' + e.queue.map(q => `${st.jobs[q.job] || q.job}${q.typical != null ? ` (about ${dur(q.typical)})` : ''}`).join(', '));
+  const rest = (r ? (r.typical == null ? NaN : Math.max(0, r.typical - (now - r.started))) : 0) + (e.queue || []).reduce((a, q) => a + (q.typical == null ? NaN : q.typical), 0);
+  if (isFinite(rest) && (long || (e.queue || []).length) && (rest > 0 || (e.queue || []).length)) {
+    parts.push(`${(e.queue || []).length ? 'everything' : 'it'} should be done around ${new Date(Date.now() + rest * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`);
+  }
+  return parts.join(' · ');
+}
+function tickStatus() {
+  const st = S.state;
+  if (!st) return;
+  const busy = !!st.running, e = etaText(st, false);
+  $('#statusText').textContent = busy ? `running: ${st.jobs[st.running]}` + (e ? ` · ${e}` : '') + (st.queue.length ? ` · ${st.queue.length} queued` : '') : 'idle · next jobs tonight';
+  const box = $('#nowRunning');
+  if (box) {
+    const long = etaText(st, true), r = st.runs[st.running] || {};
+    box.hidden = !busy && !st.queue.length;
+    box.innerHTML = busy || st.queue.length ? `<div class="row"><h3>⏳ ${busy ? esc(st.jobs[st.running]) : 'Waiting to start'}</h3><span class="spacer"></span><span class="chip warn">${busy ? 'running now' : 'queued'}</span></div>
+      <div class="nr-bar"><i style="width:${(() => { const x = st.eta && st.eta.running; if (!x || x.typical == null) return 8; return Math.max(3, Math.min(100, (Date.now() / 1000 + (S.clockOff || 0) - x.started) / x.typical * 100)); })()}%"></i></div>
+      <p style="margin:6px 0 2px"><b>${esc(long)}</b></p>${busy && r.summary && r.summary !== 'starting…' ? `<p class="small muted" style="margin:0">Right now: ${esc(r.summary)}</p>` : ''}` : '';
+  }
+}
+
 async function refreshState() {
   try {
     const st = await api('api/state');
     S.state = st;
+    S.clockOff = st.now - Date.now() / 1000;                       // the server's clock, in case this browser's differs
     const n = st.tasks.length;
     $('#nTasks').hidden = !n; $('#nTasks').textContent = n;
     const busy = !!st.running;
     $('#status').classList.toggle('busy', busy);
-    $('#statusText').textContent = busy ? `running: ${st.jobs[st.running]}` + (st.queue.length ? ` · ${st.queue.length} queued` : '') : 'idle · next jobs tonight';
     if (S.tab === 'today') renderToday(st);
+    tickStatus();
     return st;
   } catch (e) {
     $('#statusText').textContent = 'server not reachable';
@@ -199,7 +234,7 @@ function renderToday(st) {
   const house = `<div class="grid g2"><div class="card"><h3>📊 Your contributions</h3><div class="kv"><b>Stars searched</b><span>${co.stars_searched ?? '—'}</span><b>Candidates you reviewed</b><span>${co.tess_reviewed ?? '—'} (${co.tess_planet_like ?? 0} planet-like)</span><b>Asteroid sightings checked</b><span>${co.asteroid_sightings_checked ?? '—'}</span><b>Exoplanet Watch light curves</b><span>${co.exowatch_reduced ?? '—'}</span><b>Results submitted</b><span>${co.uploads_done ?? '—'}</span></div></div>
     ${st.visitors ? `<div class="card"><h3>👀 Website visitors</h3><p><b>${st.visitors.visitors ?? '—'}</b> visitors in the last ${st.visitors.days} days${st.visitors.events ? `, ${st.visitors.events} votes and clicks` : ''}.</p><a class="b" href="${esc(st.visitors.url)}" target="_blank" rel="noopener">Open your visitor stats ↗</a></div>` : ''}
     <div class="card"><h3>💾 Storage</h3>${dk ? `<div class="kv"><b>Space Lab data</b><span>${dk.total_gb} GB</span><b>Free on this Mac</b><span>${dk.free_gb} GB</span><b>Largest parts</b><span>${(dk.largest || []).map(x => esc(x[0]) + ' ' + x[1] + ' GB').join(', ')}</span></div><p class="small muted">Temporary downloads older than 60 days are cleaned up and the database is backed up every night (7 copies kept in data/backups).</p>` : '<p class="small muted">Measured after the next Sky watch run.</p>'}</div></div>`;
-  $('#todayBody').innerHTML = `${brief}<h2>Your tasks (${st.tasks.length})</h2>${tasks}<h2>What your computer does</h2><div class="grid g3">${runs}</div>${house}`;
+  $('#todayBody').innerHTML = `<div class="card" id="nowRunning" hidden></div>${brief}<h2>Your tasks (${st.tasks.length})</h2>${tasks}<h2>What your computer does</h2><div class="grid g3">${runs}</div>${house}`;
 }
 
 // ------------------------------------------------------------------ arXiv
@@ -762,4 +797,5 @@ function start_() {
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start_); else start_();
 setInterval(() => { if (document.visibilityState === 'visible') loadPublicData(); }, 300000);
 setInterval(refreshState, 20000);
+setInterval(tickStatus, 1000);
 setInterval(() => { if (document.visibilityState === 'visible' && ['tess', 'asteroids', 'exowatch'].includes(S.tab) && !Object.values(S.starClicks).some(a => a.length)) load(S.tab); }, 90000);

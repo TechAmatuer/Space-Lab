@@ -99,3 +99,6 @@ nav.tabs button{white-space:nowrap}
   .g2,.g3{grid-template-columns:1fr}
   .status{font-size:11px}
 }
+
+.nr-bar{height:6px;border-radius:3px;background:rgba(127,127,127,.25);overflow:hidden;margin-top:8px}
+.nr-bar i{display:block;height:100%;background:var(--warn);border-radius:3px;transition:width 1s linear}

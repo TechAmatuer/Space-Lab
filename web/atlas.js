@@ -16,6 +16,33 @@
   const ESA = 'https://skies.esac.esa.int/', ESDC = 'https://esdchips.esac.esa.int/', TREK = 'https://trek.nasa.gov/tiles/';
   const NASA_API = 'https://images-api.nasa.gov/search', NASA_FILES = 'https://images-assets.nasa.gov/';
 
+  // ------------------------------------------------------------------ full screen (shared with the 3D universe and the solar system)
+  // Uses the browser's full screen where it exists; on iPhones (no full screen for page parts) and inside a frame that may
+  // not use it, the box fills the whole window instead. Esc or the same button leaves. onChange(isFull) after every change.
+  function fullScreen(el, btn, onChange) {
+    const isOn = () => document.fullscreenElement === el || el.classList.contains('sl-full');
+    const upd = () => {
+      const on = isOn();
+      el.classList.toggle('sl-fs', on);
+      btn.textContent = on ? '✕ Leave full screen' : '⛶ Full screen';
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      if (onChange) onChange(on);
+    };
+    const leave = () => { if (document.fullscreenElement === el && document.exitFullscreen) document.exitFullscreen(); el.classList.remove('sl-full'); document.documentElement.classList.remove('sl-noscroll'); upd(); };
+    const fill = () => { el.classList.add('sl-full'); document.documentElement.classList.add('sl-noscroll'); upd(); };
+    btn.addEventListener('click', () => {
+      if (isOn()) return leave();
+      let p = null;
+      try { p = el.requestFullscreen ? el.requestFullscreen() : null; } catch (_) { p = null; }
+      if (p && p.then) p.then(upd, fill); else if (!p) fill();
+    });
+    document.addEventListener('fullscreenchange', upd);
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && el.classList.contains('sl-full')) leave(); });
+    upd();
+    return { isOn, leave };
+  }
+  window.SpaceLabFull = fullScreen;
+
   // ------------------------------------------------------------------ what the atlas knows
   const LAYERS = [    // whole-sky pictures in different kinds of light
     ['vis', 'Visible light', { url: ESA + 'DSSColor' }, 'The sky as a big telescope camera sees it (Digitized Sky Survey, STScI/NASA).'],
@@ -28,6 +55,11 @@
   const OVERLAYS = [  // sharper pictures that cover only some spots; shown on top of the sky
     ['hst', 'Hubble photos', { id: 'CDS/P/HST/EPO' }, 'Hubble\'s public colour pictures placed where they belong on the sky (ESA/Hubble, via CDS).'],
     ['jwst', 'Webb photos', { url: 'https://alasky.cds.unistra.fr/JWST-outreach/CDS_P_JWST_EPO' }, 'James Webb\'s public pictures placed on the sky (ESA/Webb, via CDS).'],
+    ['sdss', 'Sharper sky (SDSS)', { url: ESA + 'SDSS9Color' }, 'The Sloan survey: about four times sharper than the whole-sky picture, over a third of the sky (mostly the northern spring and autumn sky).', [184.74, 47.30, 0.6]],
+    ['hstesa', 'Hubble (all cameras)', { url: ESA + 'HST/WFC3' }, 'Every public picture taken with Hubble\'s main camera, where it was taken (ESA Sky). The sharpest views there are, in small patches.', [83.82, -5.39, 0.25]],
+    ['webbesa', 'Webb (near-infrared)', { url: ESA + 'JWST/NIRCam_Imaging' }, 'Everything James Webb\'s main camera has photographed, where it was taken (ESA Sky). Small patches, extreme detail.', [16.94, -17.50, 0.08]],
+    ['euclidn', 'Euclid deep field North', { url: 'https://cdn.skies.esac.esa.int/Q1-EDFN-R4-PNG-RGB_HIPS/' }, 'ESA Euclid\'s northern deep field. Zoom in: nearly every dot is a galaxy.', [269.73, 66.02, 1.5]],
+    ['euclidf', 'Euclid deep field Fornax', { url: 'https://cdn.skies.esac.esa.int/Q1-EDFF-R4-PNG-RGB_HIPS/' }, 'ESA Euclid\'s deep field in Fornax, around the Chandra Deep Field South.', [52.93, -28.09, 1.2]],
     ['euclid', 'Euclid deep field', { url: 'https://cdn.skies.esac.esa.int/Q1-EDFS-R4-PNG-RGB_HIPS/' }, 'ESA Euclid\'s first deep field. Zoom in: nearly every dot is a galaxy.', [61.24, -48.42, 1.2]],
     ['xray', 'X-rays', { url: ESDC + 'XMM-Newton/EPIC-RGB/' }, 'Million-degree gas, black holes and dead stars, in the patches ESA\'s XMM-Newton has looked at.'],
   ];
@@ -347,10 +379,11 @@
     const modes = [['sky', '🌌 Night sky'], ...Object.entries(WORLDS).map(([k, w]) => [k, `${w.icon} ${w.name}`]), ['photos', '📷 NASA photos']];
     el.innerHTML = `<div class="card at-top"><h3>🗺️ Space atlas: a map app for space</h3>
         <p class="small">Drag to move, scroll or pinch to zoom. Fly to famous nebulas and galaxies, switch between kinds of light, see where this lab's finds are, or wander over the Moon and Mars to the landing sites.</p>
-        <div class="at-set at-modes">${modes.map(m => `<button class="b at-mode" data-m="${m[0]}">${esc(m[1])}</button>`).join('')}</div></div>
+        <div class="at-set at-modes">${modes.map(m => `<button class="b at-mode" data-m="${m[0]}">${esc(m[1])}</button>`).join('')}<span class="spacer"></span><button class="b primary at-full">⛶ Full screen</button></div></div>
       ${agreed() ? '' : `<div class="card at-ask"><p><b>Before the maps load:</b> the map pictures and photos come straight from NASA, the European Space Agency and the CDS astronomy data centre in France, and the sky-map viewer (Aladin Lite, open source) from the jsDelivr network. Like any website, those servers see your internet address. Space Lab sends them nothing else: your saved place and your lists stay in your browser.</p>
         <button class="b primary at-yes">Open the atlas</button></div>`}
       <div class="card at-stage"></div><div class="card at-info"></div>`;
+    fullScreen(el, el.querySelector('.at-full'), on => { if (on) S.track('atlas/fullscreen', true); window.dispatchEvent(new Event('resize')); });
     const start = () => { const m = LS.get('sl_atlas_mode', 'sky'); open(m === 'sky' || m === 'photos' || WORLDS[m] ? m : 'sky'); };
     el.querySelectorAll('.at-mode').forEach(b => b.addEventListener('click', () => { if (agreed()) open(b.dataset.m); else { LS.set('sl_atlas_mode', b.dataset.m); el.querySelector('.at-yes').focus(); } }));
     const yes = el.querySelector('.at-yes');
