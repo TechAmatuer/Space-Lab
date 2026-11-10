@@ -184,7 +184,7 @@ def build_data(con, cfg):
     uv = db.kv_get(con, 'universe') or {}
     if f(uv.get('bin')) and f(uv.get('txt')):          # the 3D universe (spacelab/universe.py): files on this site, details in data.json
         beyond['universe'] = {**{k: uv.get(k) for k in ('n', 'made', 'h0', 'env_counts', 'landmarks', 'famous', 'blueshift', 'blueshift_note',
-                                                         'messier', 'eq_to_sg', 'max_dist', 'n_in_groups', 'method')},
+                                                         'messier', 'eq_to_sg', 'max_dist', 'n_in_groups', 'method', 'near_note')},
                               'bin': f(uv['bin']), 'txt': f(uv['txt'])}
     for k in ('darksky', 'zip'):                     # map the saved files to their public address
         if isinstance(beyond.get(k), dict):

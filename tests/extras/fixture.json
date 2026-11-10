@@ -4922,7 +4922,15 @@
      "name": "Andromeda Galaxy",
      "cat": "NGC 224",
      "id": "00424433+4116074",
-     "cz": -300
+     "cz": -300,
+     "why": "blue"
+    },
+    {
+     "name": "Sculptor Galaxy",
+     "cat": "NGC 253",
+     "id": "00473313-2517196",
+     "cz": 243,
+     "why": "near"
     }
    ],
    "blueshift_note": "It is moving towards us, so its light is blueshifted.",
@@ -4949,7 +4957,8 @@
    ],
    "max_dist": 300,
    "n_in_groups": 2,
-   "method": "test"
+   "method": "test",
+   "near_note": "It is so close that its own motion matters more than the expansion of the universe."
   }
  },
  "daily": {

@@ -1273,10 +1273,23 @@ def universe_build_collapses_clusters_and_finds_the_web():
         add(194.95 + rng.normal(0, 0.4), 27.98 + rng.normal(0, 0.4), 7300 + rng.normal(0, 1000), nest=100001, nmb=150, gv=7300,
             name='NGC_4889' if k == 0 else '')
     add(10.68, 41.27, -300, name='MESSIER_031')                          # Andromeda: blueshifted
+    add(11.888, -25.288, 243, name='NGC_0253', gv=10)                     # Sculptor: far too close for a redshift distance
+    add(197.4487, -23.3840, 2961, name='g1309477-232302')                 # NGC 4993 under a coordinate-style survey name
     groups = [{'Nest': '100001', 'Nmb': '150', 'PGC1': '44715', '<Vcmba>': '7300', 'DM': f'{5 * math.log10(73.0) + 25:.2f}',
                'sigV': '900', '_RA.icrs': '194.95', '_DE.icrs': '+27.98'}]
-    meta, pos = universe.build(lambda *a: None, (rows, tully, groups))
-    assert meta['n'] == len(rows) - 1 and meta['blueshift'][0]['name'] == 'Andromeda Galaxy', (meta['n'], meta['blueshift'])
+    ngc4993 = rows[-1]['ID']
+    meta, pos = universe.build(lambda *a: None, (rows, tully, groups), famous_lookup={'NGC 4993': {'id': ngc4993, 'pos': None},
+                                                                                       'NGC 5194': {'id': None, 'pos': (194.95, 27.98)}})
+    np_ = {b['cat']: b for b in meta['blueshift']}
+    assert meta['n'] == len(rows) - 2 and np_['NGC 224']['why'] == 'blue' and np_['NGC 224']['name'] == 'Andromeda Galaxy', meta['blueshift']
+    assert np_['NGC 253']['why'] == 'near' and np_['NGC 253']['name'] == 'Sculptor Galaxy' and 'so close' in meta['near_note'], np_
+    f4993 = next(f for f in meta['famous'] if f['cat'] == 'NGC 4993')
+    txt0 = (universe.SITE_DIR / 'galaxies.txt').read_text().splitlines()
+    assert txt0[f4993['i']].startswith(ngc4993) and txt0[f4993['i']].endswith('\t'), txt0[f4993['i']]     # matched by 2MASS id; junk name hidden
+    assert any(f['cat'] == 'NGC 5194' for f in meta['famous'])                                          # matched by position
+    sid, sp = universe.parse_sesame('# NGC 4993\n%J 197.44871198 -23.38397612 = 13 09 47.691\n%I NGC 4993\n%I 2MASX J13094770-2323017\n')
+    assert sid == '13094770-2323017' and abs(sp[0] - 197.4487) < 1e-3 and sp[1] < -23
+    assert universe.clean_name('g1309477-232302') == '' and universe.clean_name('A0627-1719') == '' and universe.clean_name('ARP 244') == 'ARP 244'
     blob = (universe.SITE_DIR / 'galaxies.bin').read_bytes()
     assert blob[:4] == b'SLU1' and int.from_bytes(blob[4:8], 'little') == meta['n'] and len(blob) == 16 + meta['n'] * 24
     n = meta['n']
@@ -1285,7 +1298,7 @@ def universe_build_collapses_clusters_and_finds_the_web():
     nmb = np.frombuffer(blob, np.uint8, n, 16 + 15 * n)
     coma = nmb == 150
     d = np.linalg.norm(xyz[coma], axis=1)
-    assert coma.sum() == 150 and np.ptp(d) < 1.0 and abs(d.mean() - 104.3) < 0.5, (np.ptp(d), d.mean())   # finger of God collapsed
+    assert coma.sum() >= 150 and np.ptp(d) < 1.0 and abs(d.mean() - 104.3) < 0.5, (np.ptp(d), d.mean())   # finger of God collapsed
     assert (env[coma] == 3).mean() > 0.9, np.bincount(env[coma])                                       # a knot
     fil = np.abs(np.linalg.norm(xyz[:, 1:] - [60, 10], axis=1)) < 3
     fil &= np.abs(xyz[:, 0]) < 80

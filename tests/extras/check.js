@@ -767,6 +767,10 @@ const CHECKS = {
     if (card && !/about 6[6-9] million light-years/.test(card.textContent)) fails.push('distance in Mpc and light-years: ' + norm(card.textContent).slice(0, 300));
     r = await find('Andromeda');
     if (!r.length || !/not on this map/.test(r[0].textContent) || !/blueshift/.test(r[0].textContent)) fails.push('search for Andromeda explains honestly why a blueshifted galaxy is not on a redshift map');
+    r = await find('Sculptor');
+    if (!r.length || !/Sculptor Galaxy: not on this map/.test(r[0].textContent) || !/expansion of the universe/.test(r[0].textContent)) fails.push('a galaxy too close for a redshift distance gets its own honest note');
+    r = await find('M31');
+    if (!r.length || !/Andromeda Galaxy: not on this map/.test(r[0].textContent)) fails.push('M31 is recognised as Andromeda');
     r = await find('coma');
     if (!r.some(x => /Coma Cluster/.test(x.textContent))) fails.push('landmarks are searchable');
     r = await find('UGC 9999');

@@ -66,13 +66,13 @@
     const u = U() || {}, s = norm(q), out = [];
     if (!s) return out;
     const sq = s.replace(/\s/g, '');
-    const blue = /andromeda|triangulum|^m ?(31|32|33|110)$|^ngc ?(224|221|598|205)$|milky ?way|local group|magellanic/.test(s) ||
-      (u.blueshift || []).some(b => norm(b.name) === s || norm(b.cat) === s);
-    if (blue) out.push({ kind: 'note', label: /milky|local group|magellanic/.test(s) ? 'The Milky Way and its neighbours' : (q.trim() + ': not on this map'),
-      text: /milky|local group|magellanic/.test(s) ? 'Home is the bright marker in the middle. The Milky Way, its satellites and the rest of the Local Group are all within about 1 Mpc, too close for this map to separate.'
-        : u.blueshift_note || 'It moves towards us, so it cannot be placed on a redshift map.' });
     const mm = /^m ?(\d{1,3})$/.exec(s);
     const alias = mm ? norm((u.messier || {})['M' + mm[1]] || '') : '';
+    const np = (u.blueshift || []).find(b => b.name && (norm(b.name) === s || norm(b.cat) === s || (alias && norm(b.cat) === alias) || (s.length >= 4 && norm(b.name).includes(s))));
+    const home = /milky ?way|local group|magellanic/.test(s);
+    if (home || np || /andromeda|triangulum|^m ?(31|32|33|110)$/.test(s)) out.push({ kind: 'note', label: home ? 'The Milky Way and its neighbours' : ((np ? np.name : q.trim()) + ': not on this map'),
+      text: home ? 'Home is the bright marker in the middle. The Milky Way, its satellites and the rest of the Local Group are all within about 1 Mpc, too close for this map to separate.'
+        : np && np.why === 'near' ? (u.near_note || 'Too close for a redshift distance.') : (u.blueshift_note || 'It moves towards us, so it cannot be placed on a redshift map.') });
     (u.landmarks || []).forEach((l, k) => { if (norm(l.name).includes(s)) out.push({ kind: 'landmark', k, label: l.name, sub: l.kind }); });
     (u.famous || []).forEach(f => { if (norm(f.name).includes(s) || norm(f.cat) === s || (alias && norm(f.cat) === alias)) out.push({ kind: 'galaxy', i: f.i, label: f.name, sub: f.cat }); });
     if (G.ready) {

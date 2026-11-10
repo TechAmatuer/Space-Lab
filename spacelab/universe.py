@@ -14,6 +14,7 @@ Each galaxy also gets its cosmic environment - void, sheet, filament or knot (cl
 smoothed galaxy density (the "T-web" method, Hahn et al. 2007; Forero-Romero et al. 2009), with each galaxy weighted for
 the survey seeing fewer faint galaxies far away.
 """
+import json
 import math
 import struct
 import time
@@ -104,6 +105,8 @@ FAMOUS = {
 BLUESHIFT_NOTE = ('It is moving towards us, so its light is blueshifted. This map places galaxies using their redshift '
                   '(how fast they move away with the expansion of the universe), so a galaxy coming towards us has no '
                   'place on it. It is in the Local Group, right next to home.')
+NEAR_NOTE = ('It is so close (a few million light-years) that its own motion matters more than the expansion of the '
+             'universe, so its redshift cannot give a distance, and this map leaves it out. It sits just beyond the Local Group.')
 # landmarks: clusters are snapped to the richest group of the 2MASS group catalogue near the given direction and velocity;
 # the others are approximate centres from the literature, shown as such
 LANDMARKS = [
@@ -156,10 +159,15 @@ def _f(x):
         return None
 
 
+import re
+JUNK = re.compile(r'^(g\d{6,7}[+-]\d{5,6}|A\d{4}[\d.]*[+-]\d{4}[\d.]*|\d{8}[+-]\d{6,7}|\d{4}[+-]\d{3,4}\S*)$')
+SESAME = 'https://vizier.cfa.harvard.edu/viz-bin/nph-sesame/-oI/S'
+
+
 def clean_name(cat):
-    """'NGC_0253' -> 'NGC 253'; 'MESSIER_031' -> 'NGC 224'; 2MASS-style or empty names -> ''."""
+    """'NGC_0253' -> 'NGC 253'; 'MESSIER_031' -> 'NGC 224'; 2MASS-style, coordinate-only or empty names -> ''."""
     c = (cat or '').strip().replace('_', ' ')
-    if not c or c.upper().startswith(('2MASX', '2MASS', 'XSC', 'LGA')):
+    if not c or c.upper().startswith(('2MASX', '2MASS', 'XSC', 'LGA')) or JUNK.match(c):
         return ''
     parts = c.split()
     if parts[0].upper() == 'MESSIER' and len(parts) > 1 and parts[1].isdigit():
@@ -201,6 +209,36 @@ def match_sky(ra1, dec1, ra2, dec2, tol_arcsec=6.0):
     t = cKDTree(unit(ra2, dec2))
     d, i = t.query(unit(ra1, dec1), distance_upper_bound=2 * math.sin(math.radians(tol_arcsec / 3600) / 2))
     return np.where(np.isfinite(d), i, -1)
+
+
+def parse_sesame(text):
+    """(2MASS XSC id or None, (ra, dec) or None) from a Sesame -oI answer."""
+    m = re.search(r'^%I 2MASX J(\d{8}[+-]\d{7})', text or '', re.M)
+    p = re.search(r'^%J\s+([\d.]+)\s+([+-]?[\d.]+)', text or '', re.M)
+    return (m.group(1) if m else None), ((float(p.group(1)), float(p.group(2))) if p else None)
+
+
+def resolve_famous(log, cache_days=180):
+    """2MASS id / position of each famous galaxy, by name (SIMBAD through the Harvard Sesame mirror), cached."""
+    path = config.CACHE / 'universe_famous.json'
+    try:
+        old = json.loads(path.read_text()) if path.is_file() and time.time() - path.stat().st_mtime < cache_days * 86400 else {}
+    except Exception:
+        old = {}
+    out = {}
+    for name in FAMOUS:
+        if name in old:
+            out[name] = old[name]
+            continue
+        try:
+            i, p = parse_sesame(net.fetch_text(SESAME + '?' + name.replace(' ', '%20'), timeout=30, retries=2, min_gap=0.5))
+            out[name] = {'id': i, 'pos': p}
+        except Exception as e:
+            log(f'  name lookup {name}: {e}')
+    if out:
+        config.CACHE.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(out))
+    return out
 
 
 # ------------------------------------------------------------------ cosmic web (T-web)
@@ -291,8 +329,8 @@ def place_landmarks(groups, log=print):
 
 
 # ------------------------------------------------------------------ the job
-def build(log, sources=None):
-    """Download, combine and write the files. sources: optional pre-loaded tables (for tests)."""
+def build(log, sources=None, famous_lookup=None):
+    """Download, combine and write the files. sources / famous_lookup: optional pre-loaded tables (for tests)."""
     if sources is None:
         log('  downloading the 2MASS Redshift Survey (43,500 galaxies)...')
         twomrs = _table(_asu({'-source': 'J/ApJS/199/26/table3', '-out': 'ID,RAJ2000,DEJ2000,GLON,GLAT,Ktmag,type,cz,CAT',
@@ -368,14 +406,34 @@ def build(log, sources=None):
     for k, i in enumerate(keep):
         if names[i]:
             by_name.setdefault(names[i], k)
-    famous = [{'i': by_name[n], 'name': nm, 'cat': n, 'note': note} for n, (nm, note) in FAMOUS.items() if n in by_name]
-    blue = [{'name': FAMOUS.get(names[i], (names[i] or ids[i], ''))[0], 'cat': names[i], 'id': ids[i], 'cz': int(cz[i])}
-            for i in np.flatnonzero(np.nan_to_num(cz, nan=1) <= 0)]
+    look = famous_lookup if famous_lookup is not None else (resolve_famous(log) if sources is None else {})
+    famous, not_placed = [], []
+    kra, kde = ra[keep], dec[keep]
+    for n, (nm, note) in FAMOUS.items():
+        k = by_name.get(n)
+        hit = look.get(n) or {}
+        if k is None and hit.get('id') in pos:
+            k = pos[hit['id']]
+        if k is None and hit.get('pos'):
+            j2 = match_sky([hit['pos'][0]], [hit['pos'][1]], kra, kde, 20.0)[0]
+            k = int(j2) if j2 >= 0 else None
+        if k is not None:
+            famous.append({'i': int(k), 'name': nm, 'cat': n, 'note': note})
+            continue
+        i0 = ids.index(hit['id']) if hit.get('id') in ids else next((i for i, x in enumerate(names) if x == n), None)
+        if i0 is not None and not placed[i0]:
+            not_placed.append({'name': nm, 'cat': n, 'id': ids[i0], 'cz': int(np.nan_to_num(cz[i0])),
+                               'why': 'blue' if np.nan_to_num(cz[i0], nan=1) <= 0 else 'near'})
+    seen = {b['id'] for b in not_placed}
+    blue = not_placed + [{'name': names[i] or ids[i], 'cat': names[i], 'id': ids[i], 'cz': int(cz[i]), 'why': 'blue'}
+                         for i in np.flatnonzero(np.nan_to_num(cz, nan=1) <= 0) if ids[i] not in seen]
+    log(f'  {len(famous)} of {len(FAMOUS)} famous galaxies found; {len(not_placed)} famous ones not placeable (too close or moving towards us)')
     from astropy.coordinates import SkyCoord, Supergalactic
     sg = SkyCoord(x=np.eye(3)[:, 0], y=np.eye(3)[:, 1], z=np.eye(3)[:, 2], representation_type='cartesian', frame='icrs')
     m = np.array(sg.transform_to(Supergalactic()).cartesian.xyz).T          # rows: equatorial axes in supergalactic coords
     meta = {'n': N, 'made': time.time(), 'h0': H0, 'bin': 'plots/universe/galaxies.bin', 'txt': 'plots/universe/galaxies.txt',
-            'env_counts': counts, 'landmarks': marks, 'famous': famous, 'blueshift': blue[:40], 'blueshift_note': BLUESHIFT_NOTE,
+            'env_counts': counts, 'landmarks': marks, 'famous': famous, 'blueshift': blue[:60], 'blueshift_note': BLUESHIFT_NOTE,
+            'near_note': NEAR_NOTE,
             'messier': {f'M{k}': f'NGC {v}' for k, v in MESSIER.items()}, 'eq_to_sg': [[round(float(x), 6) for x in r] for r in m.T],
             'max_dist': round(float(np.percentile(dist[placed], 99.5)), 0), 'n_in_groups': int(np.sum(nmb[keep] >= 2)),
             'method': 'CMB-frame velocities (Tully 2015 adjusted), group members placed at their group velocity, distance = v/H0 '
