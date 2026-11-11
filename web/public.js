@@ -255,6 +255,17 @@ function donateCard(d) {
     <p class="small">Free ways to help count just as much: answer <b>Planet or not?</b> in Play &amp; review, vote on today's candidate, or point out a mistake.</p></div>`;
 }
 
+// Variable stars this observatory covers (data.json "vstars", only when the owner shares it): names, filters, nights. Other
+// Space Lab observatories read the same data, so two of them do not spend a night on the same star while another waits.
+function coverageCard(v) {
+  if (!v || !Array.isArray(v.stars) || !v.stars.length) return '';
+  const tonight = Array.isArray(v.tonight) && v.tonight.length ? `<p class="small">Planned tonight${v.night ? ' (' + esc(v.night) + ')' : ''}: ${v.tonight.slice(0, 40).map(esc).join(', ')}</p>` : '';
+  return `<div class="card" id="vscoverage"><h3>🌟 Variable stars covered here</h3>
+    <p class="small">Stars this observatory measured for the AAVSO in the last three weeks. Observers: pick the ones nobody covers.</p>${tonight}
+    <div style="overflow-x:auto"><table class="compact"><tr><th>star</th><th>filters</th><th>last nights</th></tr>${v.stars.slice(0, 60).map(s =>
+      `<tr><td>${esc(s.name)}</td><td>${(s.filters || []).map(esc).join(' ')}</td><td class="small">${(s.nights || []).slice(-4).map(esc).join(', ')}</td></tr>`).join('')}</table></div></div>`;
+}
+
 function siteFooter() {
   if (!hasDonate(D?.site?.donate) || document.getElementById('siteFoot')) return;
   const f = document.createElement('footer'); f.id = 'siteFoot'; f.className = 'site-foot';
@@ -273,7 +284,7 @@ function about() {
     <p>This page mirrors the volunteer's private dashboard. Two things stay on the Mac because they need its local AI: asking questions about the results, and searching the library by meaning (the public library search uses NASA ADS instead). Want all of it? Space Lab is free and open source${D?.site?.repo ? `: <a href="https://github.com/${esc(D.site.repo)}" target="_blank" rel="noopener">github.com/${esc(D.site.repo)}</a>` : ''}.</p>
     <p>All AI runs locally. Every result is checked by a person before anything is reported to the AAVSO or the Minor Planet Center. Feedback from scientists is very welcome.</p>
     <p><b>Privacy.</b> No cookies and no accounts. Visits, tabs opened and candidate-of-the-day votes are counted anonymously with GoatCounter. A ZIP code or location you enter stays in your own browser. Only if you tap "Cloud forecast" is the place, rounded to about 10 km, sent to the free Open-Meteo weather service. The Space atlas loads its maps and photos from NASA, ESA, the CDS data centre and jsDelivr, and only after you open it. Reminders are plain calendar files.</p>
-    <p class="small muted">Data: NASA TESS/MAST, NASA Exoplanet Archive, ExoClock, ExoFOP, TESS EB catalog, JPL Small-Body Database, Sentry, Scout and Horizons, CADC SSOIS, Pan-STARRS1 (STScI), ZTF (IRSA/Caltech), Gaia (ESA), arXiv, OpenAlex, NASA ADS, and the news outlets linked in the Space brief.</p></div>${donateCard(D?.site?.donate)}${correctionsCard((D && D.site && D.site.corrections) || [])}`;
+    <p class="small muted">Data: NASA TESS/MAST, NASA Exoplanet Archive, ExoClock, ExoFOP, TESS EB catalog, JPL Small-Body Database, Sentry, Scout and Horizons, CADC SSOIS, Pan-STARRS1 (STScI), ZTF (IRSA/Caltech), Gaia (ESA), arXiv, OpenAlex, NASA ADS, and the news outlets linked in the Space brief.</p></div>${coverageCard(D?.vstars)}${donateCard(D?.site?.donate)}${correctionsCard((D && D.site && D.site.corrections) || [])}`;
   $$('#v-about [data-donate]').forEach(a => a.addEventListener('click', () => track('donate-' + a.dataset.donate, true)));
 }
 

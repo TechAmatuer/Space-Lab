@@ -587,7 +587,8 @@ def run(ctx):
     work = config.CACHE / 'tess-tmp'
     shutil.rmtree(work, ignore_errors=True)
     engine, speed = calibrate_engine(log)
-    workers = int(tc.get('workers') or 0) or max(2, min(6, (os.cpu_count() or 4) - 4))
+    workers = int(tc.get('workers') or 0) or max(2, min(8, (os.cpu_count() or 4) - 4))     # mostly waiting on MAST downloads: 8 on an 18-core Mac
+    os.environ.setdefault('PYTHONWARNINGS', 'ignore::UserWarning:lightkurve.prf')     # each worker printed lightkurve's import warning
     targets = db.rows(con, "SELECT * FROM tess_targets WHERE status='queued' ORDER BY tmag LIMIT ?", (int(tc['max_targets']),))
     log(f'{len(targets)} targets queued for tonight; {workers} stars at a time')
     db.kv_set(con, 'tess_engine', {'engine': engine, 'workers': workers, **speed})

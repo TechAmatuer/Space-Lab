@@ -41,14 +41,36 @@ CREATE TABLE IF NOT EXISTS pc_cands (
 """
 
 
+INDEXES = """
+CREATE INDEX IF NOT EXISTS runs_job_started ON runs(job, started);
+CREATE INDEX IF NOT EXISTS tasks_status ON tasks(status, priority);
+CREATE INDEX IF NOT EXISTS tess_cands_status ON tess_cands(status, created);
+CREATE INDEX IF NOT EXISTS tess_cands_tic ON tess_cands(tic);
+CREATE INDEX IF NOT EXISTS tess_targets_status ON tess_targets(status);
+CREATE INDEX IF NOT EXISTS pc_cands_status ON pc_cands(status, created);
+CREATE INDEX IF NOT EXISTS arxiv_digest ON arxiv(digest, rank);
+"""
+_READY = set()          # database files whose tables and indexes this process has already made sure of
+
+
 def connect():
+    """A connection in WAL mode. The schema is checked once per process (not on every connection, which the web page opens
+    for each request); synchronous=NORMAL is the setting SQLite recommends with WAL (safe: at worst the last moment's
+    writes are lost in a power cut, the database is never damaged), and a larger page cache keeps the hot tables in memory."""
     config.ensure_dirs()
     con = sqlite3.connect(str(config.DB_PATH), timeout=30, isolation_level=None)
     con.row_factory = sqlite3.Row
     con.execute('PRAGMA journal_mode=WAL')
     con.execute('PRAGMA busy_timeout=30000')
-    con.executescript(SCHEMA)
-    migrate(con)
+    con.execute('PRAGMA synchronous=NORMAL')
+    con.execute('PRAGMA cache_size=-32768')
+    con.execute('PRAGMA temp_store=MEMORY')
+    key = str(config.DB_PATH)
+    if key not in _READY:
+        con.executescript(SCHEMA)
+        migrate(con)
+        con.executescript(INDEXES)
+        _READY.add(key)
     return con
 
 

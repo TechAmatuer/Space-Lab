@@ -119,6 +119,27 @@ DEFAULTS = {
         'transform': {},         # your transformation coefficients, e.g. {"V": ["B", "V", 0.031]} (TRANS=YES when applied)
         'review_all': False,     # True = every measurement waits for you, not only the ones with a warning
         'obstype': 'CCD', 'time_budget_min': 50,
+        'workers': 0,            # images measured at a time (0 = automatic from the CPU cores; the same results as one at a time)
+        'ai': True,              # the local AI reads campaign pages, looks at borderline frames and words the pre-upload summary
+        # AAVSO campaigns (apps.aavso.org/v2/campaigns) go into the plan with their filters, cadence and end date
+        'campaigns': True, 'campaign_cadence_days': 1.0,
+        # outbursts and fades: compared with the last 30 days of AAVSO data; the star then gets priority for boost_days
+        'outburst_days': 30, 'outburst_min_points': 2, 'boost_days': 7,
+        # frame check before measuring (fractions of the field's usual star count, star elongation), clouds from the zero points
+        'qc_stars_bad': 0.15, 'qc_stars_low': 0.45, 'qc_elong_max': 1.6, 'qc_elong_bad': 2.2,
+        'qc_cloud_mag': 0.25, 'qc_cloud_bad': 0.75, 'qc_photometric_scatter': 0.08,
+        'qc_ai': True, 'qc_ai_max': 30, 'qc_ai_confidence': 0.6,
+        'linear_adu': None,      # top of the camera's linear range in ADU (from a linearity test); blank = 85% of saturation
+        'blend_max': 0.05, 'comp_blend_max': 0.03,     # neighbour light inside the aperture: flag the variable / drop a comparison star
+        'catalog_check': True,   # look up comparison stars in AAVSO VSX and Gaia DR3 (through VizieR), once per chart
+        'comp_var_max': 0.04, 'comp_offset_max': 0.08,  # comparison-star health: night-to-night variation, offset from the chart value
+        # colour transformation from standard fields: null = measured unless you have your own "transform"; true = always; false = never
+        'transform_auto': None, 'transform_every_days': 30, 'standard_fields': [], 'standard_frames': 3, 'standard_score': 5.0,
+        'group_fields': True, 'fov_arcmin': None, 'group_dmag': 2.5,   # stars that share a field become one pointing
+        'auto_overhead': True,   # plan with the download, filter-change and slew times measured from your own images
+        'measure_all_program_stars': True,    # measure every planned or watched star that falls in a frame
+        'share_coverage': False, # put the stars you measured lately (names, filters, nights) on the public page, for other observers
+        'peers': [],             # other Space Lab public pages (https://...): their coverage lowers the priority of the same stars here
     },
     'injection': {'trials_per_run': 400, 'time_budget_min': 60},   # fake-planet test of the planet search (spacelab/injection.py)
     'plates': {                  # old-plate precovery of distant objects (spacelab/plates.py)

@@ -1185,6 +1185,25 @@ const CHECKS = {
     if (ab.querySelector('#support') || env.w.document.getElementById('siteFoot')) fails.push('with only a malformed link there is no card and no footer');
     report(30, 'Support card: GitHub Sponsors and Ko-fi', fails);
   },
+  async 31() {
+    const fails = [];
+    let env = await boot({});
+    let ab = await env.tab('about');
+    if (ab.querySelector('#vscoverage')) fails.push('no variable-star coverage card unless the owner shares it');
+    const d = JSON.parse(JSON.stringify(FIXTURE));
+    d.vstars = { stars: [{ name: 'QQ Fak', filters: ['B', 'V'], nights: ['2027-02-08', '2027-02-09'] }, { name: '<img src=x onerror=alert(1)>', filters: ['V'], nights: [] }],
+      tonight: ['QQ Fak', 'RR Fak'], night: '2027-02-10', updated: 1 };
+    env = await boot({ data: d });
+    ab = await env.tab('about');
+    const c = ab.querySelector('#vscoverage');
+    if (!c || !/Variable stars covered here/.test(c.textContent) || c.querySelectorAll('tr').length !== 3) fails.push('a card lists the stars covered, one row each');
+    if (c && (!/Planned tonight \(2027-02-10\): QQ Fak, RR Fak/.test(norm(c.textContent)) || !/B V/.test(c.textContent) || !/2027-02-09/.test(c.textContent))) fails.push('it shows tonight\'s plan, the filters and the last nights');
+    if (c && c.querySelector('img')) fails.push('names are shown as plain text');
+    d.vstars = {};
+    env = await boot({ data: d });
+    if ((await env.tab('about')).querySelector('#vscoverage')) fails.push('an empty "vstars" object shows no card');
+    report(31, 'Variable stars covered (shared with other observers)', fails);
+  },
   async 26() {
     const fails = [];
     const many = JSON.parse(JSON.stringify(FIXTURE));
@@ -1242,7 +1261,7 @@ const CHECKS = {
 };
 
 (async () => {
-  const order = ['G', '2', '3', '5', '6', '7', '8', '9', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23', '24', '25', '26', '27', '28', '29', '30'];
+  const order = ['G', '2', '3', '5', '6', '7', '8', '9', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23', '24', '25', '26', '27', '28', '29', '30', '31'];
   for (const k of order) {
     if (ONLY && k !== ONLY && k !== 'G') continue;
     try { await CHECKS[k](); } catch (e) { report(k, 'check crashed', ['the check itself crashed (usually because an expected element is missing): ' + e.message]); }

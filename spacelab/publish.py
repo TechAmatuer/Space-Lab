@@ -263,6 +263,11 @@ def build_data(con, cfg):
     sl = db.kv_get(con, 'second_look') or {}
     if sl.get('tess'):
         data['community'] = dict(data['community'], second_look=sl)
+    from . import vsnews, vsobs                         # optional: the variable stars this observatory covers (vstars.share_coverage)
+    try:
+        data['vstars'] = vsnews.coverage(con, vsobs.settings(cfg))
+    except Exception:
+        data['vstars'] = {}
     return data, files
 
 
@@ -304,9 +309,10 @@ def _variables_public(con, f):
     return {k: s.get(k) for k in ('searched', 'clear', 'known', 'candidates', 'real', 'submitted')} | {'stars': stars}
 
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 # The public page (web/public.js) reads exactly these keys. Change them only together with public.js and bump SCHEMA_VERSION.
-SCHEMA = {'name': str, 'updated': float, 'schema': int,
+# 6: 'vstars' (an empty object unless the owner shares their variable-star coverage: star names, filters, nights).
+SCHEMA = {'name': str, 'updated': float, 'schema': int, 'vstars': dict,
           'today': {'jobs': list, 'brief': dict}, 'beyond': dict, 'community': dict, 'contributions': dict,
           'daily': dict, 'radar': dict, 'results': list, 'site': dict,
           'tess': {'stats': dict, 'cands': list, 'model': dict},

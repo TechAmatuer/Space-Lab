@@ -25,9 +25,12 @@ from .jobs import wanted as jobs_wanted
 
 WEB = config.ROOT / 'web'
 JOBQ = queue.Queue()
+FASTQ = queue.Queue()
+FAST = ('vsplan', 'vsphot', 'health', 'neocp', 'publish')   # short, time-critical jobs: a lane of their own, never stuck behind a long run
 QUEUED = set()
 ORDER = []                  # the queued jobs in the order they will run
-STATE = {'running': None, 'proc': None, 'started': time.time()}
+STATE = {'running': None, 'proc': None, 'started': time.time(), 'fast': None, 'fast_proc': None}
+SLOTS = {'main': ('running', 'proc', 'run_started', 'run_trigger'), 'fast': ('fast', 'fast_proc', 'fast_started', 'fast_trigger')}
 LOCK = threading.Lock()
 
 
@@ -36,25 +39,33 @@ def log(*a):
 
 
 # ------------------------------------------------------------------ jobs
+def lane(job):
+    """Two lanes, each running one job at a time: the short, time-critical jobs (variable-star planning and photometry,
+    asteroid confirmations, the health check, the website) never wait behind a two-hour TESS or library run."""
+    return 'fast' if job in FAST else 'main'
+
+
 def enqueue(job, trigger='schedule'):
     with LOCK:
-        if job in QUEUED or STATE['running'] == job:
+        if job in QUEUED or STATE['running'] == job or STATE.get('fast') == job:
             return False
         QUEUED.add(job)
         ORDER.append((job, trigger))
-    JOBQ.put((job, trigger))
+    (FASTQ if lane(job) == 'fast' else JOBQ).put((job, trigger))
     log(f'queued {job} ({trigger})')
     return True
 
 
-def worker():
+def worker(q=None, slot='main'):
+    q = q or JOBQ
+    name, pkey, skey, tkey = SLOTS[slot]
     while True:
-        job, trigger = JOBQ.get()
+        job, trigger = q.get()
         with LOCK:
             QUEUED.discard(job)
             ORDER[:] = [x for x in ORDER if x[0] != job]
-            STATE['running'] = job
-            STATE['run_started'], STATE['run_trigger'] = time.time(), trigger
+            STATE[name] = job
+            STATE[skey], STATE[tkey] = time.time(), trigger
         con = db.connect()
         cfg = config.load()
         jd = config.LOGS / job
@@ -72,7 +83,7 @@ def worker():
             with open(logf, 'w') as fh:
                 p = subprocess.Popen([sys.executable, '-m', 'spacelab.jobs', job], cwd=str(config.ROOT), env=env,
                                      stdout=fh, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
-                STATE['proc'] = p
+                STATE[pkey] = p
                 try:
                     code = p.wait(timeout=timeout)
                     status = 'ok' if code == 0 else 'error'
@@ -82,14 +93,14 @@ def worker():
         except Exception as e:
             log(f'{job} could not start: {e}')
         finally:
-            STATE['proc'] = None
+            STATE[pkey] = None
             con.execute('UPDATE runs SET finished=?, status=? WHERE id=?', (time.time(), status, run_id))
             try:
                 alert(con, job, status, run_id)
             except Exception as e:
                 log(f'discord alert failed: {e}')
             with LOCK:
-                STATE['running'] = None
+                STATE[name] = None
             prune_logs(jd)
             log(f'{job} finished: {status}')
 
@@ -276,7 +287,7 @@ def eta(con, cfg, now=None):
         else:
             left += max(0.0, typ - (now - started))
     with LOCK:
-        order = list(ORDER)
+        order = [x for x in ORDER if lane(x[0]) == 'main']
     for q, trig in order:
         typ, n = typical_seconds(con, q, trig)
         out['queue'].append({'job': q, 'typical': typ, 'n': n})
@@ -301,7 +312,7 @@ def state():
         runs[job] = r
     done_today = con.execute("SELECT COUNT(*) FROM tasks WHERE status='done' AND updated > ?", (time.time() - 86400,)).fetchone()[0]
     return {'now': time.time(), 'brief': db.kv_get(con, 'brief'), 'tasks': tasks, 'runs': runs, 'done_today': done_today,
-            'running': STATE['running'], 'queue': [x[0] for x in ORDER], 'eta': eta(con, cfg), 'schedule': cfg['schedule'], 'always_on': bool(cfg.get('always_on')),
+            'running': STATE['running'], 'fast': STATE.get('fast'), 'queue': [x[0] for x in ORDER], 'eta': eta(con, cfg), 'schedule': cfg['schedule'], 'always_on': bool(cfg.get('always_on')),
             'jobs': {k: v[1] for k, v in JOBS.items()}, 'inbox': str(config.EXO_INBOX),
             'profile': {k: cfg.get(k) for k in ('observer_name', 'aavso_code', 'contact_email', 'sarc_verified')},
             'selftest': db.kv_get(con, 'selftest'), 'disk': db.kv_get(con, 'disk'), 'contributions': db.contributions(con),
@@ -466,30 +477,50 @@ def masked_settings():
 
 
 def api_vs():
-    """The variable-star observatory tab: settings (key masked), tonight's plan, measurements, AAVSO files."""
-    from . import vsobs, vsphot
+    """The variable-star observatory tab: settings (key masked), tonight's plan, measurements, AAVSO files, campaigns, outbursts,
+    comparison-star health, transformation coefficients, night quality, overheads, frames set aside."""
+    from . import vscal, vsobs, vsphot
     con, cfg = db.connect(), config.load()
     vsphot.ensure(con)
     s = vsobs.settings(cfg)
     raw = masked_settings().get('vstars') or {}
-    meas = lambda where, n: [dict(r, flags=j(r['flags']) or [], comps=j(r['comps']) or [], frame=Path(r['frame'] or '').name)
+    meas = lambda where, n: [dict(r, flags=j(r['flags']) or [], comps=j(r['comps']) or [], notes=j(r.get('notes')) or [],
+                                  comp_res=None, frame=Path(r['frame'] or '').name)
                              for r in db.rows(con, f'SELECT * FROM vs_meas WHERE {where} ORDER BY jd DESC LIMIT {int(n)}')]
     plots = sorted(vsphot.PLOTS.glob('*.png'), key=lambda p: -p.stat().st_mtime)[:24] if vsphot.PLOTS.exists() else []
     obscode = (s.get('obscode') or cfg.get('aavso_code') or '').strip()
     ready = [
         ['Switched on (vstars.enabled)', bool(s.get('enabled'))],
         ['Observatory location (vstars.site, or Setup > telescope)', bool((s.get('site') or {}).get('lat') is not None)],
-        ['Targets: Target Tool API key, exported CSV or watch list', bool(s.get('targettool_key') or s.get('targettool_csv') or s.get('watchlist')
-                                                                        or (config.INBOX / 'vstars' / 'targettool.csv').exists())],
+        ['Targets: Target Tool API key, exported CSV, watch list or AAVSO campaigns', bool(s.get('targettool_key') or s.get('targettool_csv')
+                                                                                        or s.get('watchlist') or s.get('campaigns', True)
+                                                                                        or (config.INBOX / 'vstars' / 'targettool.csv').exists())],
         ['Image folder (vstars.images_dir)', bool(s.get('images_dir')) and Path(str(s.get('images_dir'))).expanduser().is_dir()],
         ['AAVSO observer code', bool(obscode)],
     ]
+    camps = sorted(((db.kv_get(con, 'vs_campaigns') or {}).get('items') or {}).values(), key=lambda c: -int(c.get('id') or 0))
+    flags = sorted((db.kv_get(con, 'vs_comp_flags') or {}).values(), key=lambda f: -(f.get('at') or 0))
+    nights = db.kv_get(con, 'vs_nights') or {}
+    oh = db.kv_get(con, 'vs_overhead') or {}
+    act = vscal.active(con, s)
     return {'settings': raw, 'ready': ready, 'plan': db.kv_get(con, 'vs_plan'), 'review': meas("status='review'", 300),
             'recent': meas("status!='review'", 200), 'reports': db.kv_get(con, 'vs_reports') or [],
             'frames': {r['status']: r['n'] for r in db.rows(con, 'SELECT status, COUNT(*) AS n FROM vs_frames GROUP BY status')},
             'failed': [dict(r, path=Path(r['path']).name) for r in db.rows(con, "SELECT path, note, at FROM vs_frames WHERE status='failed' "
                                                                                'ORDER BY at DESC LIMIT 30')],
+            'rejected': [dict(r, path=Path(r['path']).name) for r in db.rows(con, "SELECT path, note, at FROM vs_frames WHERE status='rejected' "
+                                                                                 'ORDER BY at DESC LIMIT 30')],
             'plots': [str(p.relative_to(config.DATA)) for p in plots], 'webobs': vsphot.WEBOBS, 'sections': vsobs.SECTIONS,
+            'campaigns': [{k: c.get(k) for k in ('id', 'title', 'url', 'start', 'end', 'filters', 'cadence_days', 'time_series', 'series_minutes',
+                                                 'urgent', 'note', 'by')} | {'targets': [x.get('name') for x in c.get('targets') or []][:12]}
+                          for c in camps][:60],
+            'events': (db.kv_get(con, 'vs_events') or [])[:30], 'boosts': db.kv_get(con, 'vs_boost') or {},
+            'comp_flags': flags[:60], 'chet': (db.kv_get(con, 'vs_chet') or [])[:40],
+            'transform': {'active': act, 'sets': (db.kv_get(con, 'vs_tsets') or [])[-12:][::-1], 'auto': vscal.auto_on(s),
+                          'due': vscal.due(con, s)},
+            'nights': [nights[k] for k in sorted(nights)[-10:]][::-1],
+            'overhead': {'model': oh.get('model') or {}, 'nights': [(oh.get('nights') or {})[k] for k in sorted(oh.get('nights') or {})[-7:]][::-1]},
+            'coverage': {'share': bool(s.get('share_coverage')), 'peers': len(s.get('peers') or [])},
             'runs': {k: db.one(con, 'SELECT started, finished, status, summary FROM runs WHERE job=? ORDER BY id DESC LIMIT 1', (k,))
                      for k in ('vsplan', 'vsphot')}}
 
@@ -512,10 +543,53 @@ def vs_action(con, oid, body):
             if not isinstance(f, dict) or f.get('aavso') not in vsphot.AAVSO_FILTERS or not f.get('fits'):
                 return 400, {'error': f'each filter needs "fits" (the name in your images) and an AAVSO filter code as "aavso"; got {json.dumps(f)[:80]}'}
         for k, v in (new.get('transform') or {}).items():
-            if not (isinstance(v, list) and len(v) == 3 and isinstance(v[2], (int, float))):
-                return 400, {'error': f'transform "{k}" should look like ["B", "V", 0.031]'}
+            if not (isinstance(v, list) and len(v) in (3, 4) and all(isinstance(x, (int, float)) for x in v[2:])):
+                return 400, {'error': f'transform "{k}" should look like ["B", "V", 0.031] or, with the colour coefficient, ["B", "V", 0.031, 1.05]'}
+        for u in new.get('peers') or []:
+            if not str(u).startswith('https://'):
+                return 400, {'error': f'each peer is the https:// address of another Space Lab public page; got {str(u)[:60]}'}
         config.replace_user('vstars', new)
         return 200, {'ok': True}
+    if a == 'comp':
+        from . import vsqc
+        flags = db.kv_get(con, 'vs_comp_flags') or {}
+        key = f"{body.get('auid')}|{body.get('band') or '*'}"
+        f = flags.get(key)
+        if not f:
+            return 404, {'error': 'no such comparison-star flag'}
+        if body.get('do') == 'clear':
+            f.update(excluded=False, cleared=True, at=time.time())
+        elif body.get('do') == 'exclude':
+            f.update(excluded=True, cleared=False, at=time.time())
+            vsqc.requeue_for(con, [f['auid']])
+        else:
+            return 400, {'error': 'do must be clear or exclude'}
+        db.kv_set(con, 'vs_comp_flags', flags)
+        db.close_task(con, f"vs:chet:{f['auid']}:{f['band']}")
+        return 200, {'ok': True}
+    if a == 'chet_sent':
+        lst = db.kv_get(con, 'vs_chet') or []
+        for x in lst:
+            if x.get('file') == body.get('file'):
+                x['sent'] = time.time()
+        db.kv_set(con, 'vs_chet', lst)
+        return 200, {'ok': True}
+    if a == 'transform':
+        from . import vscal
+        if not vscal.decide(con, str(body.get('night') or ''), str(body.get('field') or ''), bool(body.get('accept'))):
+            return 404, {'error': 'no coefficient set waiting for a decision there'}
+        db.close_task(con, f"vs:transform:{body.get('night')}:{body.get('field')}")
+        return 200, {'ok': True}
+    if a == 'measure_anyway':
+        name = str(body.get('file') or '')
+        row = next((r for r in db.rows(con, "SELECT path FROM vs_frames WHERE status='rejected'") if Path(r['path']).name == name), None)
+        if not row:
+            return 404, {'error': 'no frame set aside under that name'}
+        ov = set(db.kv_get(con, 'vs_qc_override') or [])
+        ov.add(row['path'])
+        db.kv_set(con, 'vs_qc_override', sorted(ov))
+        con.execute('DELETE FROM vs_frames WHERE path=?', (row['path'],))
+        return 200, {'ok': True, 'queued': enqueue('vsphot', 'you')}
     if a == 'uploaded':
         name = str(body.get('file') or '')
         reps = db.kv_get(con, 'vs_reports') or []
@@ -606,7 +680,7 @@ def post_action(path, body):
             return 404, {'error': 'unknown job'}
         return 200, {'queued': enqueue(oid, 'you')}
     if kind == 'stop':
-        p = STATE.get('proc')
+        p = STATE.get('proc') or STATE.get('fast_proc')
         if p:
             p.terminate()
         return 200, {'ok': True}
@@ -904,7 +978,7 @@ def code_watcher():
     while True:
         time.sleep(15)
         try:
-            if snap() != first and STATE['running'] is None and JOBQ.empty():
+            if snap() != first and STATE['running'] is None and STATE.get('fast') is None and JOBQ.empty() and FASTQ.empty():
                 log('code updated: restarting Space Lab')
                 time.sleep(2)
                 os.execv(sys.executable, [sys.executable, '-m', 'spacelab.server', '--no-browser'])
@@ -940,7 +1014,8 @@ def main():
         db.add_task(con, 'setup:profile', 'setup', 'setup', 'Add your name and email in Setup',
                     'Used only for credit on the result files you upload yourself (AAVSO, Minor Planet Center).', {'tab': 'setup'}, 3)
     httpd = ThreadingHTTPServer(('127.0.0.1', port), H)
-    threading.Thread(target=worker, daemon=True).start()
+    threading.Thread(target=worker, args=(JOBQ, 'main'), daemon=True).start()
+    threading.Thread(target=worker, args=(FASTQ, 'fast'), daemon=True).start()
     threading.Thread(target=scheduler, daemon=True).start()
     threading.Thread(target=code_watcher, daemon=True).start()
     if con.execute('SELECT COUNT(*) FROM runs').fetchone()[0] == 0:
@@ -948,9 +1023,10 @@ def main():
             enqueue(job, 'first start')
     log(f'Space Lab running at {url}  (Ctrl+C to stop)')
     def stop(*_):
-        p = STATE.get('proc')
-        if p:
-            p.terminate()
+        for k in ('proc', 'fast_proc'):
+            p = STATE.get(k)
+            if p:
+                p.terminate()
         os._exit(0)
     signal.signal(signal.SIGTERM, stop)
     if not no_browser:

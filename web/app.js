@@ -165,7 +165,9 @@ function tickStatus() {
   const st = S.state;
   if (!st) return;
   const busy = !!st.running, e = etaText(st, false);
-  $('#statusText').textContent = busy ? `running: ${st.jobs[st.running]}` + (e ? ` · ${e}` : '') + (st.queue.length ? ` · ${st.queue.length} queued` : '') : 'idle · next jobs tonight';
+  const fast = st.fast ? ` · also running: ${st.jobs[st.fast]}` : '';   // the second lane: short, time-critical jobs
+  $('#statusText').textContent = (busy ? `running: ${st.jobs[st.running]}` + (e ? ` · ${e}` : '') : st.fast ? `running: ${st.jobs[st.fast]}` : 'idle · next jobs tonight')
+    + (busy ? fast : '') + (st.queue.length ? ` · ${st.queue.length} queued` : '');
   const box = $('#nowRunning');
   if (box) {
     const long = etaText(st, true), r = st.runs[st.running] || {};
@@ -246,7 +248,7 @@ function renderToday(st) {
     const r = st.runs[job] || {};
     const sv = st.schedule[job];
     const sched = sv ? (String(sv).startsWith('every') ? esc(sv) : `daily at ${esc(sv)}`) : 'on demand';
-    const running = st.running === job, queued = st.queue.includes(job);
+    const running = st.running === job || st.fast === job, queued = st.queue.includes(job);
     return `<div class="card jobcard"><div class="row"><h3>${esc(st.jobs[job])}</h3><span class="spacer"></span>${running ? '<span class="chip warn">running now</span>' : queued ? '<span class="chip">queued</span>' : statusChip(r.status)}</div>
       <div class="small muted">${sched} · last run ${r.started ? when(r.started) : 'never'}</div>
       <div style="margin:6px 0 10px">${esc(r.summary || '')}</div>

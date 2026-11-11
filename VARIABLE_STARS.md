@@ -3,10 +3,16 @@
 This part of Space Lab is for an observer who already reports CCD or CMOS photometry to the AAVSO and runs an automated
 observatory with N.I.N.A. and the Target Scheduler plugin. It takes over the two jobs that eat the observer's time:
 
-1. **Choosing tonight's targets.** AAVSO alerts and campaigns come first. After them come the stars whose requested cadence
-   is most overdue, so a campaign star with few recent observations rises to the top.
-2. **Turning a night of images into a report.** Each image of each target is measured against the AAVSO's own comparison
-   stars. When the night is over, Space Lab writes one AAVSO Extended Format file and checks it against the format's rules.
+1. **Choosing tonight's targets.** AAVSO alerts and campaigns come first, read straight from the AAVSO campaign pages
+   (with or without a Target Tool key). After them come the stars whose requested cadence is most overdue, so a campaign
+   star with few recent observations rises to the top. A star that just went into outburst here moves up too.
+2. **Turning a night of images into a report.** Each image is checked, then each target is measured against the AAVSO's own
+   comparison stars. When the night is over, Space Lab writes one AAVSO Extended Format file, checks it against the format's
+   rules, and tells you in plain English what to look at before you upload it.
+
+Along the way it watches the things that usually go wrong: clouded or trailed frames, satellite trails, saturated or
+non-linear stars, neighbours inside the aperture, comparison stars that vary or sit off their chart value, transformation
+coefficients going stale, and slews eating the night. See [What it checks for you](#what-it-checks-for-you).
 
 **Nothing is ever sent to the AAVSO from here.** You look at the file, upload it yourself at WebObs, and press
 "I uploaded it". Space Lab does not control the telescope either: N.I.N.A. does.
@@ -18,10 +24,10 @@ goes on the public Space Lab website.
 
 | When | What happens | What you do |
 |---|---|---|
-| 15:30 (local time of the computer running Space Lab) | **Tonight's plan.** Targets come from the AAVSO Target Tool and your own watch list. Each one gets a need score, and the plan checks altitude, Moon and brightness. The result is written as a N.I.N.A. Target Scheduler CSV | Import the CSV into Target Scheduler (one import, see below) |
+| 15:30 (local time of the computer running Space Lab) | **Tonight's plan.** Targets come from the AAVSO Target Tool, the AAVSO campaign pages and your own watch list. Each one gets a need score, and the plan checks altitude, Moon and brightness. Stars that share a field become one pointing; once a month a standard field is added. The result is written as a N.I.N.A. Target Scheduler CSV | Import the CSV into Target Scheduler (one import, see below) |
 | Night | N.I.N.A. observes | Nothing |
-| Every hour | **Measurement.** New FITS images are calibrated, plate-solved (or fitted to Gaia stars) and measured against the AAVSO chart's comparison stars | Look at the measurements that have a warning, and accept or reject each one |
-| After local noon | **Report.** The finished night becomes one AAVSO Extended Format file, checked against the format's rules | Download it, upload it at [WebObs](https://www.aavso.org/webobs/file), then press "I uploaded it" |
+| Every hour, also at night | **Measurement.** New FITS images are checked, calibrated, plate-solved (or fitted to Gaia stars) and measured against the AAVSO chart's comparison stars. Each new magnitude is compared with the star's recent AAVSO data | Look at the measurements that have a warning, and accept or reject each one. An outburst or fade reaches you as a notification |
+| After local noon | **Report.** The finished night's clouds, extinction and overheads are worked out, then it becomes one AAVSO Extended Format file, checked, with a list of what to look at | Read the list, download the file, upload it at [WebObs](https://www.aavso.org/webobs/file), then press "I uploaded it" |
 
 Everything is on the **Variable-star observatory** tab of the local Space Lab page, http://localhost:8790 (under Research). Tasks appear on the Today tab when
 there is something for you to do.
@@ -77,7 +83,8 @@ to familiar values and kept between `exp_min` and `exp_max`. A filter with `"n":
 
 ### 2. N.I.N.A. Target Scheduler, once
 
-The CSV's **Type** column carries an exposure class: `VS short`, `VS medium`, `VS long` and `VS series` (time series).
+The CSV's **Type** column carries an exposure class: `VS short`, `VS medium`, `VS long`, `VS series` (time series) and
+`VS standard` (a standard field for the colour transformation).
 In Target Scheduler:
 
 1. Make a project for AAVSO targets. Give it the priority you want compared with your other projects.
@@ -86,6 +93,7 @@ In Target Scheduler:
    - `VS medium`: up to 60 s
    - `VS long`: longer exposures
    - `VS series`: a long block for time-series targets
+   - `VS standard`: three frames in each filter, exposed for stars of magnitude 10 to 14 (once a month)
 
    The class limits are in `classes` in the settings. The exact per-filter exposure for each star is in the plan table on
    the tab, if you want to fine-tune it.
@@ -181,9 +189,92 @@ Each sequence covers every filter, plus the readout, filter-change and slew over
 A measurement that is already in an uploaded file cannot be changed here. Change it at WebObs. Rejecting or accepting
 a measurement in a file that has not been uploaded makes that night's file again.
 
+## What it checks for you
+
+### AAVSO campaigns and alert notices
+Space Lab reads the AAVSO's list of active campaigns (apps.aavso.org/v2/campaigns) once a day and each campaign page at most
+once a week. The page's fixed fields (dates, targets table, filters) are read directly. The free text ("nightly, several
+times a night in outburst; DSLR and visual not needed") is read by the local AI, and its answer is checked: a target must
+appear on the page, filters must be real filters, dates real dates. Without the local AI, simple rules read it.
+Campaign stars go into the plan with the campaign's filters (only those, or the nearest you have: Sloan r → R), cadence and
+time-series request, until the campaign's end date. This works without a Target Tool key. The **AAVSO campaigns** list on
+the tab shows what was read and how.
+
+### Outbursts and fades
+Every new magnitude is compared with the star's last 30 days of AAVSO data (from the AAVSO International Database), or with
+this observatory's own measurements when there are none, using what kind of star it is: a dwarf nova a magnitude brighter is
+in outburst, an R CrB star a magnitude fainter is in a dip, a VY Scl star that fades is in a low state; eclipsing and
+pulsating stars are expected to change and are left alone. Two agreeing points with a good check star are needed. You get a
+Mac notification (and a phone push if `alerts.ntfy_topic` is set), the star gets priority for `boost_days`, and a dwarf
+nova gets a time-series block. Nothing is posted anywhere for you.
+
+### Frame check
+Before an image is measured it is compared with the earlier images of the same field: how many stars it shows, their width
+and elongation, and the sky level. A frame with almost no stars (cloud, dew, a closed roof) or trailed stars is set aside
+with the reason and listed under **Night quality**, with a **Measure anyway** button. A borderline frame (thin cloud, a
+bright sky, slightly elongated stars) is measured with a note; if the local vision AI is running it looks at a preview, and
+when it is confident the frame is bad the measurement waits for you.
+
+### Satellite trails, the linear range, neighbours
+- A satellite or aircraft trail across the variable flags that measurement; a trail across a comparison star removes only
+  that star from that frame.
+- A comparison star above the camera's linear range is left out, and a variable above it is flagged. Set `linear_adu` from
+  your camera's linearity test; without it, 85% of saturation is used.
+- A neighbour inside the variable's aperture is found in Gaia DR3 (the stars within an arcminute, looked up once per star);
+  above `blend_max` (5% extra light) the measurement is flagged. A comparison star with a detected neighbour inside its
+  aperture is left out.
+
+### Comparison-star health and CHET reports
+Every comparison star's agreement with the others is kept for every frame, with any colour trend removed (that is a colour
+term, not a bad star), and compared night after night. A star whose magnitude changes from night to night, or scatters
+within a night, leaves the ensemble at once, and the measurements not yet in a file that used it are measured again. A star
+that sits well off its chart value is watched (and left out when it is far off). Each chart's comparison stars are also
+looked up in AAVSO VSX (a listed variable is left out) and in Gaia DR3 (a flagged one is watched). For each finding a report
+for the AAVSO sequence team is drafted on the tab: read it, adjust it and send it yourself through
+[CHET](https://www.aavso.org/chet-help). You can keep using a star the check flagged ("Keep using it").
+
+### Clouds and extinction
+When a night is over, the zero points of all frames (chart magnitude minus instrumental magnitude of the comparison stars)
+are fitted against airmass, filter by filter. That gives the night's extinction and scatter. A frame that lost more than half
+its light to cloud is flagged; a smaller loss is noted. A night with a large scatter is called not photometric: the
+differential magnitudes are still fine, but the check-star values deserve a look.
+
+### Colour transformation, measured on standard fields
+With no coefficients of your own in `transform`, Space Lab measures them: once a month (and on clear nights until there is a
+first set) the plan includes a standard field, M67 or NGC 7790, or one you add to `standard_fields`. Its standard stars come
+from the AAVSO plotter's standard-field charts, and each night's coefficients are fitted the way the AAVSO's Transform
+Generator does it (Tbv, Tv_bv, Tb_bv, Tvr, Tr_vr, Tvi, Ti_vi, ...). Two nights that agree start the set; later nights that
+agree are averaged in. A night that disagrees (new filters, camera or optics?) waits for you to accept or reject it under
+**Colour transformation**. With your own coefficients set, they stay in charge unless `transform_auto` is true; with
+`transform_auto` false nothing is measured. The colour coefficient is applied too: `{"V": ["B", "V", 0.031, 1.05]}`.
+
+### Overheads and shared fields
+The gaps between your exposures are measured from the images' own time stamps: downloads, filter changes and slews. The
+planner uses them, so tonight's plan fits the night as it really runs, and **Night quality** shows how much of the night the
+shutter was open. Stars close enough to share a field (and similar in brightness) are planned as one pointing, named after
+the star that needs it most; every program star in a frame is measured. That saves a slew, a plate solve and a settle for
+each extra star. Set `fov_arcmin` if your images do not tell Space Lab the field size.
+
+### Before you upload
+Each night's file comes with a short list: the format check, whether the night was photometric, frames that lost light,
+how well the check stars agree, transformed lines, high airmass, low signal-to-noise, and any outburst or fade in the file.
+With the local AI running it is worded as two or three sentences; the AI may not add a number that is not in the checks,
+or the plain list is used instead.
+
+### Sharing coverage with other observers (optional, off)
+With `share_coverage` on, the stars you measured in the last three weeks (names, filters and nights only) and tonight's
+plan go on your public Space Lab page. Other Space Lab observatories that list your page in their `peers` give those stars a
+lower priority on the nights you cover them, and you can list theirs. Nothing else about the observatory is published.
+
+### Speed
+Many images at once (a time series) are measured by several worker processes (`workers`, 0 = automatic); the results are
+identical to measuring them one at a time. The calibration masters are built once and kept on disk instead of being rebuilt
+every hour. The variable-star jobs run in a lane of their own, so they never wait behind a long TESS or library run.
+
 ## Before you trust it
 
-This pipeline was tested on synthetic images. It has not yet been tested on your images. Before your first upload:
+This pipeline was tested on synthetic images (made-up stars, fields and campaign pages). It has not yet been tested on your
+images. Before your first upload:
 
 - For your first few nights, measure some stars both ways: with your usual method (VPhot, AstroImageJ or similar) and
   with Space Lab. Compare the two.
@@ -213,6 +304,20 @@ This pipeline was tested on synthetic images. It has not yet been tested on your
 | `pixel_scale`, `saturation_adu`, `gain_e_adu` | header, 60000, header | Camera |
 | `aperture_fwhm`, `snr_min`, `snr_comp`, `check_tol`, `comp_clip`, `airmass_max` | 1.6, 20, 50, 0.1, 0.05, 2.5 | Photometry and warnings |
 | `group_gap_min`, `transform`, `review_all`, `obstype` | 20, {}, false, CCD | Report file |
+| `workers` | 0 | Images measured at a time (0 = automatic from the CPU cores) |
+| `ai` | true | The local AI reads campaign pages, looks at borderline frames and words the pre-upload list |
+| `campaigns`, `campaign_cadence_days` | true, 1 | Read the AAVSO campaign pages; cadence when a campaign does not say |
+| `outburst_days`, `outburst_min_points`, `boost_days` | 30, 2, 7 | Outburst and fade check |
+| `qc_stars_bad`, `qc_stars_low`, `qc_elong_max`, `qc_elong_bad` | 0.15, 0.45, 1.6, 2.2 | Frame check (fractions of the field's usual star count; star elongation) |
+| `qc_cloud_mag`, `qc_cloud_bad`, `qc_photometric_scatter` | 0.25, 0.75, 0.08 | Cloud note, cloud flag, photometric night (magnitudes) |
+| `qc_ai`, `qc_ai_max`, `qc_ai_confidence` | true, 30, 0.6 | The vision AI for borderline frames: on, per run, how sure it must be |
+| `linear_adu`, `blend_max`, `comp_blend_max` | 85% of saturation, 0.05, 0.03 | Linear range; neighbour light that flags the variable or drops a comparison star |
+| `catalog_check`, `comp_var_max`, `comp_offset_max` | true, 0.04, 0.08 | Comparison-star health |
+| `transform_auto`, `transform_every_days`, `standard_fields`, `standard_frames` | auto, 30, [], 3 | Coefficients from standard fields |
+| `group_fields`, `fov_arcmin`, `group_dmag` | true, from the images, 2.5 | Stars that share a field become one pointing |
+| `auto_overhead` | true | Plan with the overheads measured from your images |
+| `measure_all_program_stars` | true | Measure every planned or watched star that falls in a frame |
+| `share_coverage`, `peers` | false, [] | Coverage on the public page; other Space Lab pages to read |
 
 ## Other tools, and where this fits
 
@@ -222,3 +327,6 @@ This pipeline was tested on synthetic images. It has not yet been tested on your
 | N.I.N.A. ExoPlanets plugin (Nick Hardy) | Inside N.I.N.A., plans and runs exoplanet and variable-star sequences, and works with AAVSO Target Tool exports | Its idea of scaling exposures to a star's brightness is used here for the plan |
 | EXOTIC, ExoClock | Exoplanet transit reduction and timing | Space Lab already uses EXOTIC for its Exoplanet Watch part; not used for variable stars |
 | AutoPhOT, Photometry Pipeline, Astra | Automated photometry pipelines from research groups | Possible alternatives for the measurement step; Space Lab keeps to AAVSO charts and the AAVSO file format |
+| VPhot, Transform Generator, TransformApplier | The AAVSO's own photometry, coefficient and transformation tools | Space Lab fits coefficients the way Transform Generator does and applies them like TransformApplier, automatically |
+| Asterism (First Light Observatory Systems) | A central server that hands observation requests to N.I.N.A. observatories | Access needs credentials from its makers, so Space Lab does not connect to it; the optional coverage sharing above is the open, simple alternative |
+| Built on | astropy, sep (Source Extractor), astroalign, astroquery (VizieR: Gaia DR3, AAVSO VSX), scikit-image, Pillow | Used as libraries, so their fixes and improvements come with each update |

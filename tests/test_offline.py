@@ -13,11 +13,16 @@ import os
 import numpy as np
 
 os.environ.setdefault('SPACELAB_DATA', tempfile.mkdtemp(prefix='spacelab-test-'))   # never touch the real data folder
+os.environ.setdefault('SPACELAB_OFFLINE', '1')        # no catalogue, AAVSO-data or local-AI calls unless a test hands them in
+ONLY = {x.strip() for x in os.environ.get('SPACELAB_TESTS', '').split(',') if x.strip()}   # run some tests only: SPACELAB_TESTS=a,b
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 RES = []
+RES_TIMES = {}      # timings some tests measure (printed at the end)
 
 
 def test(fn):
+    if (ONLY and fn.__name__ not in ONLY) or __name__ == '__mp_main__':     # a worker process re-imports this file: run nothing there
+        return fn
     try:
         fn()
         RES.append((fn.__name__, True, ''))
@@ -2451,11 +2456,552 @@ def support_card_links_are_checked():
     assert d(sponsors='https://evil.example.com/sponsors/x', kofi='javascript:alert(1)') == {}
     assert d(sponsors='https://github.com/sponsors/x"><script>') == {}
 
+
+
+# ---------------------------------------------------------------- variable-star observatory: checks, coefficients, campaigns, speed
+def _vs_ctx(con, cfg, logs):
+    class Ctx:
+        pass
+    cx = Ctx()
+    cx.con, cx.log, cx.cfg, cx.time_left = con, logs.append, cfg, (lambda: 1e9)
+    return cx
+
+
+def _gauss_image(n, stars, rng, sx=1.6, sy=1.6, bkg=500.0, noise=True):
+    """Stars as (x, y, peak) Gaussians on a flat sky; sx, sy: widths (sigma, pixels)."""
+    yy, xx = np.mgrid[0:n, 0:n]
+    img = np.full((n, n), bkg)
+    for x, y, a in stars:
+        sl = (slice(max(0, int(y) - 20), int(y) + 21), slice(max(0, int(x) - 30), int(x) + 31))
+        img[sl] += a * np.exp(-((xx[sl] - x) ** 2 / (2 * sx ** 2) + (yy[sl] - y) ** 2 / (2 * sy ** 2)))
+    return rng.normal(img, np.sqrt(img) + 3) if noise else img
+
+
+@test
+def frame_check_trails_blends_and_linear_range():
+    """The frame check sets aside clouded and trailed frames, notes thin cloud, finds a satellite trail; the photometry drops a
+    comparison star above the linear range, one under a trail and one with a neighbour, and flags a blended variable."""
+    from astropy.io import fits
+    from spacelab import vsqc, vsphot
+    rng = np.random.default_rng(11)
+    n = 400
+    pos = rng.uniform(40, n - 40, (60, 2))
+    s = dict(vsphot.settings({'vstars': {'saturation_adu': 60000}}))
+    hdr = fits.Header({'EXPTIME': 10.0})
+    good = vsqc.metrics(vsqc.extract(_gauss_image(n, [(x, y, 3000) for x, y in pos], rng), hdr, s), hdr, s)
+    assert good['n'] >= 55 and good['elong'] < 1.3 and good['streaks'] == [], good
+    ref = {'n': float(good['n']), 'fwhm': good['fwhm'], 'sky': good['sky']}
+    assert vsqc.screen(good, ref, s) == ('ok', [])
+    trailed = vsqc.metrics(vsqc.extract(_gauss_image(n, [(x, y, 3000) for x, y in pos], rng, sx=6.0, sy=1.5), hdr, s), hdr, s)
+    v, why = vsqc.screen(trailed, ref, s)
+    assert v == 'bad' and 'trailed' in why[0], (trailed, why)
+    cloud = vsqc.metrics(vsqc.extract(_gauss_image(n, [(x, y, 3000 if k < 5 else 20) for k, (x, y) in enumerate(pos)], rng), hdr, s), hdr, s)
+    v, why = vsqc.screen(cloud, ref, s)
+    assert v == 'bad' and 'usually shows' in why[0], (cloud['n'], why)
+    thin = vsqc.metrics(vsqc.extract(_gauss_image(n, [(x, y, 3000 if k < 20 else 20) for k, (x, y) in enumerate(pos)], rng), hdr, s), hdr, s)
+    assert vsqc.screen(thin, ref, s)[0] == 'borderline'
+    assert vsqc.screen(dict(good, n=0), None, s)[0] == 'bad' and vsqc.screen(dict(good, n=2), None, s)[0] == 'borderline'   # no history yet
+    # a satellite trail across the frame
+    img = _gauss_image(n, [(x, y, 3000) for x, y in pos], rng)
+    yy, xx = np.mgrid[0:n, 0:n]
+    img += 400 * np.exp(-((yy - (0.5 * xx + 60)) ** 2) / (2 * 1.2 ** 2))       # y = 0.5 x + 60
+    m = vsqc.metrics(vsqc.extract(img, hdr, s), hdr, s)
+    assert m['streaks'], m
+    assert vsqc.near_streak(200, 160, 5, m['streaks']) and not vsqc.near_streak(200, 300, 5, m['streaks'])
+    # photometry: a comparison star above the linear range, one under the trail, one with a neighbour; a blended variable
+    w, _h = make_wcs_header(150.0, 20.0, n, scale=1.5)
+    to_pix = lambda ra, dec: w.all_world2pix(np.atleast_1d(ra), np.atleast_1d(dec), 0)
+    to_sky = lambda x, y: [float(v[0]) for v in w.all_pix2world([x], [y], 0)]
+    cx = [(80, 80), (320, 90), (90, 330), (330, 320), (200, 330), (120, 200), (280, 200), (200, 120)]
+    peaks = [5000, 5200, 4800, 5100, 55000, 5000, 4900, 5000]                  # comp 4 sits above the linear limit (85% of 60000)
+    stars = [(x, y, p) for (x, y), p in zip(cx, peaks)] + [(200, 200, 4000), (207, 200, 1600)]     # variable plus a 40% neighbour
+    stars.append((126, 200, 2500))                                                  # a neighbour inside comp 5's aperture
+    img = _gauss_image(n, stars, rng)
+    img += 900 * np.exp(-((xx - 280) ** 2) / (2 * 1.2 ** 2))                       # a trail through comp 6, top to bottom
+    comps = []
+    for k, ((x, y), p) in enumerate(zip(cx, peaks)):
+        ra, dec = to_sky(x, y)
+        flux = 2 * np.pi * 1.6 ** 2 * p / 10.0
+        comps.append({'auid': f'000-TST-{k:03d}', 'label': str(k), 'ra': ra, 'dec': dec, 'mags': {'V': [20.0 - 2.5 * math.log10(flux), 0.01]}})
+    ra0, de0 = to_sky(200, 200)
+    sky = vsqc.extract(img, hdr, s)
+    sky['streaks'] = vsqc.metrics(sky, hdr, s)['streaks']
+    s2 = dict(s, pixel_scale=1.5)
+    r = vsphot.measure(img, hdr, to_pix, {'name': 'XX Tst', 'ra': ra0, 'dec': de0}, {'chartid': 'X1', 'comps': comps}, 'V', s2, sky=sky)
+    assert not r.get('error'), r
+    left = ' '.join(r['notes'])
+    assert '000-TST-004 left out: above the camera' in left and '000-TST-006 left out: a satellite' in left and '000-TST-005 left out: a neighbour' in left, r['notes']
+    assert any('neighbouring star adds about' in f for f in r['flags']), r['flags']
+    assert '000-TST-004' not in r['comps'] and r['zp'] is not None and set(r['comp_res']) >= set(r['comps'])
+    near = [{'ra': ra0, 'dec': de0, 'g': 12.0}, {'ra': ra0 + 3.5 * 1.5 / 3600 / math.cos(math.radians(de0)), 'dec': de0, 'g': 13.3}]
+    bl = vsphot.blend_fraction({'ra': ra0, 'dec': de0}, near, 1.6 * 3.8 * 1.5, 3.8 * 1.5)
+    assert 0.2 < bl < 0.35, bl                                                       # Gaia says the same: about 30% more light
+
+
+@test
+def comparison_star_health_catalogues_and_chet():
+    """Comparison stars that vary night to night leave the ensemble (their measurements are done again), a constant offset is
+    watched, VSX variables are excluded and Gaia ones watched, and a CHET report is drafted, never sent."""
+    from spacelab import db, vsphot, vsqc
+    con = db.connect()
+    vsphot.ensure(con)
+    con.execute("DELETE FROM vs_meas")
+    con.execute("DELETE FROM vs_frames")
+    db.kv_set(con, 'vs_comp_flags', {})
+    db.kv_set(con, 'vs_compcat', {})
+    now = 1.80e9
+    jd = now / 86400 + 2440587.5
+    rng = np.random.default_rng(3)
+    nightly_b = {0: 0.0, 1: 0.15, 2: -0.10}
+    for nt in range(3):
+        for k in range(4):
+            cr = {'000-AAA-001': [float(rng.normal(0, 0.01)), 0.01, 0.6], '000-BBB-002': [nightly_b[nt] + float(rng.normal(0, 0.01)), 0.01, 0.7],
+                  '000-CCC-003': [0.12 + float(rng.normal(0, 0.01)), 0.01, 0.8]}
+            con.execute("INSERT INTO vs_meas (frame, target, filter, jd, mag, err, comps, kname, status, night, chart, comp_res) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", (f'/x/f{nt}{k}.fits', 'XX Tst', 'V', jd - 3 + nt + k * 0.01, 12.3, 0.01,
+                                                             json.dumps(['000-AAA-001', '000-BBB-002']), '000-CCC-003', 'filed', f'2027-01-0{nt + 1}',
+                                                             'X9', json.dumps(cr)))
+    con.execute("INSERT INTO vs_meas (frame, target, filter, jd, mag, err, comps, status, night, chart) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                ('/x/pending.fits', 'XX Tst', 'V', jd - 0.1, 12.3, 0.01, json.dumps(['000-BBB-002']), 'ok', '2027-01-04', 'X9'))
+    con.execute("INSERT INTO vs_frames (path, mtime, status) VALUES ('/x/pending.fits', 1, 'ok')")
+    s = vsphot.settings({'vstars': {}})
+    new = {f['auid']: f for f in vsqc.comp_health(con, s, now)}
+    assert set(new) == {'000-BBB-002', '000-CCC-003'}, new
+    assert new['000-BBB-002']['kind'] == 'variable' and new['000-BBB-002']['excluded'], new['000-BBB-002']
+    assert new['000-CCC-003']['kind'] == 'offset' and not new['000-CCC-003']['excluded'] and 'fainter' in new['000-CCC-003']['why']
+    assert vsqc.comp_health(con, s, now) == []                                    # flagged once, not again
+    assert vsqc.excluded(con) == {'000-BBB-002': new['000-BBB-002']['why']}
+    assert vsqc.requeue_for(con, ['000-BBB-002']) == 1                            # the unfiled measurement that used it is redone
+    assert not db.one(con, "SELECT 1 AS x FROM vs_frames WHERE path='/x/pending.fits'") and db.one(con, "SELECT COUNT(*) AS n FROM vs_meas WHERE status='filed'")['n'] == 12
+    ch = {'chartid': 'X9', 'comps': [{'auid': '000-DDD-004', 'label': '110', 'ra': 150.0, 'dec': 20.0, 'mags': {'V': [11.0, 0.01], 'B': [11.6, 0.02]}},
+                                     {'auid': '000-EEE-005', 'label': '120', 'ra': 150.05, 'dec': 20.02, 'mags': {'V': [12.0, 0.01]}},
+                                     {'auid': '000-FFF-006', 'label': '130', 'ra': 149.95, 'dec': 19.98, 'mags': {'V': [13.0, 0.01]}}]}
+    asked = []
+
+    def viz(cat, ra, dec, rad, cols, row_limit=2000):
+        asked.append(cat)
+        if cat == 'B/vsx/vsx':
+            return [{'Name': 'V0999 Tst', 'Type': 'EA', 'RAJ2000': 150.0 + 0.5 / 3600, 'DEJ2000': 20.0}]
+        return [{'RA_ICRS': 150.05, 'DE_ICRS': 20.02 + 0.5 / 3600, 'Gmag': 12.1, 'VarFlag': 'VARIABLE'},
+                {'RA_ICRS': 149.95, 'DE_ICRS': 19.98, 'Gmag': 13.0, 'VarFlag': 'NOT_AVAILABLE'}]
+    got = {f['auid']: f for f in vsqc.catalog_check(con, ch, 'XX Tst', viz, now)}
+    assert set(got) == {'000-DDD-004', '000-EEE-005'} and got['000-DDD-004']['excluded'] and not got['000-EEE-005']['excluded']
+    assert 'V0999 Tst (EA)' in got['000-DDD-004']['why'] and 'Gaia DR3' in got['000-EEE-005']['why']
+    assert vsqc.catalog_check(con, ch, 'XX Tst', viz, now + 86400) == [] and asked == ['B/vsx/vsx', 'I/355/gaiadr3']   # kept 60 days
+    assert set(vsqc.excluded(con)) == {'000-BBB-002', '000-DDD-004'}
+    name = vsqc.save_chet(con, got['000-DDD-004'], ch)
+    txt = (vsqc.CHET_DIR / name).read_text()
+    assert txt.startswith('Subject: Comparison star 000-DDD-004 (label 110) on chart X9 for XX Tst') and vsqc.CHET_URL in txt and 'V = 11.000' in txt, txt
+    draft = vsqc.chet_draft(new['000-BBB-002'])
+    assert 'on 3 nights (2027-01-01, 2027-01-02, 2027-01-03)' in draft and 'Before sending' in draft, draft
+    assert db.kv_get(con, 'vs_chet')[0]['auid'] == '000-DDD-004'
+    gone = vsphot.without(ch, vsqc.excluded(con))
+    assert [c['auid'] for c in gone['comps']] == ['000-EEE-005', '000-FFF-006']
+    db.kv_set(con, 'vs_comp_flags', {}); db.kv_set(con, 'vs_compcat', {}); db.kv_set(con, 'vs_chet', [])
+    con.execute("DELETE FROM vs_meas"); con.execute("DELETE FROM vs_frames")
+
+
+@test
+def night_quality_clouds_and_overheads():
+    """Zero points against airmass give the extinction and find cloud (a big loss is flagged, a small one noted); the gaps
+    between exposures give download, filter-change and slew times, which the planner then uses."""
+    from spacelab import db, vsphot, vsqc
+    con = db.connect()
+    vsphot.ensure(con)
+    con.execute("DELETE FROM vs_meas"); con.execute("DELETE FROM vs_frames")
+    db.kv_set(con, 'vs_nights', {}); db.kv_set(con, 'vs_overhead', {})
+    rng = np.random.default_rng(5)
+    X = np.linspace(1.1, 2.0, 12)
+    zp = 21.0 - 0.20 * X + rng.normal(0, 0.004, 12)
+    zp[4] -= 1.0                                                                  # thick cloud: 60% of the light lost
+    zp[8] -= 0.35                                                                 # thin cloud
+    for k in range(12):
+        con.execute("INSERT INTO vs_meas (frame, target, filter, jd, mag, err, status, night, airmass, zp, flags, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (f'/n/{k}.fits', 'XX Tst', 'V', 2461000.6 + k * 0.01, 12.3, 0.01, 'ok', '2027-02-01', float(X[k]), float(zp[k]), '[]', '[]'))
+    s = vsphot.settings({'vstars': {}})
+    q = vsqc.night_quality(con, '2027-02-01', s)
+    v = q['bands']['V']
+    assert abs(v['k'] - 0.20) < 0.01 and v['scatter'] < 0.01 and v['cloud'] == 2 and q['thick'] == 1, q
+    rows = {r['frame']: r for r in db.rows(con, "SELECT frame, status, flags, notes FROM vs_meas")}
+    assert rows['/n/4.fits']['status'] == 'review' and 'thick cloud' in rows['/n/4.fits']['flags']
+    assert rows['/n/8.fits']['status'] == 'ok' and 'thin cloud' in rows['/n/8.fits']['notes'] and rows['/n/8.fits']['flags'] == '[]'
+    vsqc.night_quality(con, '2027-02-01', s)                                      # done again: nothing doubled
+    assert json.loads(db.one(con, "SELECT flags FROM vs_meas WHERE frame='/n/4.fits'")['flags']).count(json.loads(rows['/n/4.fits']['flags'])[0]) == 1
+    t = 1.80e9
+    seq = []
+    for star in range(6):                                                         # each star: V V V B B B, 60 s exposures
+        for f in ('V', 'V', 'V', 'B', 'B', 'B'):
+            seq.append((t, star, f))
+            t += 60 + (12 if (len(seq) % 6 == 3) else 4)                          # 4 s download, 12 s after a filter change
+        t += 91                                                                   # the slew to the next star (95 s with the download)
+    for k, (t0, star, f) in enumerate(seq):
+        con.execute("INSERT INTO vs_frames (path, mtime, status, t0, exp, obj, filt, night) VALUES (?,?,?,?,?,?,?,?)",
+                    (f'/o/{k}.fits', 1, 'ok', t0, 60.0, f'S{star}', f, '2027-02-02'))
+    o = vsqc.save_overheads(con, '2027-02-02')
+    assert o['download_s'] == 4.0 and o['filter_s'] == 12.0 and o['slew_s'] == 95.0 and o['slews'] == 5 and 0.7 < o['open'] < 0.8, o
+    m = db.kv_get(con, 'vs_overhead')['model']
+    assert m == {'readout_s': 4.0, 'filter_change_s': 8.0, 'overhead_s': 95.0}, m
+    db.kv_set(con, 'vs_nights', {}); db.kv_set(con, 'vs_overhead', {})
+    con.execute("DELETE FROM vs_meas"); con.execute("DELETE FROM vs_frames")
+
+
+@test
+def transformation_coefficients_from_standard_fields():
+    """Standard-field images give transformation coefficients the way the AAVSO Transform Generator does; two agreeing nights
+    start the measured set, a disagreeing night waits for the observer, and the coefficients transform the AAVSO file."""
+    from datetime import datetime, timezone
+    from astropy.io import fits
+    from spacelab import config, db, vscal, vsphot
+    T = lambda x: datetime.fromisoformat(x).replace(tzinfo=timezone.utc).timestamp()
+    con = db.connect()
+    vsphot.ensure(con)
+    for k in ('vs_tsets', 'vs_nights_done', 'vs_nights', 'vs_overhead'):
+        db.kv_set(con, k, None)
+    con.execute("DELETE FROM vs_std"); con.execute("DELETE FROM vs_meas"); con.execute("DELETE FROM vs_frames")
+    rng = np.random.default_rng(21)
+    truth = {'Tv_bv': 0.030, 'Tb_bv': 0.120}
+    N, M67 = 49, vscal.STANDARD_FIELDS[0]
+    V = rng.uniform(10.5, 13.5, N)
+    BV = rng.uniform(0.1, 1.5, N)
+    cat = {'B': {f'S{k}': V[k] + BV[k] for k in range(N)}, 'V': {f'S{k}': V[k] for k in range(N)}}
+    inst = {'V': {k: cat['V'][k] - truth['Tv_bv'] * (cat['B'][k] - cat['V'][k]) - 2.0 + rng.normal(0, 0.004) for k in cat['V']},
+            'B': {k: cat['B'][k] - truth['Tb_bv'] * (cat['B'][k] - cat['V'][k]) - 2.6 + rng.normal(0, 0.004) for k in cat['B']}}
+    got = vscal.fit(inst, cat)
+    assert abs(got['Tv_bv'][0] - 0.030) < 0.004 and abs(got['Tb_bv'][0] - 0.120) < 0.004, got
+    assert abs(got['Tbv'][0] - 1 / (1 - 0.120 + 0.030)) < 0.006 and got['Tbv'][2] >= 45, got
+    # ---- the images: M67 in B and V; the plotter's standard stars; one night measured end to end
+    work = Path(tempfile.mkdtemp(prefix='stdfield-'))
+    n, sc = 500, 1.5
+    w, _h = make_wcs_header(M67['ra'], M67['dec'], n, scale=sc)
+    xy = np.array([(70 + 60 * (k % 7), 70 + 60 * (k // 7)) for k in range(N)], float) + rng.uniform(-5, 5, (N, 2))
+    rd = w.all_pix2world(xy[:, 0], xy[:, 1], 0)
+    comps = [{'auid': f'S{k}', 'label': str(k), 'ra': float(rd[0][k]), 'dec': float(rd[1][k]),
+              'mags': {'V': [round(float(V[k]), 3), 0.005], 'B': [round(float(V[k] + BV[k]), 3), 0.008]}} for k in range(N)]
+    sexa = lambda v: f'{int(v):02d}:{int(v * 60 % 60):02d}:{v * 3600 % 60:06.3f}'
+    asked = []
+
+    def vsp(q):
+        asked.append(q)
+        assert q.get('special') == 'std_field' and q['format'] == 'json', q
+        return {'chartid': 'XSTD1', 'photometry': [{'auid': c['auid'], 'label': c['label'], 'ra': sexa(c['ra'] / 15), 'dec': '+' + sexa(c['dec']),
+                                                    'bands': [{'band': b, 'mag': v[0], 'error': v[1]} for b, v in c['mags'].items()]} for c in comps]}
+
+    def frame(band, when, k):
+        stars = []
+        for c in range(N):
+            m_inst = (V[c] - truth['Tv_bv'] * BV[c] - 2.0) if band == 'V' else (V[c] + BV[c] - truth['Tb_bv'] * BV[c] - 2.6)
+            stars.append((xy[c, 0], xy[c, 1], 10 ** (-0.4 * (m_inst - 22.5)) / (2 * np.pi * 1.6 ** 2)))
+        h = fits.Header()
+        h.update(w.to_header())
+        h.update({'OBJECT': 'M 67', 'FILTER': band, 'EXPTIME': 10.0, 'DATE-OBS': when, 'IMAGETYP': 'LIGHT'})
+        p = work / f'M67_{band}_{k}.fits'
+        fits.PrimaryHDU(_gauss_image(n, stars, rng).astype(np.float32), h).writeto(p)
+        os.utime(p, (T('2027-03-02T06:00:00') - 3600,) * 2)
+    for k, (band, when) in enumerate([('V', '2027-03-02T03:00:00'), ('B', '2027-03-02T03:02:00'), ('V', '2027-03-02T03:04:00'), ('B', '2027-03-02T03:06:00')]):
+        frame(band, when, k)
+    vs = {'enabled': True, 'site': {'lat': 30.0, 'lon': -100.0}, 'images_dir': str(work), 'pixel_scale': sc, 'obscode': 'TEST1',
+          'filters': [{'fits': 'B', 'aavso': 'B', 'chart': 'B', 'exp_at_mag12': 40}, {'fits': 'V', 'aavso': 'V', 'chart': 'V', 'exp_at_mag12': 20}]}
+    cfg = config._merge(config.DEFAULTS, {'vstars': vs})
+    logs = []
+    cx = _vs_ctx(con, cfg, logs)
+    out = vsphot.run(cx, vsp=vsp, now=T('2027-03-02T06:00:00'))
+    assert '4 standard-field frames' in out and len(asked) == 1, (out, logs[-5:])
+    rows = db.rows(con, "SELECT * FROM vs_std ORDER BY jd")
+    assert [r['filter'] for r in rows] == ['V', 'B', 'V', 'B'] and all(len(json.loads(r['stars'])) >= 44 for r in rows), [len(json.loads(r['stars'])) for r in rows]
+    s = vsphot.settings(cfg)
+    assert vscal.active(con, s)['source'] is None and vscal.due(con, s, T('2027-03-02T06:00:00')) is None      # observed tonight already
+    vsphot.run(cx, vsp=vsp, now=T('2027-03-02T20:00:00'))                         # the night is over: its coefficients
+    sets = db.kv_get(con, 'vs_tsets')
+    assert len(sets) == 1 and sets[0]['state'] == 'pending' and abs(sets[0]['coefs']['Tv_bv'][0] - 0.030) < 0.01, sets
+    assert abs(sets[0]['coefs']['Tb_bv'][0] - 0.120) < 0.01, sets[0]['coefs']
+    assert 'two clear nights' in vscal.due(con, s, T('2027-03-03T20:00:00'))
+    # ---- a second night that agrees starts the measured set; a third that disagrees waits for the observer
+    def add_night(night, tv, tb):
+        for f, tt, z in (('V', tv, 2.0), ('B', tb, 2.6)):
+            stars = [{'id': f'S{k}', 'm': round(float((V[k] if f == 'V' else V[k] + BV[k]) - tt * BV[k] - z + rng.normal(0, 0.004)), 5), 'e': 0.004}
+                     for k in range(N)]
+            con.execute("INSERT INTO vs_std (frame, field, night, filter, jd, stars, chart, at) VALUES (?,?,?,?,?,?,?,?)",
+                        (f'/std/{night}-{f}', 'M67', night, f, 2461500.5, json.dumps(stars), 'XSTD1', 1.0))
+        return vscal.record(con, s, vscal.night_sets(con, night, s))
+    assert add_night('2027-03-05', 0.032, 0.118) == []
+    act = vscal.active(con, s)
+    assert act['source'] == 'auto' and act['sets'] == 2 and set(act['spec']) == {'B', 'V'} and len(act['spec']['V']) == 4, act
+    assert abs(act['spec']['V'][2] - 0.031) < 0.01 and act['spec']['V'][:2] == ['B', 'V']
+    held = add_night('2027-03-09', 0.090, 0.200)
+    assert len(held) == 1 and held[0]['state'] == 'held' and vscal.active(con, s)['sets'] == 2
+    assert vscal.decide(con, '2027-03-09', 'M67', True) and vscal.active(con, s)['sets'] == 1
+    assert abs(vscal.active(con, s)['spec']['V'][2] - 0.090) < 0.01
+    # ---- the colour coefficient is applied together with the transformation coefficient
+    rows = [{'grp': 1, 'filter': 'B', 'mag_raw': 13.0, 'ci_comp': 0.5}, {'grp': 1, 'filter': 'V', 'mag_raw': 12.0, 'ci_comp': 0.5}]
+    vsphot.transform(rows, {'V': ['B', 'V', 0.05, 1.1]})
+    assert abs(rows[1]['mag'] - (12.0 + 0.05 * 1.1 * (1.0 - 0.5))) < 1e-12 and rows[1]['trans'] == 1 and rows[0]['trans'] == 0
+    own = dict(s, transform={'V': ['B', 'V', 0.04]})
+    assert vscal.active(con, own)['source'] == 'manual' and vscal.due(con, own) is None              # an observer's own coefficients win
+    assert vscal.active(con, dict(own, transform_auto=True))['source'] == 'auto'
+    assert vscal.which_field({'OBJECT': 'ngc7790'}, s)['name'] == 'NGC 7790' and vscal.which_field({}, s, 132.85, 11.80)['name'] == 'M67'
+    for k in ('vs_tsets', 'vs_nights_done', 'vs_nights', 'vs_overhead'):
+        db.kv_set(con, k, None)
+    con.execute("DELETE FROM vs_std"); con.execute("DELETE FROM vs_meas"); con.execute("DELETE FROM vs_frames")
+
+
+@test
+def campaigns_outbursts_and_coverage():
+    """AAVSO campaign pages are read (fixed fields directly, free text by the local AI, whose answer is checked), their stars
+    go into the plan with the campaign's filters; an outburst against recent AAVSO data is reported once and raises the star's
+    priority; coverage goes on the public page only when shared, and other observatories' plans lower a star's priority."""
+    from datetime import datetime, timezone
+    from spacelab import config, db, publish, vsnews, vsobs, vsphot
+    T = lambda x: datetime.fromisoformat(x).replace(tzinfo=timezone.utc).timestamp()
+    con = db.connect()
+    vsphot.ensure(con)
+    for k in ('vs_campaigns', 'vs_events', 'vs_boost', 'vs_plan'):
+        db.kv_set(con, k, None)
+    lst = ('<html><body><table><tr><th>#</th><th>Title</th><th>Principal Investigator</th><th>Start date</th><th>End date</th><th>Requested data types</th></tr>'
+           '<tr><td><a href="/v2/campaigns/999">999</a></td><td><a href="/v2/campaigns/999">Monitoring of QQ Fak</a></td><td>Doe, J.</td>'
+           '<td>2027-01-05 (UTC)</td><td>2027-12-31 (UTC)</td><td>Photometry</td></tr>'
+           '<tr><td><a href="/v2/campaigns/998">998</a></td><td>Spectra of a Be star</td><td>Roe, R.</td><td>2026-01-01 (UTC)</td><td>Ongoing</td><td>Spectroscopy</td></tr>'
+           '</table></body></html>')
+    page = ('<html><body><h1>Monitoring of QQ Fak</h1><p><b>Active Dates:</b> Jan. 5, 2027 – Dec. 31, 2027</p>'
+            '<h3>Abstract</h3><p>Dr. Example asks for photometry of the made-up dwarf nova QQ Fak and of PNV J03100000+4500000.</p>'
+            '<h3>Requested Data Types:</h3><p>Photometry</p><h3>Targets</h3><table><tr><th>Name</th><th>Magnitude</th><th>Variability Type</th>'
+            '<th>Photometry Notes</th><th>Spectroscopy Notes</th></tr><tr><td>QQ Fak</td><td>13.10</td><td>UGSS</td><td><p>Cadence: Not Specified</p>'
+            '<p>Precision: 50</p></td><td>Not Requested</td></tr><tr><td>PNV J03100000+4500000</td><td>14.0</td><td>N</td><td>Cadence: Not Specified</td>'
+            '<td>Not Requested</td></tr></table><h3>Photometry Filters:</h3><p>R (Cousins), r (Sloan)</p><h3>Additional Observer Input:</h3>'
+            '<p>Nightly observations are requested; time-series photometry is welcome during outbursts. DSLR and visual data are not requested.</p>'
+            '<h3>Notes:</h3><p>No public notes</p></body></html>')
+    calls = []
+
+    spectra = ('<html><body><h1>Spectra of a Be star</h1><p>Active Dates: Jan. 1, 2026 – Ongoing</p><h3>Requested Data Types:</h3><p>Spectroscopy</p>'
+               '<h3>Targets</h3><table><tr><th>Name</th><th>Magnitude</th><th>Variability Type</th></tr><tr><td>BE Fak</td><td>5.0</td><td>GCAS</td></tr></table></body></html>')
+
+    def fetch(url):
+        calls.append(url)
+        return lst if url.rstrip('/').endswith('campaigns') else page if url.endswith('999') else spectra
+
+    class FakeLLM:
+        def __init__(self):
+            self.n = 0
+
+        def chat(self, prompt, **kw):
+            self.n += 1
+            assert kw.get('json_mode') and 'QQ Fak' in prompt
+            return {'targets': ['QQ Fak', 'Imaginary Star'], 'photometry': True, 'filters': ['R', 'r'], 'cadence_days': 1, 'time_series': True,
+                    'series_minutes': 120, 'until': '2027-12-31', 'urgent': False, 'note': 'Observe QQ Fak nightly in R.'}
+    text, links, tables = vsnews.html_text(page)
+    c = vsnews.parse_campaign(text, tables)
+    assert c['start'] == '2027-01-05' and c['end'] == '2027-12-31' and c['filters'] == ['R', 'SR'] and c['cadence_days'] == 1.0, c
+    assert [t['name'] for t in c['targets']] == ['QQ Fak', 'PNV J03100000+4500000'] and c['targets'][0]['precision'] == 50 and c['time_series']
+    llm = FakeLLM()
+    ai = vsnews.ask_llm(llm, text)
+    assert ai['targets'] == ['QQ Fak'] and ai['filters'] == ['R', 'SR'] and ai['series_minutes'] == 120     # a name not on the page is dropped
+    now = T('2027-02-10T20:00:00')
+    camps = vsnews.campaigns(con, {}, fetch, llm, print, now)
+    assert [x['id'] for x in camps] == [999] and camps[0]['by'] == 'page + local AI' and len(calls) == 3, (camps, calls)   # spectroscopy only: left out
+    assert vsnews.campaigns(con, {}, fetch, llm, print, now + 3600)[0]['id'] == 999 and len(calls) == 3           # kept for the day
+    vsx = lambda n: {'VSXObject': {'Name': 'QQ Fak', 'RA2000': '45.0', 'Declination2000': '45.0', 'VariabilityType': 'UGSS', 'MaxMag': '12.0 V',
+                                   'MinMag': '15.8 V'}} if n == 'QQ Fak' else {}
+    ct = vsnews.campaign_targets(con, {}, camps, vsx)
+    assert [t['name'] for t in ct] == ['QQ Fak', 'PNV J03100000+4500000'] and ct[0]['want_filters'] == ['R', 'SR'] and ct[0]['series']
+    assert abs(ct[1]['ra'] - 47.5) < 1e-6 and abs(ct[1]['dec'] - 45.0) < 1e-6 and ct[0]['campaign'] == 999          # position from its name
+    merged = vsnews.merge_targets([{'name': 'QQ FAK', 'ra': 45.0, 'dec': 45.0, 'sections': ['Cataclysmic Variables'], 'filters': [], 'info': 'tt',
+                                    'cadence': 3}], ct)
+    assert len(merged) == 2 and merged[0]['priority'] and merged[0]['want_filters'] == ['R', 'SR'] and merged[0]['cadence'] == 1.0
+    # ---- the plan: the campaign star with the R filter only
+    vs = {'enabled': True, 'site': {'lat': 40.0, 'lon': -100.0}, 'obscode': 'TEST1', 'images_dir': str(Path(tempfile.mkdtemp())),
+          'watchlist': [], 'targettool_csv': str(Path(tempfile.mkdtemp()) / 'none.csv')}
+    cfg = config._merge(config.DEFAULTS, {'vstars': vs})
+    logs = []
+    cx = _vs_ctx(con, cfg, logs)
+    out = vsobs.run(cx, now=now, fetch_campaigns=fetch, fetch_vsx=vsx, llm=llm)
+    plan = db.kv_get(con, 'vs_plan')
+    qq = next(t for t in plan['targets'] if t['name'] == 'QQ Fak')
+    assert [e['filter'] for e in qq['exposures']] == ['R'] and qq['series'] and qq['campaign'] == 999 and qq['why'][0] == 'AAVSO alert or campaign', (out, qq)
+    # ---- an outburst: quiescent near 15.6 in the AAVSO data, 12.4 here tonight
+    rng = np.random.default_rng(9)
+    jd_now = now / 86400 + 2440587.5
+    aid_of = lambda base: 'JD@@@mag@@@uncert@@@by@@@band@@@fainterThan@@@valFlag\n' + '\n'.join(
+        f'{jd_now - 25 + k:.4f}@@@{base + rng.normal(0, 0.05):.3f}@@@0.03@@@XYZ@@@V@@@0@@@Z' for k in range(24)) + \
+        f'\n{jd_now - 3:.4f}@@@<16.0@@@@@@XYZ@@@V@@@1@@@Z\n{jd_now - 2:.4f}@@@9.0@@@0.1@@@XYZ@@@V@@@0@@@T'
+    aid_txt = aid_of(15.6)
+    asked = []
+
+    def aid(q):
+        asked.append(q)
+        assert q['view'] == 'api.delim' and q['delimiter'] == '@@@' and abs(float(q['tojd']) - float(q['fromjd']) - 30) < 1e-6
+        return aid_txt
+    obs = vsnews.aid_obs('QQ Fak', 30, now, aid)
+    assert len(obs) == 24 and all(abs(o['mag'] - 15.6) < 0.3 for o in obs)                 # fainter-than and discrepant points left out
+    for k in range(3):
+        con.execute("INSERT INTO vs_meas (frame, target, filter, jd, mag, err, kdev, flags, status, night) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (f'/ob/{k}', 'QQ Fak', 'V', jd_now + k * 0.01, 12.4 + k * 0.01, 0.01, 0.01, '[]', 'ok', '2027-02-10'))
+    new = [{'target': 'QQ Fak', 'filter': 'V', 'night': '2027-02-10', 'mag': 12.4, 'kdev': 0.01, 'flags': []}]
+    sink = []
+    known = {'QQ FAK': {'name': 'QQ Fak', 'type': 'UGSS', 'max_mag': 12.0}}
+    evs = vsnews.outbursts(con, vsphot.settings(cfg), cfg, new, known, aid, now, sink)
+    assert len(evs) == 1 and evs[0]['kind'] == 'outburst' and abs(evs[0]['delta'] + 3.2) < 0.15 and len(sink) == 1, (evs, sink)
+    assert 'Space Lab: QQ Fak outburst' == sink[0][0] and 'Nothing has been reported' in sink[0][1]
+    assert vsnews.outbursts(con, vsphot.settings(cfg), cfg, new, known, aid, now, sink) == [] and len(sink) == 1   # once per night
+    b = vsnews.boosts(con, now)['QQ FAK']
+    assert b['series_min'] == 120 and db.one(con, "SELECT status FROM tasks WHERE key LIKE 'vs:event:QQ Fak:%'")['status'] == 'open'
+    sc, why = vsobs.score({'name': 'QQ Fak', 'cadence': 1, 'last': now - 3600, 'sections': []}, now, now - 3600, b)
+    assert sc >= 3 and why[0].startswith('seen here: outburst'), (sc, why)             # measured an hour ago, still wanted
+    s0 = vsphot.settings(cfg)
+    rcb = vsnews.check_star(con, s0, 'R Fak', 'V', [{'mag': 11.4, 'kdev': None, 'flags': []}] * 2, {'type': 'RCB'}, lambda q: aid_of(9.9), now)
+    assert rcb and rcb['kind'] == 'fade', rcb
+    assert vsnews.check_star(con, s0, 'E Fak', 'V', [{'mag': 12.4, 'kdev': None, 'flags': []}] * 2, {'type': 'EA'}, aid, now) is None   # eclipses are expected
+    assert vsnews.check_star(con, s0, 'QQ Fak', 'V', [{'mag': 12.4, 'kdev': 0.5, 'flags': []}] * 2, {'type': 'UGSS'}, aid, now) is None  # bad check star
+    assert vsnews.rule_for('UGSU+E') == ('brighter', 1.0, 'outburst') and vsnews.rule_for('NL/VY')[2] == 'low state'
+    # ---- coverage: only when shared; names, filters and nights; another observatory's plan lowers the priority here
+    assert vsnews.coverage(con, vsphot.settings(cfg)) == {}
+    shared = vsphot.settings(config._merge(cfg, {'vstars': {'share_coverage': True}}))
+    cov = vsnews.coverage(con, shared, now)
+    assert cov['stars'][0]['name'] == 'QQ Fak' and cov['stars'][0]['filters'] == ['V'] and 'QQ Fak' in cov['tonight'], cov
+    assert set(cov) == {'stars', 'tonight', 'night', 'updated'} and 'TEST1' not in json.dumps(cov)
+    peer = vsnews.peers({'peers': ['https://peer.example.com/site/', 'http://insecure.example.com']},
+                        lambda u: {'vstars': {'tonight': ['QQ Fak'], 'stars': [{'name': 'QQ Fak', 'nights': ['2027-02-09']}]}} if u.startswith('https://peer') else None)
+    assert peer == {'QQ FAK': {'tonight': 1, 'recent': 1, 'last': '2027-02-09'}}, peer
+    sc2, why2 = vsobs.score({'name': 'QQ Fak', 'cadence': 1, 'last': None, 'sections': []}, now, None, None, peer['QQ FAK'])
+    assert sc2 == 1.0 and "other Space Lab observatory's plan tonight" in why2[-1], (sc2, why2)
+    config.replace_user('vstars', {'share_coverage': True})
+    try:
+        data, _files = publish.build_data(con, config.load())
+        assert data['vstars']['stars'][0]['name'] == 'QQ Fak' and publish.validate(data) == [] and data['schema'] == 6
+    finally:
+        config.replace_user('vstars', {})
+    data, _files = publish.build_data(con, config.load())
+    assert data['vstars'] == {} and publish.validate(data) == []
+    for k in ('vs_campaigns', 'vs_events', 'vs_boost', 'vs_plan'):
+        db.kv_set(con, k, None)
+    con.execute("DELETE FROM vs_meas"); con.execute("DELETE FROM tasks WHERE key LIKE 'vs:event:%'")
+
+
+@test
+def parallel_photometry_matches_one_at_a_time_and_fast_lane():
+    """Many images measured by worker processes give exactly the same magnitudes as one at a time; calibration masters are
+    built once and read from disk; the second job lane takes short jobs; the database has its indexes."""
+    from datetime import datetime, timezone
+    from astropy.io import fits
+    from spacelab import config, db, server, vsphot
+    T = lambda x: datetime.fromisoformat(x).replace(tzinfo=timezone.utc).timestamp()
+    con = db.connect()
+    vsphot.ensure(con)
+    con.execute("DELETE FROM vs_meas"); con.execute("DELETE FROM vs_frames")
+    rng = np.random.default_rng(31)
+    work = Path(tempfile.mkdtemp(prefix='par-'))
+    (work / 'lights').mkdir()
+    (work / 'calib').mkdir()
+    n, sc, RA0, DE0 = 300, 1.5, 60.0, 30.0
+    w, _h = make_wcs_header(RA0, DE0, n, scale=sc)
+    xy = rng.uniform(40, n - 40, (8, 2))
+    rd = w.all_pix2world(xy[:, 0], xy[:, 1], 0)
+    V = rng.uniform(11.5, 13.5, 8)
+    comps = [{'auid': f'000-PAR-{k:03d}', 'label': str(k), 'ra': float(rd[0][k]), 'dec': float(rd[1][k]), 'mags': {'V': [round(float(V[k]), 3), 0.01]}}
+             for k in range(8)]
+    sexa = lambda v: f'{int(v):02d}:{int(v * 60 % 60):02d}:{v * 3600 % 60:06.3f}'
+    vsp = lambda q: {'chartid': 'XPAR', 'photometry': [{'auid': c['auid'], 'label': c['label'], 'ra': sexa(c['ra'] / 15), 'dec': '+' + sexa(c['dec']),
+                                                       'bands': [{'band': 'V', 'mag': c['mags']['V'][0], 'error': 0.01}]} for c in comps]}
+    flat = 1 + 0.05 * np.sin(np.mgrid[0:n, 0:n][1] / 40.0)
+    for k in range(10):
+        stars = [(xy[c, 0], xy[c, 1], 10 ** (-0.4 * (V[c] - 24.5)) / (2 * np.pi * 1.6 ** 2)) for c in range(8)]
+        stars.append((n / 2, n / 2, 10 ** (-0.4 * (12.5 + 0.02 * k - 24.5)) / (2 * np.pi * 1.6 ** 2)))
+        h = fits.Header()
+        h.update(w.to_header())
+        h.update({'OBJECT': 'PP Par', 'FILTER': 'V', 'EXPTIME': 10.0, 'DATE-OBS': f'2027-04-01T03:{k:02d}:00', 'IMAGETYP': 'LIGHT'})
+        fits.PrimaryHDU((_gauss_image(n, stars, rng) * flat + 100).astype(np.float32), h).writeto(work / 'lights' / f'PP_{k:02d}.fits')
+    for k in range(3):
+        fits.PrimaryHDU((100 + rng.normal(0, 2, (n, n))).astype(np.float32), fits.Header({'IMAGETYP': 'BIAS'})).writeto(work / 'calib' / f'bias_{k}.fits')
+        fits.PrimaryHDU((100 + 20000 * flat + rng.normal(0, 30, (n, n))).astype(np.float32), fits.Header({'IMAGETYP': 'FLAT', 'FILTER': 'V'})).writeto(
+            work / 'calib' / f'flat_{k}.fits')
+    for p in list((work / 'lights').iterdir()):
+        os.utime(p, (T('2027-04-01T06:00:00') - 3600,) * 2)
+    vsphot._MASTERS.clear()
+    m1 = vsphot.masters(str(work / 'calib'))
+    assert m1['bias'] is not None and 'v' in m1['flat'] and list(vsphot.MASTER_DIR.glob('*/meta.json'))
+    vsphot._MASTERS.clear()
+    m2 = vsphot.masters(str(work / 'calib'))
+    assert isinstance(m2['bias'], np.memmap) and np.array_equal(np.asarray(m1['flat']['v']), np.asarray(m2['flat']['v']))   # read back, unchanged
+    vs = {'enabled': True, 'site': {'lat': 40.0, 'lon': -100.0}, 'images_dir': str(work / 'lights'), 'calib_dir': str(work / 'calib'),
+          'pixel_scale': sc, 'obscode': 'TEST1', 'filters': [{'fits': 'V', 'aavso': 'V', 'chart': 'V', 'exp_at_mag12': 20}], 'workers': 1,
+          'watchlist': [{'name': 'PP Par'}]}
+    db.kv_set(con, 'vs_vsx', {'PP Par': {'name': 'PP Par', 'ra': RA0, 'dec': DE0, 'type': 'RRAB'}})
+    logs = []
+    cx = _vs_ctx(con, config._merge(config.DEFAULTS, {'vstars': vs}), logs)
+    t0 = time.time()
+    out1 = vsphot.run(cx, vsp=vsp, now=T('2027-04-01T06:00:00'))
+    t_one = time.time() - t0
+    one = {Path(r['frame']).name: (r['mag'], r['err'], r['ncomp']) for r in db.rows(con, 'SELECT * FROM vs_meas')}
+    assert out1.startswith('10 new images: 10 measured and ready'), (out1, logs[-6:])
+    assert all(abs(one[f'PP_{k:02d}.fits'][0] - (12.5 + 0.02 * k)) < 3 * one[f'PP_{k:02d}.fits'][1] + 0.01 for k in range(10)), one
+    os.utime(work / 'lights' / 'PP_03.fits', (T('2027-04-01T06:00:00') - 1800,) * 2)          # the file saved again: not measured twice
+    out = vsphot.run(cx, vsp=vsp, now=T('2027-04-01T06:00:00'))
+    assert out.startswith('1 new images: 0 measured and ready, 0 to look at, 0 failed, 1 skipped') and len(db.rows(con, 'SELECT id FROM vs_meas')) == 10, out
+    con.execute("DELETE FROM vs_meas"); con.execute("DELETE FROM vs_frames")
+    cx.cfg = config._merge(config.DEFAULTS, {'vstars': dict(vs, workers=2)})
+    t0 = time.time()
+    out2 = vsphot.run(cx, vsp=vsp, now=T('2027-04-01T06:00:00'))
+    t_two = time.time() - t0
+    two = {Path(r['frame']).name: (r['mag'], r['err'], r['ncomp']) for r in db.rows(con, 'SELECT * FROM vs_meas')}
+    assert out2 == out1 and two == one, (out2, set(one.items()) ^ set(two.items()))
+    assert any('2 at a time' in x for x in logs), logs[-8:]
+    RES_TIMES['vsphot 10 frames: one at a time / 2 workers (s)'] = (round(t_one, 1), round(t_two, 1))
+    con.execute("DELETE FROM vs_meas"); con.execute("DELETE FROM vs_frames"); db.kv_set(con, 'vs_vsx', {})
+    # ---- the second lane
+    assert server.lane('vsphot') == 'fast' and server.lane('neocp') == 'fast' and server.lane('tess') == 'main'
+    old = dict(server.STATE), list(server.ORDER), set(server.QUEUED)
+    try:
+        server.STATE.update(running='tess', fast=None)
+        q0 = server.FASTQ.qsize()
+        assert server.enqueue('vsphot', 'test') and server.FASTQ.qsize() == q0 + 1 and not server.enqueue('vsphot', 'test')
+        assert server.enqueue('zz_main', 'test') and server.eta(con, {})['queue'] == [{'job': 'zz_main', 'typical': None, 'n': 0}]
+        assert not server.enqueue('tess', 'test')                                # already running
+    finally:
+        while not server.FASTQ.empty():
+            server.FASTQ.get_nowait()
+        while not server.JOBQ.empty():
+            server.JOBQ.get_nowait()
+        server.STATE.clear(); server.STATE.update(old[0]); server.ORDER[:] = old[1]; server.QUEUED.clear(); server.QUEUED.update(old[2])
+    names = {r['name'] for r in db.rows(con, "SELECT name FROM sqlite_master WHERE type='index'")}
+    assert {'runs_job_started', 'tasks_status', 'vs_meas_status', 'vs_meas_target_night'} <= names, names
+    assert con.execute('PRAGMA synchronous').fetchone()[0] == 1                  # NORMAL, as SQLite recommends with WAL
+
+
+@test
+def report_summary_never_invents_numbers():
+    """The pre-upload summary: a plain check-list; the local AI may reword it but not add numbers."""
+    from spacelab import db, vsqc
+    con = db.connect()
+    db.kv_set(con, 'vs_nights', {'2027-05-01': {'night': '2027-05-01', 'photometric': False, 'bands': {'V': {'k': 0.21, 'scatter': 0.09}},
+                                                'cloud': 3, 'thick': 1}})
+    rows = [{'target': 'AA Fak', 'filter': 'V', 'trans': 1, 'kdev': 0.02, 'airmass': 1.3, 'snr': 120},
+            {'target': 'AA Fak', 'filter': 'B', 'trans': 0, 'kdev': -0.03, 'airmass': 2.2, 'snr': 40}]
+    checks = vsqc.report_checks(con, {'check_tol': 0.1}, {'night': '2027-05-01', 'errors': 0, 'warnings': 0}, rows, {'source': 'auto'},
+                                [{'night': '2027-05-01', 'star': 'AA Fak', 'words': 'outburst: V = 12.40'}])
+    words = ' | '.join(w for _lv, w in checks)
+    assert 'not photometric' in words and '1 frame lost more than half' in words and 'AA Fak: outburst' in words and '1 measurement above airmass 2' in words, words
+    text = vsqc.summary_text(checks)
+    assert text.startswith('Look at this first:') and 'the format check passed' in text, text
+
+    class L:
+        def __init__(self, reply):
+            self.reply = reply
+
+        def chat(self, *a, **k):
+            return self.reply
+    facts = '\n'.join(w for _lv, w in checks)
+    assert vsqc.polish(L('Ready, but check the 2 measurements; the night lost 75% to clouds.'), facts, text, 'x')[1] == 'template'   # 75 is made up
+    good = 'Two measurements of AA Fak are ready. Look first at the outburst (V = 12.40) and the cloud: 1 frame lost more than half its light.'
+    assert vsqc.polish(L(good), facts, text, 'x') == (good, 'local AI')
+    assert vsqc.polish(None, facts, text, 'x') == (text, 'template')
+    db.kv_set(con, 'vs_nights', {})
+
+
 import urllib.error  # noqa: E402
 
 if __name__ == '__main__':
     ok = sum(1 for _, g, _ in RES if g)
     for name, good, err in RES:
         print(('PASS ' if good else 'FAIL ') + name + ('' if good else '\n   ' + err.replace('\n', '\n   ')))
+    for k, v in RES_TIMES.items():
+        print(f'time: {k}: {v}')
     print(f'\n{ok}/{len(RES)} passed')
     sys.exit(0 if ok == len(RES) else 1)

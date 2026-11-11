@@ -13,6 +13,11 @@ For an automated observatory that reports variable-star photometry to the AAVSO 
 5. A plan that fits the night (each target's sequence through every filter, slews included; time-series targets get a
    longer block), written as a N.I.N.A. Target Scheduler CSV. Its Type column carries the exposure class, so the observer
    gives each class an exposure-plan template once and imports with the Type filter.
+6. What else shapes it (spacelab/vsnews.py, vsqc.py, vscal.py): AAVSO observing campaigns (read from the campaign pages, with
+   their filters, cadence and end date, even without a Target Tool key); stars that just went into outburst or a fade here
+   (higher priority for a week, a time series for dwarf novae); other Space Lab observatories' plans (optional), so the same
+   star is not covered twice while another waits; a standard field once a month for the colour transformation; the real
+   overheads measured from last nights' images; and stars that share a field are planned as one pointing (fewer slews).
 
 The observatory's location and the API key stay in data/settings.json on this computer; nothing here is published.
 """
@@ -21,9 +26,10 @@ import csv
 import io
 import json
 import math
+import os
 import re
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -37,6 +43,8 @@ SECTIONS = {'ac': 'Alerts / Campaigns', 'ep': 'Exoplanets', 'cv': 'Cataclysmic V
             'spp': 'Short Period Pulsators', 'lpv': 'Long Period Variables', 'yso': 'Young Stellar Objects',
             'het': 'High Energy Targets', 'misc': 'Miscellaneous'}
 NICE = [1, 2, 3, 5, 8, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 300, 450, 600]
+NEAR_FILTER = {'SR': 'R', 'SI': 'I', 'SG': 'V', 'CV': 'V', 'CR': 'R', 'TG': 'V', 'TB': 'B', 'TR': 'R', 'SZ': 'I'}   # close enough when the exact one is missing
+OFFLINE = bool(os.environ.get('SPACELAB_OFFLINE'))
 
 
 def settings(cfg=None):
@@ -260,10 +268,26 @@ def expected_mag(t, own=None):
     return a if a is not None else b
 
 
-def exposures(s, mag):
+def filters_for(s, want):
+    """The observatory's filters a target asks for (a campaign's list, as AAVSO codes): exact ones first, else the nearest
+    (Sloan r -> R), else all of them. Returns (filters, words or None)."""
+    have = s.get('filters') or []
+    want = [w for w in (want or []) if w]
+    if not want:
+        return have, None
+    exact = [f for f in have if f.get('aavso') in want]
+    if exact:
+        return exact, None
+    near = [f for f in have if f.get('aavso') in {NEAR_FILTER.get(w, w) for w in want}]
+    if near:
+        return near, f"asks for {', '.join(want)}; nearest here: {', '.join(f['aavso'] for f in near)}"
+    return have, f"asks for {', '.join(want)}, which this observatory does not have"
+
+
+def exposures(s, mag, want=None):
     """Seconds per filter for a star of this magnitude, rounded to familiar values and kept within the camera's limits."""
     out = []
-    for f in s.get('filters') or []:
+    for f in filters_for(s, want)[0]:
         raw = float(f.get('exp_at_mag12', 30)) * 10 ** (0.4 * ((mag if mag is not None else 12.0) - 12.0))
         raw = min(max(raw, float(s.get('exp_min', 3))), float(s.get('exp_max', 300)))
         nice = min(NICE, key=lambda x: abs(math.log(x / raw)))
@@ -287,7 +311,7 @@ def sequence_s(s, exps, series_min=None):
     return t + len(exps) * float(s.get('filter_change_s', 10)) + float(s.get('overhead_s', 120))
 
 
-def score(t, now, own_last=None):
+def score(t, now, own_last=None, boost=None, peer=None):
     """How much this star needs data tonight, and why, in words."""
     why, sc = [], 0.0
     cad = t.get('cadence') or None
@@ -308,24 +332,88 @@ def score(t, now, own_last=None):
         why.append('marked high priority')
     if t.get('source') == 'watch list':
         sc += 1.0
+    if t.get('urgent'):
+        sc += 1.0
+        why.append('the campaign asks for coverage urgently')
+    if boost:
+        sc += 3.0
+        why.insert(0, 'seen here: ' + str(boost.get('why') or 'an outburst or fade')[:120])
     if own_last and cad:
         since = (now - own_last) / 86400
-        if since < cad * 0.8:
+        if since < cad * 0.8 and not boost:
             sc -= 3.0
             why.append(f'measured here {since:.1f} d ago (cadence {cad:g} d)')
+    if peer:
+        if peer.get('tonight'):
+            n = int(peer['tonight'])
+            sc -= min(2.0, 1.0 * n)
+            why.append(f"also in {n} other Space Lab observator{'y' if n == 1 else 'ies'}'s plan tonight")
+        elif peer.get('last') and cad:
+            try:
+                ago = (now - datetime.strptime(peer['last'], '%Y-%m-%d').replace(tzinfo=timezone.utc).timestamp()) / 86400 - 0.5
+            except ValueError:
+                ago = None
+            if ago is not None and ago < cad:
+                sc -= 1.5
+                why.append(f'measured {max(ago, 0):.0f} d ago by another Space Lab observatory')
     return round(sc, 2), why
 
 
-def plan(s, targets, nt, now, own=None):
-    """Choose and order tonight's targets: the most needed first, each placed where it is up and the night is free."""
-    own = own or {}
+def group_fields(chosen, fov_deg, s):
+    """Stars that fit in one field of view together become one pointing, named after the star that needs it most (the list
+    is sorted by need). Only stars of similar brightness are grouped, so one exposure suits them all."""
+    if not fov_deg:
+        return chosen
+    lim = 0.8 * fov_deg
+    out, used = [], set()
+    for i, t in enumerate(chosen):
+        if i in used:
+            continue
+        members, cosd = [t], math.cos(math.radians(t['dec']))
+        xy = lambda m: (((m['ra'] - t['ra'] + 180) % 360 - 180) * cosd, m['dec'])
+        for j in range(i + 1, len(chosen)):
+            u = chosen[j]
+            if j in used or u.get('standard') or t.get('standard'):
+                continue
+            if t.get('mag_plan') is not None and u.get('mag_plan') is not None and abs(t['mag_plan'] - u['mag_plan']) > float(s.get('group_dmag', 2.5)):
+                continue
+            pts = [xy(m) for m in members + [u]]
+            if max(p[0] for p in pts) - min(p[0] for p in pts) <= lim and max(p[1] for p in pts) - min(p[1] for p in pts) <= lim:
+                members.append(u)
+                used.add(j)
+        if len(members) == 1:
+            out.append(t)
+            continue
+        pts = [xy(m) for m in members]
+        g = dict(t)
+        g['ra'] = (t['ra'] + (max(p[0] for p in pts) + min(p[0] for p in pts)) / 2 / cosd) % 360
+        g['dec'] = (max(p[1] for p in pts) + min(p[1] for p in pts)) / 2
+        g['with'] = [m['name'] for m in members[1:]]
+        mags = [m['mag_plan'] for m in members if m.get('mag_plan') is not None]
+        g['mag_plan'] = min(mags) if mags else t.get('mag_plan')                 # expose for the brightest: nobody saturates
+        g['series'] = any(m.get('series') for m in members)
+        g['series_min'] = max((m.get('series_min') or 0) for m in members) or None
+        wants = [m.get('want_filters') for m in members]
+        g['want_filters'] = sorted({f for w in wants for f in w}) if all(wants) else None
+        g['why'] = list(t.get('why') or []) + [f"shares the field with {', '.join(g['with'])}: one pointing, fewer slews"]
+        out.append(g)
+    return out
+
+
+def plan(s, targets, nt, now, own=None, extra=None):
+    """Choose and order tonight's targets: the most needed first, each placed where it is up and the night is free.
+    extra: {'boost': {NAME: why}, 'peers': {NAME: coverage}, 'fov': field of view in degrees, 'std': a standard field}."""
+    own, extra = own or {}, extra or {}
     lo, hi = float(s.get('bright_limit', 8.0)), float(s.get('faint_limit', 16.0))
     slots = []
     chosen, left = [], []
     for t in targets:
         mag = expected_mag(t, (own.get(t['name']) or {}).get('mag'))
         t['mag_plan'] = round(mag, 2) if mag is not None else None
-        t['score'], t['why'] = score(t, now, (own.get(t['name']) or {}).get('t'))
+        b = (extra.get('boost') or {}).get(t['name'].upper())
+        if b and b.get('series_min') and not t.get('series'):
+            t['series'], t['series_min'] = True, b['series_min']
+        t['score'], t['why'] = score(t, now, (own.get(t['name']) or {}).get('t'), b, (extra.get('peers') or {}).get(t['name'].upper()))
         if not t.get('photometry', True):
             left.append((t, 'visual or spectroscopy only'))
         elif t.get('conj'):
@@ -338,13 +426,24 @@ def plan(s, targets, nt, now, own=None):
             left.append((t, f'too faint (about {mag:.1f}, limit {hi:g})'))
         else:
             chosen.append(t)
+    std = extra.get('std')
+    if std and std.get('visible'):
+        std.update(score=float(s.get('standard_score', 5.0)), why=[std.get('why_std') or 'standard field for the colour transformation'],
+                   mag_plan=12.5, sections=['Standard field'], type='standard field', standard=True)
+        chosen.append(std)
     chosen.sort(key=lambda t: (-t['score'], -(t.get('hours_up') or 0)))
+    chosen = group_fields(chosen, extra.get('fov'), s)
     out = []
     for t in chosen:
         if len(out) >= int(s.get('max_targets', 60)):
             left.append((t, 'the night is full'))
             continue
-        exps = exposures(s, t.get('mag_plan'))
+        if t.get('standard'):
+            exps = [dict(e, n=int(s.get('standard_frames', 3))) for e in exposures(s, 12.5)]
+            note = None
+        else:
+            exps = exposures(s, t.get('mag_plan'), t.get('want_filters'))
+            note = filters_for(s, t.get('want_filters'))[1]
         series = t.get('series_min') or (float(s.get('series_min') or 0) if t.get('series') else None) or None
         need = sequence_s(s, exps, series)
         start = None
@@ -357,9 +456,11 @@ def plan(s, targets, nt, now, own=None):
             continue
         slots.append((start, start + need))
         out.append({**{k: t.get(k) for k in ('name', 'ra', 'dec', 'type', 'period', 'min_mag', 'max_mag', 'cadence', 'sections', 'source',
-                                            'alt_max', 'moon_sep', 'hours_up', 'score', 'why', 'mag_plan', 'info')},
-                    'start': start, 'minutes': round(need / 60, 1), 'exposures': exps, 'class': exposure_class(s, exps),
-                    'series': bool(series)})
+                                            'alt_max', 'moon_sep', 'hours_up', 'score', 'why', 'mag_plan', 'info', 'campaign', 'campaign_url',
+                                            'until', 'note', 'with')},
+                    'start': start, 'minutes': round(need / 60, 1), 'exposures': exps,
+                    'class': 'VS standard' if t.get('standard') else exposure_class(s, exps), 'series': bool(series),
+                    'standard': bool(t.get('standard')), 'filter_note': note})
     out.sort(key=lambda x: x['start'])
     used = sum(b - a for a, b in slots)
     return out, [{'name': t['name'], 'why': w, 'score': t.get('score')} for t, w in left], used
@@ -409,7 +510,21 @@ def own_last(con):
     return {r['target']: {'t': (r['jd'] - 2440587.5) * 86400, 'mag': r['mag']} for r in rows if r['jd']}
 
 
-def run(ctx, fetch_tt=None, fetch_vsx=None, now=None):
+def field_of_view(con, s):
+    """The camera's field of view in degrees (the shorter side): the setting fov_arcmin, else what the images showed."""
+    f = s.get('fov_arcmin')
+    if isinstance(f, (list, tuple)) and f:
+        f = min(float(x) for x in f)
+    if f:
+        return float(f) / 60
+    cam = db.kv_get(con, 'vs_camera') or {}
+    if cam.get('w') and cam.get('h') and cam.get('scale'):
+        return min(cam['w'], cam['h']) * cam['scale'] / 3600
+    return None
+
+
+def run(ctx, fetch_tt=None, fetch_vsx=None, now=None, fetch_campaigns=None, fetch_peers=None, llm=None):
+    from . import vscal, vsnews, vsqc
     con, log, cfg = ctx.con, ctx.log, ctx.cfg
     s = settings(cfg)
     site = s.get('site') or {}
@@ -419,6 +534,18 @@ def run(ctx, fetch_tt=None, fetch_vsx=None, now=None):
         return 'variable-star observatory: the observatory location is missing in settings (vstars.site)'
     now = now or time.time()
     targets = target_tool(s, fetch_tt, log)
+    if s.get('campaigns', True) and (fetch_campaigns is not None or not OFFLINE):
+        if llm is None and not OFFLINE and s.get('ai', True):
+            from .llm import LLM
+            llm = LLM(cfg, log)
+        try:
+            camps = vsnews.campaigns(con, s, fetch_campaigns, llm, log, now)
+            ct = vsnews.campaign_targets(con, s, camps, fetch_vsx, log)
+            n0 = len(targets)
+            targets = vsnews.merge_targets(targets, ct)
+            log(f'  AAVSO campaigns: {len(camps)} with photometry targets; {len(ct)} stars ({len(targets) - n0} not in the Target Tool list)')
+        except Exception as e:
+            log(f'  AAVSO campaigns skipped ({type(e).__name__}: {str(e)[:120]})')
     seen = {t['name'].upper() for t in targets}
     targets += [t for t in watchlist(s, con, fetch_vsx, log) if t['name'].upper() not in seen]
     if not targets:
@@ -427,7 +554,19 @@ def run(ctx, fetch_tt=None, fetch_vsx=None, now=None):
     if not nt:
         return 'no dark time tonight at this latitude'
     visibility(targets, nt, float(s.get('min_alt', 30)), float(s.get('moon_sep_min', 15)))
-    rows, left, used = plan(s, targets, nt, now, own_last(con))
+    extra = {'boost': vsnews.boosts(con, now), 'fov': field_of_view(con, s) if s.get('group_fields', True) else None}
+    if s.get('peers') and (fetch_peers is not None or not OFFLINE):
+        extra['peers'] = vsnews.peers(s, fetch_peers, log)
+    why_std = vscal.due(con, s, now)
+    if why_std:
+        cands = [dict(f, standard=True, up=[], why_std=why_std) for f in vscal.fields(s)]
+        visibility(cands, nt, float(s.get('min_alt', 30)), float(s.get('moon_sep_min', 15)))
+        vis = [c for c in cands if c.get('visible')]
+        extra['std'] = max(vis, key=lambda c: c['alt_max']) if vis else None
+    om = vsqc.overhead_model(con) if s.get('auto_overhead', True) else {}
+    if om:
+        log('  overheads measured on recent nights: ' + ', '.join(f'{k} {v:g} s' for k, v in om.items()))
+    rows, left, used = plan(dict(s, **om), targets, nt, now, own_last(con), extra)
     day = datetime.fromtimestamp(nt['start'] + site['lon'] / 15 * 3600, timezone.utc).strftime('%Y-%m-%d')   # the local evening's date
     OUT.mkdir(parents=True, exist_ok=True)
     csv_path = OUT / f'tonight-{day}.csv'
@@ -440,9 +579,12 @@ def run(ctx, fetch_tt=None, fetch_vsx=None, now=None):
         except Exception as e:
             log(f'  could not copy the plan to {s["nina_import_dir"]}: {e}')
     meta = {'day': day, 'made': time.time(), 'dark': [nt['start'], nt['end']], 'used_s': used, 'targets': rows, 'left': left[:200],
-            'csv': str(csv_path.relative_to(config.DATA)), 'n_candidates': len(targets)}
+            'csv': str(csv_path.relative_to(config.DATA)), 'n_candidates': len(targets), 'overheads': om,
+            'grouped': sum(len(r.get('with') or []) for r in rows)}
     (OUT / f'tonight-{day}.json').write_text(json.dumps(meta))
     db.kv_set(con, 'vs_plan', meta)
     dark_h = (nt['end'] - nt['start']) / 3600
-    log(f'  tonight ({day}): {len(rows)} targets, {used / 3600:.1f} of {dark_h:.1f} dark hours planned; {len(left)} left out')
-    return f'{len(rows)} variable stars planned for tonight ({used / 3600:.1f} of {dark_h:.1f} dark hours); {len(left)} left out'
+    extra_words = (f"; {meta['grouped']} star(s) share a pointing" if meta['grouped'] else '') + \
+        ('; a standard field for the transformation' if any(r.get('standard') for r in rows) else '')
+    log(f'  tonight ({day}): {len(rows)} targets, {used / 3600:.1f} of {dark_h:.1f} dark hours planned; {len(left)} left out' + extra_words)
+    return f'{len(rows)} variable stars planned for tonight ({used / 3600:.1f} of {dark_h:.1f} dark hours); {len(left)} left out' + extra_words
