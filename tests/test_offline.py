@@ -2438,6 +2438,19 @@ def stored_paths_follow_a_moved_folder():
     finally:
         con.execute('DELETE FROM runs WHERE id=?', (rid,)); con.execute("DELETE FROM tasks WHERE key='mv:1'")
 
+
+@test
+def support_card_links_are_checked():
+    from spacelab import publish
+    d = lambda **k: publish.donate_links({'share': k})
+    assert d() == {} and d(sponsors='', kofi='') == {}
+    assert d(sponsors='TechAmatuer') == {'github': 'https://github.com/sponsors/TechAmatuer'}
+    assert d(sponsors='https://github.com/sponsors/TechAmatuer/', kofi='https://www.ko-fi.com/spacelab') == \
+        {'github': 'https://github.com/sponsors/TechAmatuer', 'kofi': 'https://ko-fi.com/spacelab'}
+    assert d(kofi='spacelab_1') == {'kofi': 'https://ko-fi.com/spacelab_1'}
+    assert d(sponsors='https://evil.example.com/sponsors/x', kofi='javascript:alert(1)') == {}
+    assert d(sponsors='https://github.com/sponsors/x"><script>') == {}
+
 import urllib.error  # noqa: E402
 
 if __name__ == '__main__':

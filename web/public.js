@@ -243,6 +243,25 @@ function correctionsCard(list) {
     <ul class="corr">${list.map(row).join('')}</ul></div>`;
 }
 
+const donateOk = u => /^https:\/\/(github\.com\/sponsors|ko-fi\.com)\/[A-Za-z0-9_-]+$/.test(u || '');
+const hasDonate = d => !!d && (donateOk(d.github) || donateOk(d.kofi));
+function donateCard(d) {
+  if (!hasDonate(d)) return '';
+  const ok = donateOk;
+  return `<div class="card" id="support"><h3>♥ Support Space Lab</h3>
+    <p>Space Lab is free, open source and run by a volunteer on a home computer. Donations help pay for the electricity, data storage, the computer itself and the web address.</p>
+    <div class="row">${ok(d.github) ? `<a class="b primary" data-donate="github" href="${esc(d.github)}" target="_blank" rel="noopener">♥ Sponsor on GitHub</a>` : ''}${ok(d.kofi) ? `<a class="b" data-donate="kofi" href="${esc(d.kofi)}" target="_blank" rel="noopener">☕ Buy a coffee on Ko-fi</a>` : ''}</div>
+    <p class="small">Donations never buy influence over results: every candidate is checked the same way, and mistakes are listed below either way. They are gifts to a private volunteer, not tax-deductible. Payment is handled by GitHub or Ko-fi; this page never sees it.</p>
+    <p class="small">Free ways to help count just as much: answer <b>Planet or not?</b> in Play &amp; review, vote on today's candidate, or point out a mistake.</p></div>`;
+}
+
+function siteFooter() {
+  if (!hasDonate(D?.site?.donate) || document.getElementById('siteFoot')) return;
+  const f = document.createElement('footer'); f.id = 'siteFoot'; f.className = 'site-foot';
+  f.innerHTML = `<span>Space Lab is free and open source.</span> <button type="button" class="linkish" data-support>♥ Support it</button>`;
+  document.querySelector('main').after(f);
+}
+
 function about() {
   const name = D?.name || 'a Space Lab volunteer';
   $('#v-about').innerHTML = `<div class="card"><h3>What is this?</h3>
@@ -254,7 +273,8 @@ function about() {
     <p>This page mirrors the volunteer's private dashboard. Two things stay on the Mac because they need its local AI: asking questions about the results, and searching the library by meaning (the public library search uses NASA ADS instead). Want all of it? Space Lab is free and open source${D?.site?.repo ? `: <a href="https://github.com/${esc(D.site.repo)}" target="_blank" rel="noopener">github.com/${esc(D.site.repo)}</a>` : ''}.</p>
     <p>All AI runs locally. Every result is checked by a person before anything is reported to the AAVSO or the Minor Planet Center. Feedback from scientists is very welcome.</p>
     <p><b>Privacy.</b> No cookies and no accounts. Visits, tabs opened and candidate-of-the-day votes are counted anonymously with GoatCounter. A ZIP code or location you enter stays in your own browser. Only if you tap "Cloud forecast" is the place, rounded to about 10 km, sent to the free Open-Meteo weather service. The Space atlas loads its maps and photos from NASA, ESA, the CDS data centre and jsDelivr, and only after you open it. Reminders are plain calendar files.</p>
-    <p class="small muted">Data: NASA TESS/MAST, NASA Exoplanet Archive, ExoClock, ExoFOP, TESS EB catalog, JPL Small-Body Database, Sentry, Scout and Horizons, CADC SSOIS, Pan-STARRS1 (STScI), ZTF (IRSA/Caltech), Gaia (ESA), arXiv, OpenAlex, NASA ADS, and the news outlets linked in the Space brief.</p></div>${correctionsCard((D && D.site && D.site.corrections) || [])}`;
+    <p class="small muted">Data: NASA TESS/MAST, NASA Exoplanet Archive, ExoClock, ExoFOP, TESS EB catalog, JPL Small-Body Database, Sentry, Scout and Horizons, CADC SSOIS, Pan-STARRS1 (STScI), ZTF (IRSA/Caltech), Gaia (ESA), arXiv, OpenAlex, NASA ADS, and the news outlets linked in the Space brief.</p></div>${donateCard(D?.site?.donate)}${correctionsCard((D && D.site && D.site.corrections) || [])}`;
+  $$('#v-about [data-donate]').forEach(a => a.addEventListener('click', () => track('donate-' + a.dataset.donate, true)));
 }
 
 function adsSearch() {
@@ -286,6 +306,7 @@ document.addEventListener('click', async e => {
   if (!t) return;
   if (t.matches('[data-tess-more]')) { tessShown += 40; tess(); runExtras('tess'); return; }
   if (t.matches('nav.tabs button')) return setTab(t.dataset.tab);
+  if (t.matches('[data-support]')) { setTab('about'); const s = document.getElementById('support'); if (s && s.scrollIntoView) s.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
   if (t.dataset.go) { const el = document.getElementById(t.dataset.go); if (el && el.scrollIntoView) return el.scrollIntoView({ behavior: 'smooth', block: 'start' }); return setTab(t.dataset.go); }
   if (t.id === 'pubGo') return adsSearch();
   if (t.id === 'zoom') { t.style.display = 'none'; return; }
@@ -342,6 +363,7 @@ Promise.all([fetch('data.json', { cache: 'no-store' }).then(r => r.json()), read
     D = d;
     $('#updated').textContent = `updated ${new Date(d.updated * 1000).toLocaleString()}`;
     layoutNav();
+    siteFooter();
     const start = (location.hash || '#today').slice(1);
     const deep = /^tic-\d+$/.test(start) ? start : null;
     wantTic = deep;

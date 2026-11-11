@@ -154,6 +154,8 @@ DEFAULTS = {
         'site_url': '',           # your own web address once you have one (e.g. https://www.example.com/); blank = GitHub Pages
         'goatcounter': '',        # visitor counter code (the "xyz" in xyz.goatcounter.com): no cookies, no personal data
         'goatcounter_token': '',  # GoatCounter API key, so this Mac can read visitor numbers and daily votes (never published)
+        'sponsors': '',           # GitHub Sponsors page (https://github.com/sponsors/yourname or just yourname): a Support card on the public page
+        'kofi': '',               # Ko-fi page (https://ko-fi.com/yourpage or just yourpage)
         'discord_webhook': '',    # webhook of the PUBLIC science channel (different from your private alerts)
         'post_summary': True,     # short nightly summary in the science channel
         'publish': True,          # update the web page every morning

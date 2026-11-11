@@ -234,7 +234,7 @@ def build_data(con, cfg):
     data = {'name': public_name(cfg), 'updated': time.time(), 'schema': SCHEMA_VERSION,
             'beyond': beyond, 'daily': dly, 'radar': _radar_public(db.kv_get(con, 'radar') or {}), 'results': results,
             'site': {'url': site_url(cfg), 'name': 'Space Lab', 'repo': ((cfg.get('share') or {}).get('github_repo') or '').strip(),
-                     'corrections': _corrections(cfg)},
+                     'corrections': _corrections(cfg), 'donate': donate_links(cfg)},
             'community': db.kv_get(con, 'community') or {},
             'contributions': _contrib(con),
             'today': {'brief': {'t': brief_kv.get('t'), 'text': clean(brief_kv.get('text') or ''), 'model': brief_kv.get('model')},
@@ -264,6 +264,24 @@ def build_data(con, cfg):
     if sl.get('tess'):
         data['community'] = dict(data['community'], second_look=sl)
     return data, files
+
+
+def donate_links(cfg):
+    """The Support card's links (Setup -> Sharing), only well-formed GitHub Sponsors and Ko-fi addresses; {} when none."""
+    sh = cfg.get('share') or {}
+    out = {}
+    gh = str(sh.get('sponsors') or '').strip().rstrip('/')
+    if gh and re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})', gh):
+        gh = 'https://github.com/sponsors/' + gh
+    if re.fullmatch(r'https://github\.com/sponsors/[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})', gh):
+        out['github'] = gh
+    kf = str(sh.get('kofi') or '').strip().rstrip('/')
+    if kf and re.fullmatch(r'[A-Za-z0-9_]{2,40}', kf):
+        kf = 'https://ko-fi.com/' + kf
+    kf = re.sub(r'^https?://(www\.)?ko-fi\.com/', 'https://ko-fi.com/', kf)
+    if re.fullmatch(r'https://ko-fi\.com/[A-Za-z0-9_]{2,40}', kf):
+        out['kofi'] = kf
+    return out
 
 
 def _corrections(cfg):

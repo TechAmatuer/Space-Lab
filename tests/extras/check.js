@@ -1158,6 +1158,33 @@ const CHECKS = {
     if (!cons || !/Second look/.test(cons.textContent) || !/12 answers/.test(cons.textContent) || !/75% Planet-like/.test(cons.textContent)) fails.push('candidate cards show the second-look tally, weighted: ' + (cons ? norm(cons.textContent) : 'none'));
     report(29, 'Second look: practice cases with known answers, weighted votes', fails);
   },
+  async 30() {
+    const fails = [];
+    let env = await boot({});
+    if (env.w.document.getElementById('siteFoot')) fails.push('no Support footer until donation links are set');
+    let ab = await env.tab('about');
+    if (ab.querySelector('#support')) fails.push('no Support card until donation links are set');
+    const d = JSON.parse(JSON.stringify(FIXTURE));
+    d.site = Object.assign({}, d.site, { donate: { github: 'https://github.com/sponsors/TechAmatuer', kofi: 'https://ko-fi.com/spacelab' } });
+    env = await boot({ data: d });
+    const foot = env.w.document.getElementById('siteFoot');
+    if (!foot || !/Support it/.test(foot.textContent)) fails.push('a small "Support it" link at the bottom of every page');
+    else {
+      foot.querySelector('[data-support]').click(); await sleep(5);
+      if (!env.w.document.querySelector('#v-about.on #support')) fails.push('the footer link opens About at the Support card');
+    }
+    ab = env.w.document.getElementById('v-about');
+    const gh = ab.querySelector('a[data-donate="github"]'), kf = ab.querySelector('a[data-donate="kofi"]');
+    if (!gh || gh.getAttribute('href') !== 'https://github.com/sponsors/TechAmatuer' || gh.getAttribute('target') !== '_blank' || !/noopener/.test(gh.getAttribute('rel') || '')) fails.push('GitHub Sponsors button opens the sponsors page in a new tab');
+    if (!kf || kf.getAttribute('href') !== 'https://ko-fi.com/spacelab') fails.push('Ko-fi button links to the Ko-fi page');
+    if (!/never buy influence/.test(ab.textContent) || !/not tax-deductible/.test(ab.textContent) || !/Free ways to help/.test(ab.textContent)) fails.push('the card says donations buy no influence, are not tax-deductible, and lists free ways to help');
+    d.site.donate = { github: 'javascript:alert(1)' };
+    env = await boot({ data: d });
+    ab = await env.tab('about');
+    if (ab.querySelector('a[data-donate]')) fails.push('a malformed link is never shown');
+    if (ab.querySelector('#support') || env.w.document.getElementById('siteFoot')) fails.push('with only a malformed link there is no card and no footer');
+    report(30, 'Support card: GitHub Sponsors and Ko-fi', fails);
+  },
   async 26() {
     const fails = [];
     const many = JSON.parse(JSON.stringify(FIXTURE));
@@ -1215,7 +1242,7 @@ const CHECKS = {
 };
 
 (async () => {
-  const order = ['G', '2', '3', '5', '6', '7', '8', '9', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23', '24', '25', '26', '27', '28', '29'];
+  const order = ['G', '2', '3', '5', '6', '7', '8', '9', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23', '24', '25', '26', '27', '28', '29', '30'];
   for (const k of order) {
     if (ONLY && k !== ONLY && k !== 'G') continue;
     try { await CHECKS[k](); } catch (e) { report(k, 'check crashed', ['the check itself crashed (usually because an expected element is missing): ' + e.message]); }

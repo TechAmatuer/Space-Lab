@@ -621,6 +621,10 @@ function renderSetup(cfg) {
       <li>Optional: in GoatCounter → your name → API, create a key with "Read statistics" and paste it here. This Mac then reads the vote totals for the candidate of the day and your weekly visitors. The key is never published.</li></ol>
       <div class="row"><label class="f"><span>GoatCounter code</span><input type="text" id="shGc" value="${esc((cfg.share || {}).goatcounter || '')}" placeholder="spacelab" style="width:180px"></label>
       <label class="f"><span>GoatCounter API key</span><input type="password" id="shGcKey" value="${esc((cfg.share || {}).goatcounter_token || '')}" style="width:260px"></label></div>
+      <h3 style="margin-top:14px">Donations (optional)</h3>
+      <p class="small muted">Fill in one or both and Publish: a "Support Space Lab" card appears on the public About tab, with a small link at the bottom of every page. GitHub or Ko-fi handle the money; nothing about it passes through Space Lab. Pick a Ko-fi page name that is not your real name.</p>
+      <div class="row"><label class="f"><span>GitHub Sponsors (your GitHub name or the full link)</span><input type="text" id="shSponsors" value="${esc((cfg.share || {}).sponsors || '')}" placeholder="https://github.com/sponsors/yourname" style="width:300px"></label>
+      <label class="f"><span>Ko-fi page</span><input type="text" id="shKofi" value="${esc((cfg.share || {}).kofi || '')}" placeholder="https://ko-fi.com/yourpage" style="width:260px"></label></div>
       <div class="row" style="margin-top:8px"><button class="b primary" id="saveShare">Save</button><button class="b" data-run="publish">Publish now</button><span id="saved6" class="small"></span></div>
       <div id="pubStatus" class="small muted" style="margin-top:6px"></div></div>
     <h2>Schedule</h2><div class="card">${sched}<div class="row"><label class="f"><span>TESS stars per night</span><input type="number" id="sTessN" min="5" max="1000" value="${esc(cfg.tess.max_targets)}"></label>
@@ -787,7 +791,8 @@ document.addEventListener('click', async e => {
       try {
         await api('api/settings', { share: { public_name: $('#shName').value.trim(), discord_webhook: $('#shHook').value.trim(), post_summary: $('#shSummary').checked,
           github_repo: $('#shRepo').value.trim(), github_token: $('#shToken').value.trim(), publish: $('#shPublish').checked,
-          site_url: $('#shSite').value.trim(), goatcounter: $('#shGc').value.trim(), goatcounter_token: $('#shGcKey').value.trim() } });
+          site_url: $('#shSite').value.trim(), goatcounter: $('#shGc').value.trim(), goatcounter_token: $('#shGcKey').value.trim(),
+          sponsors: $('#shSponsors').value.trim(), kofi: $('#shKofi').value.trim() } });
         $('#saved6').className = 'small ok-t'; $('#saved6').textContent = 'Saved';
       } catch (err) { $('#saved6').className = 'small bad-t'; $('#saved6').textContent = err.message; }
       return;

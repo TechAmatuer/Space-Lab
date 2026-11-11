@@ -103,3 +103,7 @@ nav.tabs button{white-space:nowrap}
 
 .nr-bar{height:6px;border-radius:3px;background:rgba(127,127,127,.25);overflow:hidden;margin-top:8px}
 .nr-bar i{display:block;height:100%;background:var(--warn);border-radius:3px;transition:width 1s linear}
+
+/* public page footer with the Support link (public.js siteFooter) */
+.site-foot{max-width:1200px;margin:24px auto 32px;padding:12px 16px;border-top:1px solid var(--line);color:var(--muted);font-size:13px;text-align:center}
+.site-foot .linkish{background:none;border:none;color:var(--accent);cursor:pointer;font:inherit;padding:0 4px}
